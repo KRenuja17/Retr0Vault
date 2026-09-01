@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build and test output
+dist/
+**/dist/
+coverage/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases and sidecars
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite-*
+
+# Agent-analysis runtime files
+data/analysis-inbox/*
+!data/analysis-inbox/.gitkeep
+data/analysis-results/*
+!data/analysis-results/.gitkeep
+
+# Runtime reference storage
+storage/originals/*
+!storage/originals/.gitkeep
+storage/thumbnails/*
+!storage/thumbnails/.gitkeep
+storage/captures/*
+!storage/captures/.gitkeep
+
+# Upload staging directories
+uploads/
+**/uploads/
+
+# Logs and local editor/system files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
