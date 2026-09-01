@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export * from "./collections.js";
+export * from "./design-types.js";
+
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
   service: z.literal("retr0vault-api"),

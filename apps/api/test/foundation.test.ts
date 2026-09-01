@@ -111,6 +111,18 @@ describe("B1 backend foundation", () => {
 
       expect(applicationTable?.name).toBe("app_metadata");
       expect(migrationTable?.name).toBe("__drizzle_migrations");
+
+      const coreTables = connection.sqlite
+        .prepare(
+          "select name from sqlite_master where type = 'table' and name in ('design_types', 'design_type_rules', 'design_type_vocabulary', 'collections') order by name",
+        )
+        .all() as Array<{ name: string }>;
+      expect(coreTables.map(({ name }) => name)).toEqual([
+        "collections",
+        "design_type_rules",
+        "design_type_vocabulary",
+        "design_types",
+      ]);
     } finally {
       connection.sqlite.close();
     }

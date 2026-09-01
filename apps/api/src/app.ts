@@ -9,6 +9,8 @@ import type { ErrorResponse } from "@retr0vault/shared";
 import { type AppConfig, loadConfig } from "./config.js";
 import { createDatabaseConnection } from "./database/connection.js";
 import { applyMigrations, defaultMigrationsFolder } from "./database/migrate.js";
+import { registerCollectionRoutes } from "./routes/collections.js";
+import { registerDesignTypeRoutes } from "./routes/design-types.js";
 import { registerHealthRoute } from "./routes/health.js";
 
 export interface BuildAppOptions {
@@ -94,6 +96,8 @@ export async function buildApp(
   });
 
   await registerHealthRoute(app, connection);
+  await registerDesignTypeRoutes(app, connection);
+  await registerCollectionRoutes(app, connection);
 
   return app;
 }

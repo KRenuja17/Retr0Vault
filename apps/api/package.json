@@ -11,7 +11,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx src/database/migrate-cli.ts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "seed": "tsx src/database/seed-cli.ts",
+    "seed:clear": "tsx src/database/seed-cli.ts --clear"
   },
   "dependencies": {
     "@retr0vault/shared": "*",

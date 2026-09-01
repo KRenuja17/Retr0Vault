@@ -17,6 +17,7 @@ From PowerShell in the repository root:
 ```powershell
 npm install
 npm run db:migrate
+npm run seed
 npm run dev:api
 ```
 
@@ -34,6 +35,8 @@ The database is created at `data/retr0vault.db`. The API also applies committed 
 npm run dev:api      # Start the API in watch mode
 npm run db:migrate   # Apply committed SQLite migrations
 npm run db:generate  # Generate migrations after schema changes
+npm run seed         # Add representative development design types/collection
+npm run seed:clear   # Remove only the development seed records
 npm run test         # Run the backend test suite
 npm run typecheck    # Type-check all TypeScript sources and tests
 npm run build        # Build shared and API packages
