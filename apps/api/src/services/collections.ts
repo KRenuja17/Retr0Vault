@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { asc, eq, ne } from "drizzle-orm";
+import { asc, count, eq, ne } from "drizzle-orm";
 
 import {
   collectionResponseSchema,
@@ -10,7 +10,7 @@ import {
 } from "@retr0vault/shared";
 
 import type { DatabaseConnection } from "../database/connection.js";
-import { collections } from "../database/schema.js";
+import { collectionReferences, collections } from "../database/schema.js";
 import { ApiError, sqliteErrorCode } from "../errors.js";
 import { slugFromName } from "../lib/slug.js";
 
@@ -20,7 +20,10 @@ function insertPosition(requested: number | undefined, count: number): number {
   return requested === undefined ? count : Math.min(requested, count);
 }
 
-function serializeCollection(row: CollectionRow): CollectionResponse {
+function serializeCollection(
+  row: CollectionRow,
+  referenceCount: number = 0,
+): CollectionResponse {
   return collectionResponseSchema.parse({
     id: row.id,
     slug: row.slug,
@@ -28,7 +31,7 @@ function serializeCollection(row: CollectionRow): CollectionResponse {
     description: row.description,
     isPinned: row.isPinned,
     sortOrder: row.sortOrder,
-    referenceCount: 0,
+    referenceCount,
   });
 }
 
@@ -72,12 +75,22 @@ function assertUniqueSlug(
 export function listCollections(
   connection: DatabaseConnection,
 ): CollectionResponse[] {
-  return connection.database
+  const rows = connection.database
     .select()
     .from(collections)
     .orderBy(asc(collections.sortOrder), asc(collections.name))
-    .all()
-    .map(serializeCollection);
+    .all();
+  const counts = connection.database
+    .select({ collectionId: collectionReferences.collectionId, value: count() })
+    .from(collectionReferences)
+    .groupBy(collectionReferences.collectionId)
+    .all();
+  const countsByCollection = new Map(
+    counts.map((entry) => [entry.collectionId, entry.value]),
+  );
+  return rows.map((row) =>
+    serializeCollection(row, countsByCollection.get(row.id) ?? 0),
+  );
 }
 
 export function findCollectionBySlug(
@@ -90,7 +103,14 @@ export function findCollectionBySlug(
     .where(eq(collections.slug, slug))
     .get();
 
-  return row === undefined ? undefined : serializeCollection(row);
+  if (row === undefined) return undefined;
+  const referenceCount =
+    connection.database
+      .select({ value: count() })
+      .from(collectionReferences)
+      .where(eq(collectionReferences.collectionId, row.id))
+      .get()?.value ?? 0;
+  return serializeCollection(row, referenceCount);
 }
 
 export function createCollection(

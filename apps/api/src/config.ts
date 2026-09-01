@@ -13,6 +13,13 @@ const environmentSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   DATABASE_PATH: z.string().trim().min(1).optional(),
+  STORAGE_ROOT: z.string().trim().min(1).optional(),
+  MAX_UPLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1_024)
+    .max(200 * 1_024 * 1_024)
+    .default(25 * 1_024 * 1_024),
 });
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -30,6 +37,8 @@ export interface AppConfig {
     | "trace"
     | "silent";
   readonly databasePath: string;
+  readonly storageRoot: string;
+  readonly maxUploadBytes: number;
 }
 
 export function loadConfig(
@@ -46,6 +55,7 @@ export function loadConfig(
 
   const configuredDatabasePath =
     result.data.DATABASE_PATH ?? "data/retr0vault.db";
+  const configuredStorageRoot = result.data.STORAGE_ROOT ?? "storage";
 
   return {
     nodeEnv: result.data.NODE_ENV,
@@ -55,5 +65,9 @@ export function loadConfig(
     databasePath: isAbsolute(configuredDatabasePath)
       ? configuredDatabasePath
       : resolve(repositoryRoot, configuredDatabasePath),
+    storageRoot: isAbsolute(configuredStorageRoot)
+      ? configuredStorageRoot
+      : resolve(repositoryRoot, configuredStorageRoot),
+    maxUploadBytes: result.data.MAX_UPLOAD_BYTES,
   };
 }

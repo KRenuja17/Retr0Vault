@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 
 import {
   designTypeResponseSchema,
@@ -14,6 +14,7 @@ import {
   designTypeRules,
   designTypes,
   designTypeVocabulary,
+  references,
 } from "../database/schema.js";
 import { ApiError, sqliteErrorCode } from "../errors.js";
 import { slugFromName } from "../lib/slug.js";
@@ -65,10 +66,17 @@ function hydrateDesignTypes(
     .where(inArray(designTypeVocabulary.designTypeId, ids))
     .orderBy(asc(designTypeVocabulary.sortOrder))
     .all();
+  const referenceCounts = connection.database
+    .select({ designTypeId: references.designTypeId, value: count() })
+    .from(references)
+    .where(inArray(references.designTypeId, ids))
+    .groupBy(references.designTypeId)
+    .all();
 
   const principlesByType = new Map<string, string[]>();
   const avoidByType = new Map<string, string[]>();
   const vocabularyByType = new Map<string, string[]>();
+  const referenceCountByType = new Map<string, number>();
 
   for (const rule of rules) {
     const target =
@@ -84,6 +92,12 @@ function hydrateDesignTypes(
     vocabularyByType.set(entry.designTypeId, entries);
   }
 
+  for (const entry of referenceCounts) {
+    if (entry.designTypeId !== null) {
+      referenceCountByType.set(entry.designTypeId, entry.value);
+    }
+  }
+
   return rows.map((row) =>
     designTypeResponseSchema.parse({
       id: row.id,
@@ -97,7 +111,7 @@ function hydrateDesignTypes(
       principles: principlesByType.get(row.id) ?? [],
       avoid: avoidByType.get(row.id) ?? [],
       vocabulary: vocabularyByType.get(row.id) ?? [],
-      referenceCount: 0,
+      referenceCount: referenceCountByType.get(row.id) ?? 0,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }),

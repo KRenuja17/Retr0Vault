@@ -16,10 +16,12 @@
     "seed:clear": "tsx src/database/seed-cli.ts --clear"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.1.1",
     "@retr0vault/shared": "*",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.6.1",
+    "sharp": "^0.35.4",
     "zod": "^4.1.5"
   },
   "devDependencies": {

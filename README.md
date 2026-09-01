@@ -1,6 +1,6 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. Phase B1 establishes the backend-only foundation: an npm-workspaces monorepo, a Fastify API, shared schemas, and a migration-backed local SQLite database.
+Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management plus local image ingestion, metadata, tags, filtering, and safe reference deletion.
 
 ## Prerequisites
 
@@ -50,7 +50,31 @@ Environment variables are optional and validated at startup:
 | `PORT` | `4611` | API port |
 | `LOG_LEVEL` | `info` | Fastify/Pino log level |
 | `DATABASE_PATH` | `data/retr0vault.db` | Absolute path, or a path relative to the repository root |
+| `STORAGE_ROOT` | `storage` | Absolute path, or a path relative to the repository root, for originals and thumbnails |
+| `MAX_UPLOAD_BYTES` | `26214400` | Maximum multipart image size in bytes (25 MiB by default) |
 | `NODE_ENV` | `development` | Runtime mode |
+
+## Reference image API
+
+Upload one JPEG, PNG, or WebP image as multipart form data. The file field must be named `file`; optional text fields are `title`, `sourceUrl`, and `designTypeId`.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:4611/api/v1/references/image `
+  -F "file=@C:\path\to\reference.png" `
+  -F "title=Reference title"
+```
+
+Reference endpoints:
+
+```text
+POST   /api/v1/references/image
+GET    /api/v1/references
+GET    /api/v1/references/:id
+PATCH  /api/v1/references/:id
+DELETE /api/v1/references/:id
+```
+
+The list endpoint accepts `designType`, `collection`, `status`, `page`, `limit`, and `sort` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
 
 ## Workspace layout
 

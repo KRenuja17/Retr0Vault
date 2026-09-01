@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -124,10 +125,149 @@ export const collections = sqliteTable(
   ],
 );
 
+export const references = sqliteTable(
+  "references",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    sourceType: text("source_type", { enum: ["image", "website"] }).notNull(),
+    sourceUrl: text("source_url"),
+    originalPath: text("original_path").notNull(),
+    thumbnailPath: text("thumbnail_path").notNull(),
+    designTypeId: text("design_type_id").references(() => designTypes.id, {
+      onDelete: "restrict",
+    }),
+    designDNA: text("design_dna"),
+    designThesis: text("design_thesis"),
+    designBrief: text("design_brief"),
+    imageRecipe: text("image_recipe"),
+    motionBrief: text("motion_brief"),
+    assetBrief: text("asset_brief"),
+    analysisStatus: text("analysis_status", {
+      enum: ["pending", "analyzed", "manual", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    analysisJson: text("analysis_json"),
+    imageWidth: integer("image_width").notNull(),
+    imageHeight: integer("image_height").notNull(),
+    imageFormat: text("image_format", {
+      enum: ["jpeg", "png", "webp"],
+    }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (table) => [
+    index("references_design_type_index").on(table.designTypeId),
+    index("references_analysis_status_index").on(table.analysisStatus),
+    index("references_created_at_index").on(table.createdAt),
+    check(
+      "references_source_type_check",
+      sql`${table.sourceType} in ('image', 'website')`,
+    ),
+    check(
+      "references_analysis_status_check",
+      sql`${table.analysisStatus} in ('pending', 'analyzed', 'manual', 'failed')`,
+    ),
+    check("references_title_nonempty", sql`length(trim(${table.title})) > 0`),
+    check(
+      "references_original_path_nonempty",
+      sql`length(trim(${table.originalPath})) > 0`,
+    ),
+    check(
+      "references_thumbnail_path_nonempty",
+      sql`length(trim(${table.thumbnailPath})) > 0`,
+    ),
+    check("references_image_width_positive", sql`${table.imageWidth} > 0`),
+    check("references_image_height_positive", sql`${table.imageHeight} > 0`),
+    check(
+      "references_image_format_check",
+      sql`${table.imageFormat} in ('jpeg', 'png', 'webp')`,
+    ),
+  ],
+);
+
+export const tags = sqliteTable(
+  "tags",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    value: text("value").notNull(),
+    normalizedValue: text("normalized_value").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tags_type_normalized_value_unique").on(
+      table.type,
+      table.normalizedValue,
+    ),
+    check("tags_type_nonempty", sql`length(trim(${table.type})) > 0`),
+    check("tags_value_nonempty", sql`length(trim(${table.value})) > 0`),
+    check(
+      "tags_normalized_value_nonempty",
+      sql`length(trim(${table.normalizedValue})) > 0`,
+    ),
+  ],
+);
+
+export const referenceTags = sqliteTable(
+  "reference_tags",
+  {
+    referenceId: text("reference_id")
+      .notNull()
+      .references(() => references.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.referenceId, table.tagId] }),
+    uniqueIndex("reference_tags_order_unique").on(
+      table.referenceId,
+      table.sortOrder,
+    ),
+    index("reference_tags_tag_index").on(table.tagId),
+    check("reference_tags_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
+  ],
+);
+
+export const collectionReferences = sqliteTable(
+  "collection_references",
+  {
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    referenceId: text("reference_id")
+      .notNull()
+      .references(() => references.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.collectionId, table.referenceId] }),
+    index("collection_references_order_index").on(
+      table.collectionId,
+      table.sortOrder,
+    ),
+    index("collection_references_reference_index").on(table.referenceId),
+    check(
+      "collection_references_sort_order_nonnegative",
+      sql`${table.sortOrder} >= 0`,
+    ),
+  ],
+);
+
 export const databaseSchema = {
   appMetadata,
+  collectionReferences,
   collections,
   designTypeRules,
   designTypeVocabulary,
   designTypes,
+  referenceTags,
+  references,
+  tags,
 };

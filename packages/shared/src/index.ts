@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export * from "./collections.js";
 export * from "./design-types.js";
+export * from "./references.js";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),

@@ -114,14 +114,18 @@ describe("B1 backend foundation", () => {
 
       const coreTables = connection.sqlite
         .prepare(
-          "select name from sqlite_master where type = 'table' and name in ('design_types', 'design_type_rules', 'design_type_vocabulary', 'collections') order by name",
+          "select name from sqlite_master where type = 'table' and name in ('design_types', 'design_type_rules', 'design_type_vocabulary', 'collections', 'references', 'tags', 'reference_tags', 'collection_references') order by name",
         )
         .all() as Array<{ name: string }>;
       expect(coreTables.map(({ name }) => name)).toEqual([
+        "collection_references",
         "collections",
         "design_type_rules",
         "design_type_vocabulary",
         "design_types",
+        "reference_tags",
+        "references",
+        "tags",
       ]);
     } finally {
       connection.sqlite.close();

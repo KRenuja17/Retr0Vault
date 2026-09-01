@@ -3,6 +3,7 @@ import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
 } from "fastify";
+import multipart from "@fastify/multipart";
 
 import type { ErrorResponse } from "@retr0vault/shared";
 
@@ -12,12 +13,16 @@ import { applyMigrations, defaultMigrationsFolder } from "./database/migrate.js"
 import { registerCollectionRoutes } from "./routes/collections.js";
 import { registerDesignTypeRoutes } from "./routes/design-types.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerReferenceRoutes } from "./routes/references.js";
+import { ReferenceStorage } from "./storage/reference-storage.js";
 
 export interface BuildAppOptions {
   readonly config?: AppConfig;
   readonly databasePath?: string;
   readonly migrationsFolder?: string;
   readonly logger?: FastifyServerOptions["logger"];
+  readonly storageRoot?: string;
+  readonly maxUploadBytes?: number;
 }
 
 function errorPayload(
@@ -41,6 +46,9 @@ export async function buildApp(
   });
   const connection = createDatabaseConnection(
     options.databasePath ?? config.databasePath,
+  );
+  const storage = new ReferenceStorage(
+    options.storageRoot ?? config.storageRoot,
   );
 
   try {
@@ -95,9 +103,20 @@ export async function buildApp(
       .send(errorPayload(request.id, statusCode, code, message));
   });
 
+  await app.register(multipart, {
+    limits: {
+      fileSize: options.maxUploadBytes ?? config.maxUploadBytes,
+      files: 1,
+      fields: 20,
+      parts: 21,
+    },
+    throwFileSizeLimit: true,
+  });
+
   await registerHealthRoute(app, connection);
   await registerDesignTypeRoutes(app, connection);
   await registerCollectionRoutes(app, connection);
+  await registerReferenceRoutes(app, connection, storage);
 
   return app;
 }
