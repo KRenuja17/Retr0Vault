@@ -1,8 +1,16 @@
-import { useParams } from "react-router-dom";
+import { useCallback } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
+import { SectionPanel } from "@/components/layout/SectionPanel";
 import { CatalogueView } from "@/components/catalogue/CatalogueView";
 import { DesignTypeGuide } from "@/components/design-type/DesignTypeGuide";
+import { ReferenceModal } from "@/components/reference/ReferenceModal";
+import {
+  filterLabel,
+  filterToPath,
+  originFromState,
+} from "@/lib/catalogue/filters";
+import { requestPlateFocus } from "@/lib/catalogue/plateFocus";
 import { MonoLabel } from "@/components/primitives";
 import {
   useCollections,
@@ -58,33 +66,44 @@ export function CollectionRoute() {
   );
 }
 
-/** `/reference/:id` — route-backed detail state; the modal is a later phase. */
+/**
+ * `/reference/:id` — the reference sheet raised over the catalogue it was
+ * opened from. The catalogue renders behind the scrim, so the modal is layered
+ * over the archive rather than replacing it, and the address stays shareable.
+ */
 export function ReferenceRoute() {
   const { id = "" } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Which slice the plate was opened from; falls back to the whole archive for
+  // a link pasted straight into the address bar.
+  const origin = originFromState(location.state);
+
+  /*
+   * `key` is "default" only for the entry the app was loaded on, so this
+   * distinguishes "opened from a plate" — where going back is what the reader
+   * expects, and keeps Back and CLOSE symmetric — from a direct visit, where
+   * there is no catalogue behind us in history to return to.
+   */
+  const openedFromCatalogue = location.key !== "default";
+
+  const close = useCallback(() => {
+    // Radix cannot restore focus across a route change, so hand it to the
+    // plate explicitly; it claims this as it remounts behind the sheet.
+    requestPlateFocus(id);
+    if (openedFromCatalogue) {
+      navigate(-1);
+    } else {
+      navigate(filterToPath(origin), { replace: true });
+    }
+  }, [id, navigate, openedFromCatalogue, origin]);
 
   return (
-    <SectionPanel
-      eyebrow="Reference"
-      title="Reference detail"
-      aside={
-        <MonoLabel size="small" tone="muted" uppercase>
-          Route · /reference/{id.slice(0, 8)}
-        </MonoLabel>
-      }
-      lede="Opening a plate will raise the large detail modal over a darkened catalogue. This route exists so a reference stays linkable and survives a reload."
-    >
-      <ManifestList
-        label="Next in this view"
-        items={[
-          "Large reference frame",
-          "Title with Design DNA",
-          "Design thesis",
-          "Visual vocabulary",
-          "Image recipe block",
-          "COPY BRIEF / COPY IMAGE RECIPE / CLOSE",
-        ]}
-      />
-    </SectionPanel>
+    <>
+      <CatalogueView filter={origin} label={filterLabel(origin)} />
+      <ReferenceModal referenceId={id} onClose={close} />
+    </>
   );
 }
 

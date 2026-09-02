@@ -1,0 +1,173 @@
+/*
+ * The reference specimen sheet. The capture leads and dominates; everything
+ * below it is marginalia, vocabulary and the reusable recipe.
+ */
+
+/* --- capture ----------------------------------------------------------- */
+.frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(16rem, 46vh, 30rem);
+  margin: 0;
+  background-color: var(--rv-surface-sunken);
+  background-image: var(--rv-paper-grain);
+  background-size: var(--rv-paper-grain-size);
+  overflow: hidden;
+}
+
+/*
+ * `contain`, not `cover`: a reference is a specimen, so it is shown whole even
+ * when that leaves paper margins either side of it.
+ */
+.capture {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--rv-motion-base) var(--rv-easing);
+}
+
+.captureReady {
+  opacity: 1;
+}
+
+.captureState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- header ------------------------------------------------------------ */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-8);
+  flex-wrap: wrap;
+}
+
+/*
+ * Styled here rather than through EditorialHeading because this element is the
+ * dialog's own <Dialog.Title>; the tokens remain the single source of truth for
+ * the display treatment.
+ */
+.title {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--rv-font-display);
+  font-weight: 400;
+  font-size: var(--rv-display-md);
+  line-height: var(--rv-leading-tight);
+  letter-spacing: var(--rv-tracking-display);
+  color: var(--rv-ink);
+  overflow-wrap: break-word;
+}
+
+.dna {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-base);
+  letter-spacing: 0.01em;
+  color: var(--rv-ink-muted);
+}
+
+.thesis {
+  margin-top: var(--rv-space-5);
+  max-width: 82ch;
+  font-size: var(--rv-text-lg);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+}
+
+.vocabulary {
+  margin-top: var(--rv-space-7, var(--rv-space-6));
+}
+
+/* --- image recipe ------------------------------------------------------ */
+.recipe {
+  margin-top: var(--rv-space-8);
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+}
+
+.recipeHead {
+  display: block;
+  padding: var(--rv-space-4) var(--rv-space-5) 0;
+  color: var(--rv-accent);
+}
+
+.recipeBody {
+  padding: var(--rv-space-4) var(--rv-space-5) var(--rv-space-5);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The replaceable subject token is the point of the recipe; mark it. */
+.subject {
+  background-color: var(--rv-accent-wash);
+  color: var(--rv-ink);
+  padding: 0.1em 0.25em;
+}
+
+.absent {
+  display: block;
+  padding: var(--rv-space-5);
+  color: var(--rv-ink-faint);
+}
+
+.marginalia {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rv-space-4);
+  margin-top: var(--rv-space-6);
+}
+
+/* --- states ------------------------------------------------------------ */
+.state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-4);
+  align-items: flex-start;
+  padding-block: var(--rv-space-8);
+}
+
+.ghostLine {
+  height: 1rem;
+  margin-bottom: var(--rv-space-3);
+  background-color: var(--rv-surface-sunken);
+  border: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.ghostTitle {
+  width: 30%;
+  height: 2.2rem;
+  margin-bottom: var(--rv-space-6);
+}
+
+.ghostShort {
+  width: 45%;
+}
+
+@media (max-width: 759px) {
+  .frame {
+    height: clamp(12rem, 34vh, 20rem);
+  }
+
+  .masthead {
+    gap: var(--rv-space-2);
+  }
+
+  .dna {
+    text-align: left;
+  }
+}

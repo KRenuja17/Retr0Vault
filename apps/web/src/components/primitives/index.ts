@@ -52,5 +52,12 @@ export type {
   CatalogueCardProps,
 } from "./CatalogueCard";
 
-export { ModalClose, ModalSurface } from "./ModalSurface";
-export type { ModalSurfaceProps } from "./ModalSurface";
+export { CopyActionButton } from "./CopyActionButton";
+export type { CopyActionButtonProps } from "./CopyActionButton";
+
+export { ModalClose, ModalSurface, ModalTitle } from "./ModalSurface";
+export type {
+  ModalSurfaceProps,
+  ModalSurfaceSize,
+  ModalTitleMode,
+} from "./ModalSurface";

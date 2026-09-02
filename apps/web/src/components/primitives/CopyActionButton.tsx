@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ActionButton, type ActionButtonVariant } from "@/components/primitives";
+import { ActionButton, type ActionButtonVariant } from "./ActionButton";
 
 type CopyState = "idle" | "copied" | "failed";
 

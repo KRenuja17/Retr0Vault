@@ -153,6 +153,7 @@ export function CatalogueView({
                     : designTypeIndex.get(reference.designTypeId)
                 }
                 eager={index < 3}
+                origin={filter}
               />
             ))}
           </CatalogueGrid>

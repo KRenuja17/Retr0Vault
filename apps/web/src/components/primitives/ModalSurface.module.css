@@ -33,19 +33,28 @@
   width: min(100%, 1480px);
 }
 
-/* The reference image leads; metadata follows underneath. */
-.media {
-  flex: 0 1 auto;
+/* The reference specimen sheet: the widest surface the archive uses. */
+.specimen {
+  width: min(85vw, 1560px);
+  max-height: calc(100vh - clamp(1.5rem, 4vh, 4rem));
+}
+
+/*
+ * Media and body share one scroll region, so a tall reference scrolls as a
+ * single sheet rather than trapping the reader in two nested scrollers.
+ */
+.scroll {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+
+.media {
   background-color: var(--rv-surface-sunken);
   border-bottom: var(--rv-border) solid var(--rv-rule);
 }
 
 .body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
   padding: var(--rv-space-8) var(--rv-space-10) var(--rv-space-6);
 }
 
@@ -86,7 +95,8 @@
     padding: 0;
   }
 
-  .surface {
+  .surface,
+  .specimen {
     width: 100%;
     max-height: 100vh;
     border-left: none;

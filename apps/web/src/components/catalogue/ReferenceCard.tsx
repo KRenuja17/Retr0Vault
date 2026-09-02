@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import type {
   DesignTypeResponse,
@@ -16,6 +17,8 @@ import {
   VocabularyChip,
   VocabularyChipSet,
 } from "@/components/primitives";
+import type { CatalogueFilter } from "@/lib/catalogue/filters";
+import { consumePlateFocus } from "@/lib/catalogue/plateFocus";
 import { cx } from "@/lib/cx";
 
 import { ReferenceThumbnail } from "./ReferenceThumbnail";
@@ -37,6 +40,8 @@ export interface ReferenceCardProps {
   readonly designType: DesignTypeResponse | undefined;
   /** The first row is fetched eagerly; everything below it lazily. */
   readonly eager?: boolean;
+  /** The slice this plate was opened from, so the modal can return to it. */
+  readonly origin: CatalogueFilter;
 }
 
 /**
@@ -52,12 +57,21 @@ export function ReferenceCard({
   total,
   designType,
   eager = false,
+  origin,
 }: ReferenceCardProps) {
   const isPending = reference.analysisStatus === "pending";
   const visibleTags = reference.tags.slice(0, VISIBLE_TAGS);
   const overflowCount = reference.tags.length - visibleTags.length;
   const padTo = Math.max(2, String(total).length);
   const href = `/reference/${reference.id}`;
+  const titleLink = useRef<HTMLAnchorElement>(null);
+
+  // Takes focus back from a sheet that has just closed on this reference.
+  useEffect(() => {
+    if (consumePlateFocus(reference.id)) {
+      titleLink.current?.focus();
+    }
+  }, [reference.id]);
 
   return (
     <CatalogueCard interactive className={styles.plate}>
@@ -66,7 +80,13 @@ export function ReferenceCard({
           * The media and the title point at the same reference. Only the title
           * takes a tab stop, so the plate is a single stop for keyboard users.
           */}
-        <Link to={href} className={styles.mediaLink} tabIndex={-1} aria-hidden="true">
+        <Link
+          to={href}
+          state={{ origin }}
+          className={styles.mediaLink}
+          tabIndex={-1}
+          aria-hidden="true"
+        >
           <ReferenceThumbnail
             referenceId={reference.id}
             title={reference.title}
@@ -78,7 +98,12 @@ export function ReferenceCard({
       <CatalogueCardBody>
         <CatalogueCardHeader
           headline={
-            <Link to={href} className={styles.titleLink}>
+            <Link
+              ref={titleLink}
+              to={href}
+              state={{ origin }}
+              className={styles.titleLink}
+            >
               <EditorialHeading level={3} scale="card" className={styles.title}>
                 {reference.title}
               </EditorialHeading>

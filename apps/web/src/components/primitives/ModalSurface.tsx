@@ -5,6 +5,17 @@ import { cx } from "@/lib/cx";
 
 import styles from "./ModalSurface.module.css";
 
+export type ModalSurfaceSize = "regular" | "wide" | "specimen";
+
+/**
+ * Where the dialog's accessible name comes from. "hidden" renders `label` for
+ * screen readers only, which suits a surface whose content has no title of its
+ * own. "provided" means the caller renders <ModalTitle> as part of its visible
+ * content — use it whenever there IS a visible title, so the name is not
+ * announced twice by two headings carrying the same text.
+ */
+export type ModalTitleMode = "hidden" | "provided";
+
 export interface ModalSurfaceProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -12,19 +23,26 @@ export interface ModalSurfaceProps {
   readonly label: string;
   /** The reference image or frame strip that leads the modal. */
   readonly media?: ReactNode;
-  /** Action row pinned below the scrolling body. */
+  /** Action row pinned below the scrolling sheet. */
   readonly footer?: ReactNode;
-  readonly wide?: boolean;
+  readonly size?: ModalSurfaceSize;
+  readonly titleMode?: ModalTitleMode;
   /** Set false to drop the corner close affordance (footer close only). */
   readonly showCloseButton?: boolean;
   readonly className?: string | undefined;
   readonly children: ReactNode;
 }
 
+const sizeClass: Record<ModalSurfaceSize, string | undefined> = {
+  regular: undefined,
+  wide: styles.wide,
+  specimen: styles.specimen,
+};
+
 /**
- * The archive's modal surface. Radix Dialog supplies focus trapping, Escape
- * and scroll locking; everything visible is Retr0Vault's own paper geometry.
- * Deliberately un-animated beyond the scrim.
+ * The archive's modal surface. Radix Dialog supplies focus trapping, focus
+ * return, Escape and scroll locking; everything visible is Retr0Vault's own
+ * paper geometry. Deliberately un-animated beyond the scrim.
  */
 export function ModalSurface({
   open,
@@ -32,7 +50,8 @@ export function ModalSurface({
   label,
   media,
   footer,
-  wide = false,
+  size = "regular",
+  titleMode = "hidden",
   showCloseButton = true,
   className,
   children,
@@ -44,16 +63,20 @@ export function ModalSurface({
         <div className={styles.positioner}>
           <Dialog.Content
             aria-describedby={undefined}
-            className={cx(styles.surface, wide && styles.wide, className)}
+            className={cx(styles.surface, sizeClass[size], className)}
           >
-            <Dialog.Title className="rv-visually-hidden">{label}</Dialog.Title>
+            {titleMode === "hidden" ? (
+              <Dialog.Title className="rv-visually-hidden">{label}</Dialog.Title>
+            ) : null}
             {showCloseButton ? (
               <Dialog.Close className={styles.close} aria-label="Close">
                 Close
               </Dialog.Close>
             ) : null}
-            {media ? <div className={styles.media}>{media}</div> : null}
-            <div className={styles.body}>{children}</div>
+            <div className={styles.scroll}>
+              {media ? <div className={styles.media}>{media}</div> : null}
+              <div className={styles.body}>{children}</div>
+            </div>
             {footer ? <div className={styles.footer}>{footer}</div> : null}
           </Dialog.Content>
         </div>
@@ -63,3 +86,6 @@ export function ModalSurface({
 }
 
 export const ModalClose = Dialog.Close;
+
+/** The dialog's title, for surfaces that render one visibly. */
+export const ModalTitle = Dialog.Title;

@@ -51,3 +51,37 @@ export function isSameFilter(a: CatalogueFilter, b: CatalogueFilter): boolean {
   }
   return a.kind === "all" || b.kind === "all" || a.slug === b.slug;
 }
+
+/**
+ * Reads the catalogue a reference was opened from, carried in history state so
+ * closing the modal returns to the same slice. History state is untrusted — a
+ * reload or a hand-edited entry can put anything there — so it is validated
+ * rather than cast.
+ */
+export function originFromState(state: unknown): CatalogueFilter {
+  if (typeof state !== "object" || state === null || !("origin" in state)) {
+    return ALL_FILTER;
+  }
+  const origin = (state as { origin: unknown }).origin;
+  if (typeof origin !== "object" || origin === null || !("kind" in origin)) {
+    return ALL_FILTER;
+  }
+
+  const candidate = origin as { kind: unknown; slug?: unknown };
+  if (candidate.kind === "all") {
+    return ALL_FILTER;
+  }
+  if (
+    (candidate.kind === "designType" || candidate.kind === "collection") &&
+    typeof candidate.slug === "string" &&
+    candidate.slug.length > 0
+  ) {
+    return { kind: candidate.kind, slug: candidate.slug };
+  }
+  return ALL_FILTER;
+}
+
+/** A readable name for a filter when the catalogue's own label is not to hand. */
+export function filterLabel(filter: CatalogueFilter): string {
+  return filter.kind === "all" ? "Complete archive" : filter.slug;
+}

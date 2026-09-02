@@ -1,6 +1,7 @@
 import type { DesignTypeResponse } from "@retr0vault/shared";
 
 import {
+  CopyActionButton,
   EditorialHeading,
   MonoLabel,
   PageRule,
@@ -10,7 +11,6 @@ import {
 import { briefCopyText, vocabularyCopyText } from "@/lib/designTypes/copyText";
 import { cx } from "@/lib/cx";
 
-import { CopyActionButton } from "./CopyActionButton";
 import styles from "./DesignTypeGuide.module.css";
 
 export interface DesignTypeGuideProps {
