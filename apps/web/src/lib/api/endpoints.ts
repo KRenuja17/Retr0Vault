@@ -1,12 +1,14 @@
 import type {
   AnalysisImportReport,
   CollectionResponse,
+  CreateCollectionInput,
   DesignTypeResponse,
   HealthResponse,
   PendingAnalysisManifest,
   ReferenceListResponse,
   ReferenceResponse,
   StatsResponse,
+  UpdateCollectionInput,
   UpdateReferenceInput,
 } from "@retr0vault/shared";
 
@@ -51,7 +53,59 @@ export function fetchCollections(
   });
 }
 
+/**
+ * Collections are user-curated groupings, kept separate from design types:
+ * the archive never derives one from the other.
+ */
+export function createCollection(
+  input: CreateCollectionInput,
+): Promise<CollectionResponse> {
+  return apiRequest<CollectionResponse>("/collections", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function patchCollection(
+  id: string,
+  patch: UpdateCollectionInput,
+): Promise<CollectionResponse> {
+  return apiRequest<CollectionResponse>(
+    `/collections/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: patch },
+  );
+}
+
+export function deleteCollection(id: string): Promise<void> {
+  return apiRequest<void>(`/collections/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Membership routes answer 204; the reference itself is re-read afterwards. */
+export function addReferenceToCollection(
+  collectionId: string,
+  referenceId: string,
+): Promise<void> {
+  return apiRequest<void>(
+    `/collections/${encodeURIComponent(collectionId)}/references/${encodeURIComponent(referenceId)}`,
+    // An explicit empty object: the route validates the body strictly.
+    { method: "POST", body: {} },
+  );
+}
+
+export function removeReferenceFromCollection(
+  collectionId: string,
+  referenceId: string,
+): Promise<void> {
+  return apiRequest<void>(
+    `/collections/${encodeURIComponent(collectionId)}/references/${encodeURIComponent(referenceId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export interface ReferenceListParams {
+  /** Free-text query; the backend owns all matching and ranking. */
   readonly q?: string | undefined;
   readonly designType?: string | undefined;
   readonly collection?: string | undefined;

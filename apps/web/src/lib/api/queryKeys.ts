@@ -8,9 +8,14 @@ export const queryKeys = {
   designType: (slug: string) => ["design-types", slug] as const,
   collections: () => ["collections"] as const,
   references: (params: ReferenceListParams) => ["references", params] as const,
-  /** Paged catalogue for one route filter; slug is null for the whole archive. */
-  catalogue: (kind: string, slug: string | null) =>
-    ["references", "catalogue", kind, slug] as const,
+  /**
+   * Paged catalogue for one route filter; slug is null for the whole archive
+   * and query is "" when nothing is being searched for. The query is part of
+   * the key so a search is its own cached result set rather than overwriting
+   * the unsearched pages of the same slice.
+   */
+  catalogue: (kind: string, slug: string | null, query: string) =>
+    ["references", "catalogue", kind, slug, query] as const,
   reference: (id: string) => ["references", "detail", id] as const,
   /** Newest references of any status, for the accession ledger. */
   accessionLedger: (limit: number) => ["references", "ledger", limit] as const,

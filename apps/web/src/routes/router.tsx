@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { AddReferenceView } from "@/components/ingest/AddReferenceView";
+import { CollectionIndex } from "@/components/collections/CollectionIndex";
 
 import {
   AllRoute,
@@ -25,6 +26,7 @@ export const routes: readonly RouteObject[] = [
       { index: true, element: <Navigate to="/all" replace /> },
       { path: "all", element: <AllRoute /> },
       { path: "type/:slug", element: <DesignTypeRoute /> },
+      { path: "collections", element: <CollectionIndex /> },
       { path: "collection/:slug", element: <CollectionRoute /> },
       { path: "reference/:id", element: <ReferenceRoute /> },
       { path: "add", element: <AddReferenceView /> },

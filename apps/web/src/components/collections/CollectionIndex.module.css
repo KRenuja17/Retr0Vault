@@ -1,0 +1,193 @@
+/*
+ * The collection index. A ruled register of curated groupings — one line per
+ * collection, actions set in mono at the end of the rule. Not a settings
+ * screen: no cards, no switches, no icon buttons, no panels inside panels.
+ */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-8);
+}
+
+/* --- the create line ---------------------------------------------------- */
+.create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: end;
+  gap: var(--rv-space-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+  min-width: 0;
+}
+
+.field label:hover {
+  text-decoration: none;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-base);
+  padding: var(--rv-space-2) var(--rv-space-3);
+  transition: border-color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--rv-rule);
+}
+
+.input:disabled {
+  color: var(--rv-ink-muted);
+  background-color: var(--rv-paper-deep);
+}
+
+.input::placeholder {
+  color: var(--rv-ink-faint);
+}
+
+.inputInvalid {
+  border-color: var(--rv-signal-error);
+}
+
+.error {
+  color: var(--rv-signal-error);
+}
+
+/* --- the register ------------------------------------------------------- */
+.register {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--rv-space-3) var(--rv-space-6);
+  padding-block: var(--rv-space-4);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.row:first-child {
+  border-top: var(--rv-border) solid var(--rv-rule);
+}
+
+.row:last-child {
+  border-bottom: var(--rv-border) solid var(--rv-rule);
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+  min-width: 0;
+}
+
+.name {
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-xl);
+  line-height: var(--rv-leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+}
+
+.description {
+  color: var(--rv-ink-muted);
+  max-width: 72ch;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pinned {
+  color: var(--rv-accent);
+}
+
+/* --- inline rename and delete confirmation ------------------------------ */
+.inline {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: end;
+  gap: var(--rv-space-4);
+  padding-top: var(--rv-space-3);
+}
+
+.confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  border-left: var(--rv-rule-weight-heavy) solid var(--rv-signal-error);
+  background-color: var(--rv-surface-sunken);
+  padding: var(--rv-space-3) var(--rv-space-4);
+  margin-top: var(--rv-space-3);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--rv-space-2);
+  margin-left: auto;
+}
+
+.notice {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface-sunken);
+  padding: var(--rv-space-4) var(--rv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.noticeFailure {
+  border-color: var(--rv-signal-error);
+}
+
+.noticeBody {
+  color: var(--rv-ink-soft);
+  font-size: var(--rv-text-base);
+  line-height: var(--rv-leading-normal);
+}
+
+@media (max-width: 1179px) {
+  .create,
+  .inline {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 759px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .confirmActions {
+    margin-left: 0;
+  }
+}

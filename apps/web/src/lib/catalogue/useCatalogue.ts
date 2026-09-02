@@ -14,7 +14,7 @@ import {
 } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
 
-import { filterToParams, type CatalogueFilter } from "./filters";
+import { filterQuery, filterToParams, type CatalogueFilter } from "./filters";
 
 export function useDesignTypes() {
   return useQuery({
@@ -47,6 +47,7 @@ export function useCatalogueReferences(filter: CatalogueFilter) {
     queryKey: queryKeys.catalogue(
       filter.kind,
       filter.kind === "all" ? null : filter.slug,
+      filterQuery(filter),
     ),
     initialPageParam: 1,
     queryFn: ({ pageParam, signal }) =>

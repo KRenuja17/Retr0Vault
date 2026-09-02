@@ -18,6 +18,7 @@ import { referenceOriginalUrl } from "@/lib/api/media";
 import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
 
+import { CollectionMembership } from "./CollectionMembership";
 import styles from "./ReferenceModal.module.css";
 
 export interface ReferenceModalProps {
@@ -234,6 +235,8 @@ export function ReferenceModal({ referenceId, onClose }: ReferenceModalProps) {
               </MonoLabel>
             )}
           </div>
+
+          <CollectionMembership reference={data} />
 
           {data.frames.length > 1 ? (
             <div className={styles.marginalia}>

@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { FilterTab, MonoLabel } from "@/components/primitives";
 import {
   pinnedCollections,
@@ -109,6 +111,16 @@ export function FilterRail({ active }: FilterRailProps) {
             ))}
           </span>
         ) : null}
+
+        {/*
+          * Unpinned collections never reach the rail, so the register is the
+          * one way to all of them — and the only place they are created.
+          */}
+        <span className={styles.register}>
+          <Link to="/collections" className={styles.registerLink}>
+            Collections
+          </Link>
+        </span>
       </div>
     </nav>
   );

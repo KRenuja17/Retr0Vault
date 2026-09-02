@@ -15,7 +15,7 @@ import {
   stubApi,
   type StubRequest,
   type StubRoute,
-} from "./testHarness";
+} from "@/test/harness";
 
 const PRINT_TECH = makeDesignType({
   id: "11111111-1111-4111-8111-111111111111",

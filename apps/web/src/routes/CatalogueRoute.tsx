@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import type { CollectionResponse } from "@retr0vault/shared";
 
 import { SectionPanel } from "@/components/layout/SectionPanel";
 import { CatalogueView } from "@/components/catalogue/CatalogueView";
@@ -11,7 +12,7 @@ import {
   originFromState,
 } from "@/lib/catalogue/filters";
 import { requestPlateFocus } from "@/lib/catalogue/plateFocus";
-import { MonoLabel } from "@/components/primitives";
+import { ActionLink, MonoLabel } from "@/components/primitives";
 import {
   useCollections,
   useDesignTypes,
@@ -47,8 +48,9 @@ export function DesignTypeRoute() {
 }
 
 /**
- * `/collection/:slug` — the catalogue filtered to one collection. Creating,
- * renaming and editing membership belong to a later phase.
+ * `/collection/:slug` — the catalogue filtered to one collection, under a
+ * compact header. Managing the collection itself lives in the register at
+ * `/collections`, so this route stays a way of reading the archive.
  */
 export function CollectionRoute() {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -62,7 +64,47 @@ export function CollectionRoute() {
       filter={{ kind: "collection", slug }}
       label={match?.name ?? slug}
       missing={resolved && match === undefined}
+      intro={
+        <CollectionHeader collection={match} pending={collections.isPending} />
+      }
     />
+  );
+}
+
+/** The plate above a collection's plates: what it is, how big, where to edit it. */
+function CollectionHeader({
+  collection,
+  pending,
+}: {
+  readonly collection: CollectionResponse | undefined;
+  readonly pending: boolean;
+}) {
+  if (pending || collection === undefined) {
+    return null;
+  }
+
+  return (
+    <SectionPanel
+      eyebrow="Collection"
+      title={collection.name}
+      marker
+      {...(collection.description
+        ? { lede: collection.description }
+        : {
+            lede: "A curated grouping. Add or remove references from any reference sheet.",
+          })}
+      aside={
+        <MonoLabel size="small" tone="muted" uppercase marker={collection.isPinned ? "solid" : "hollow"}>
+          {`${collection.referenceCount} ${
+            collection.referenceCount === 1 ? "reference" : "references"
+          }${collection.isPinned ? " · pinned" : ""}`}
+        </MonoLabel>
+      }
+    >
+      <ActionLink variant="outline" size="small" to="/collections">
+        Manage collections
+      </ActionLink>
+    </SectionPanel>
   );
 }
 

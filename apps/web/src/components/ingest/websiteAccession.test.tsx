@@ -10,7 +10,7 @@ import {
   stubApi,
   type StubRequest,
   type StubRoute,
-} from "./testHarness";
+} from "@/test/harness";
 
 const CAPTURED = makeStoredReference({
   id: "bbbbbbbb-0000-4000-8000-000000000001",

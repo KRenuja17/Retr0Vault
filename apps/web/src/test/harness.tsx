@@ -2,14 +2,17 @@ import type { ReactElement } from "react";
 import { vi } from "vitest";
 import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, RouterProvider, createMemoryRouter } from "react-router-dom";
 import type {
   AnalysisImportReport,
+  CollectionResponse,
   PendingAnalysisManifest,
+  ReferenceListResponse,
   ReferenceResponse,
 } from "@retr0vault/shared";
 
 import { makeReference, makeStats } from "@/components/catalogue/fixtures";
+import { routes } from "@/routes/router";
 
 /* Test-only harness for the accession lanes and the analysis desk. */
 
@@ -111,16 +114,70 @@ export function stubApi(routes: readonly StubRoute[] = []): StubbedApi {
   return { requests };
 }
 
-export function renderIngest(ui: ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+function testQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
   });
+}
 
+export function renderIngest(ui: ReactElement) {
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={testQueryClient()}>
       <MemoryRouter>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+/**
+ * Renders the real route tree at `path`. The returned router is the source of
+ * truth for the address, so a test can assert what a search or a closed sheet
+ * did to the URL rather than inferring it from the page.
+ */
+export function renderRoute(path: string) {
+  const router = createMemoryRouter([...routes], { initialEntries: [path] });
+
+  return {
+    ...render(
+      <QueryClientProvider client={testQueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+    router,
+    location: () => router.state.location,
+  };
+}
+
+/** One page of a reference list, shaped exactly like the backend's response. */
+export function referencePage(
+  items: readonly ReferenceResponse[],
+  overrides: Partial<ReferenceListResponse> = {},
+): ReferenceListResponse {
+  const total = overrides.total ?? items.length;
+  const limit = overrides.limit ?? 24;
+  return {
+    items: items.map((item, index) => ({ ...item, catalogueIndex: index + 1 })),
+    page: 1,
+    limit,
+    total,
+    totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    ...overrides,
+  };
+}
+
+export function makeCollectionResponse(
+  overrides: Partial<CollectionResponse> &
+    Pick<CollectionResponse, "id" | "slug" | "name">,
+): CollectionResponse {
+  return {
+    description: "",
+    isPinned: false,
+    sortOrder: 0,
+    referenceCount: 0,
+    ...overrides,
+  };
 }
 
 export function makeFile(

@@ -1,0 +1,114 @@
+/*
+ * The archive's search line. A ruled index entry, not a search bar: mono
+ * label, a single underscored field, and two text actions. No panel, no
+ * rounded pill, no icon, nothing floating.
+ */
+
+.search {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  padding-block: var(--rv-space-4);
+}
+
+.label {
+  flex: none;
+}
+
+.entry {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  flex: 1 1 22rem;
+  min-width: 0;
+  border-bottom: var(--rv-border) solid var(--rv-rule);
+  padding-bottom: var(--rv-space-1);
+}
+
+/* The field carries no box of its own; the rule under it is the field. */
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--rv-ink);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-base);
+  letter-spacing: var(--rv-tracking-mono);
+  padding: var(--rv-space-1) 0;
+}
+
+.input::placeholder {
+  color: var(--rv-ink-faint);
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+/* The rule takes the focus treatment, so the field stays a ruled line. */
+.entry:focus-within {
+  border-bottom-color: var(--rv-accent);
+  border-bottom-width: var(--rv-rule-weight-heavy);
+  padding-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  flex: none;
+}
+
+.scope {
+  flex-basis: 100%;
+  color: var(--rv-ink-muted);
+}
+
+/* --- the no-matches plate ---------------------------------------------- */
+.terms {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-2) var(--rv-space-4);
+  flex-wrap: wrap;
+  margin-top: var(--rv-space-4);
+  padding-top: var(--rv-space-4);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.term {
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+  color: var(--rv-ink-soft);
+  cursor: pointer;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono);
+  padding: var(--rv-space-1) var(--rv-space-3);
+  transition:
+    border-color var(--rv-motion-fast) var(--rv-easing),
+    color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.term:hover {
+  border-color: var(--rv-rule);
+  color: var(--rv-ink);
+}
+
+.quoted {
+  font-family: var(--rv-font-mono);
+  color: var(--rv-accent);
+}
+
+@media (max-width: 759px) {
+  .search {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--rv-space-3);
+  }
+
+  .actions {
+    justify-content: flex-end;
+  }
+}

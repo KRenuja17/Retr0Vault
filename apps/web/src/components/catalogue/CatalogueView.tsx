@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
 import {
   ActionButton,
+  ActionLink,
   CatalogueGrid,
   MonoLabel,
   PageRule,
@@ -10,7 +12,14 @@ import {
 } from "@/components/primitives";
 import { ApiError } from "@/lib/api/client";
 import type { CatalogueFilter } from "@/lib/catalogue/filters";
-import { CATALOGUE_PAGE_SIZE } from "@/lib/catalogue/filters";
+import {
+  ALL_FILTER,
+  CATALOGUE_PAGE_SIZE,
+  filterQuery,
+  filterToPath,
+  QUERY_PARAM,
+  withQuery,
+} from "@/lib/catalogue/filters";
 import {
   useCatalogueReferences,
   useDesignTypeIndex,
@@ -18,6 +27,7 @@ import {
 } from "@/lib/catalogue/useCatalogue";
 import { cx } from "@/lib/cx";
 
+import { ArchiveSearch, QuotedQuery, SearchSuggestions } from "./ArchiveSearch";
 import { FilterRail } from "./FilterRail";
 import { ReferenceCard } from "./ReferenceCard";
 import styles from "./CatalogueView.module.css";
@@ -97,22 +107,61 @@ export function CatalogueView({
   missing = false,
   intro,
 }: CatalogueViewProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const designTypes = useDesignTypes();
   const designTypeIndex = useDesignTypeIndex(designTypes.data);
-  const catalogue = useCatalogueReferences(filter);
+
+  /*
+   * The query comes from the address on a catalogue route. On /reference/:id
+   * the address belongs to the sheet, so the query travels on the filter
+   * instead — that is what returns the reader to the same search on close.
+   */
+  const active = withQuery(
+    filter,
+    filter.query ?? searchParams.get(QUERY_PARAM) ?? "",
+  );
+  const query = filterQuery(active);
+  const catalogue = useCatalogueReferences(active);
+
+  const search = useCallback(
+    (next: string) => {
+      setSearchParams(
+        (current) => {
+          const params = new URLSearchParams(current);
+          if (next.length > 0) {
+            params.set(QUERY_PARAM, next);
+          } else {
+            params.delete(QUERY_PARAM);
+          }
+          return params;
+        },
+        // A search is a place, not a step: each one is its own history entry
+        // so Back walks out of a search rather than through every keystroke.
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
 
   const { items, total } = catalogue;
   const shown = items.length;
 
   return (
     <div className={styles.view}>
-      <FilterRail active={filter} />
+      <FilterRail active={active} />
       <PageRule weight="hairline" />
+      <ArchiveSearch
+        query={query}
+        onSubmit={search}
+        filter={active}
+        label={label}
+      />
+      <PageRule weight="hairline" space="tight" />
 
       {missing ? null : intro}
 
       {missing ? (
-        <MissingSliceState filter={filter} label={label} />
+        <MissingSliceState filter={active} label={label} />
       ) : catalogue.isPending ? (
         <>
           <div className={styles.ledger}>
@@ -129,12 +178,28 @@ export function CatalogueView({
           retrying={catalogue.isFetching}
         />
       ) : total === 0 ? (
-        <EmptyState filter={filter} label={label} />
+        query.length > 0 ? (
+          <NoMatchesState
+            query={query}
+            filter={active}
+            label={label}
+            onSearch={search}
+          />
+        ) : (
+          <EmptyState filter={active} label={label} />
+        )
       ) : (
         <>
           <div className={styles.ledger}>
             <MonoLabel size="small" tone="muted" uppercase>
-              {label}
+              {query.length > 0 ? (
+                <>
+                  {`${label} matching `}
+                  <QuotedQuery query={query} />
+                </>
+              ) : (
+                label
+              )}
             </MonoLabel>
             <MonoLabel size="small" tone="muted" uppercase>
               {`Showing ${padCount(shown, 2)} of ${padCount(total, 2)}`}
@@ -153,7 +218,7 @@ export function CatalogueView({
                     : designTypeIndex.get(reference.designTypeId)
                 }
                 eager={index < 3}
-                origin={filter}
+                origin={active}
               />
             ))}
           </CatalogueGrid>
@@ -250,6 +315,61 @@ function MissingSliceState({
         </MonoLabel>
       }
     />
+  );
+}
+
+/**
+ * A search that matched nothing. Distinct from an empty slice: the archive
+ * holds plates, this query simply reached none of them, so the way out is a
+ * different query rather than adding a reference.
+ */
+function NoMatchesState({
+  query,
+  filter,
+  label,
+  onSearch,
+}: {
+  readonly query: string;
+  readonly filter: CatalogueFilter;
+  readonly label: string;
+  readonly onSearch: (query: string) => void;
+}) {
+  return (
+    <SectionPanel
+      eyebrow="No matches"
+      title={
+        <>
+          {"Nothing in the archive matches "}
+          <QuotedQuery query={query} />
+        </>
+      }
+      marker
+      lede={
+        filter.kind === "all"
+          ? "The index covers titles, design DNA, thesis, vocabulary, design type, briefs, image recipes and source addresses. Every word has to match somewhere on the same reference."
+          : `Nothing under ${label} matches that. Clear the search to read the whole slice, or search the complete archive instead.`
+      }
+      aside={
+        <MonoLabel size="small" tone="muted" uppercase marker="hollow">
+          00 references
+        </MonoLabel>
+      }
+    >
+      <div className={styles.stateActions}>
+        <ActionButton variant="solid" onClick={() => onSearch("")}>
+          Clear search
+        </ActionButton>
+        {filter.kind === "all" ? null : (
+          <ActionLink
+            variant="outline"
+            to={filterToPath(withQuery(ALL_FILTER, query))}
+          >
+            Search the whole archive
+          </ActionLink>
+        )}
+      </div>
+      <SearchSuggestions onChoose={onSearch} />
+    </SectionPanel>
   );
 }
 

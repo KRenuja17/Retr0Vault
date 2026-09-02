@@ -10,7 +10,7 @@ import {
   makeStoredReference,
   renderIngest,
   stubApi,
-} from "./testHarness";
+} from "@/test/harness";
 
 const FILED = makeStoredReference({
   id: "aaaaaaaa-0000-4000-8000-000000000009",

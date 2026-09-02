@@ -38,3 +38,27 @@
   gap: var(--rv-space-3);
   flex-wrap: wrap;
 }
+
+/* The way through to the register, set as marginalia rather than a tab. */
+.register {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: var(--rv-space-4);
+}
+
+.registerLink {
+  color: var(--rv-ink-muted);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  border-bottom: var(--rv-border) solid var(--rv-rule-soft);
+  padding-bottom: 2px;
+}
+
+.registerLink:hover {
+  color: var(--rv-ink);
+  border-bottom-color: var(--rv-rule);
+  text-decoration: none;
+}
