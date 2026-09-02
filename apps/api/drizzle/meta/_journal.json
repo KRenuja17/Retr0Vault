@@ -29,6 +29,13 @@
       "when": 1788328192099,
       "tag": "0003_analysis_protection",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788329404806,
+      "tag": "0004_reference_search",
+      "breakpoints": true
     }
   ]
 }

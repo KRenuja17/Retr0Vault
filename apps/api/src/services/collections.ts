@@ -35,6 +35,14 @@ function serializeCollection(
   });
 }
 
+function collectionReferenceCount(connection: DatabaseConnection, id: string): number {
+  return connection.database
+    .select({ value: count() })
+    .from(collectionReferences)
+    .where(eq(collectionReferences.collectionId, id))
+    .get()?.value ?? 0;
+}
+
 function findCollectionRowById(
   connection: DatabaseConnection,
   id: string,
@@ -104,13 +112,7 @@ export function findCollectionBySlug(
     .get();
 
   if (row === undefined) return undefined;
-  const referenceCount =
-    connection.database
-      .select({ value: count() })
-      .from(collectionReferences)
-      .where(eq(collectionReferences.collectionId, row.id))
-      .get()?.value ?? 0;
-  return serializeCollection(row, referenceCount);
+  return serializeCollection(row, collectionReferenceCount(connection, row.id));
 }
 
 export function createCollection(
@@ -164,7 +166,7 @@ export function createCollection(
     throw error;
   }
 
-  return serializeCollection(findCollectionRowById(connection, id));
+  return serializeCollection(findCollectionRowById(connection, id), collectionReferenceCount(connection, id));
 }
 
 export function updateCollection(
@@ -227,7 +229,7 @@ export function updateCollection(
     throw error;
   }
 
-  return serializeCollection(findCollectionRowById(connection, id));
+  return serializeCollection(findCollectionRowById(connection, id), collectionReferenceCount(connection, id));
 }
 
 export function deleteCollection(

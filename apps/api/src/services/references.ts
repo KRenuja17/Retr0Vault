@@ -6,9 +6,11 @@ import {
   count,
   desc,
   eq,
+  getTableColumns,
   inArray,
   ne,
   notExists,
+  sql,
   type SQL,
 } from "drizzle-orm";
 
@@ -36,6 +38,7 @@ import {
 } from "../database/schema.js";
 import { ApiError, sqliteErrorCode } from "../errors.js";
 import type { StoredReferenceImage } from "../storage/reference-storage.js";
+import { referenceSearchExpression, referenceSearchRank } from "./reference-search.js";
 
 type ReferenceRow = typeof references.$inferSelect;
 
@@ -289,7 +292,24 @@ export function listReferences(
   connection: DatabaseConnection,
   query: ReferenceListQuery,
 ): ReferenceListResponse {
+  // Keep the total, page rows, and hydrated relations on one read snapshot,
+  // including when a separate analysis-import CLI is writing concurrently.
+  return connection.database.transaction(() => queryReferences(connection, query));
+}
+
+function queryReferences(
+  connection: DatabaseConnection,
+  query: ReferenceListQuery,
+): ReferenceListResponse {
   const conditions: SQL[] = [];
+  const emptyResult = () => referenceListResponseSchema.parse({
+    items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0,
+  });
+  const searchExpression = query.q ? referenceSearchExpression(query.q) : undefined;
+  if (query.q && searchExpression === undefined) return emptyResult();
+  if (searchExpression !== undefined) {
+    conditions.push(sql`reference_search MATCH ${searchExpression}`);
+  }
 
   if (query.designType !== undefined) {
     const designType = connection.database
@@ -298,13 +318,7 @@ export function listReferences(
       .where(eq(designTypes.slug, query.designType))
       .get();
     if (designType === undefined) {
-      return referenceListResponseSchema.parse({
-        items: [],
-        page: query.page,
-        limit: query.limit,
-        total: 0,
-        totalPages: 0,
-      });
+      return emptyResult();
     }
     conditions.push(eq(references.designTypeId, designType.id));
   }
@@ -316,13 +330,7 @@ export function listReferences(
       .where(eq(collections.slug, query.collection))
       .get();
     if (collection === undefined) {
-      return referenceListResponseSchema.parse({
-        items: [],
-        page: query.page,
-        limit: query.limit,
-        total: 0,
-        totalPages: 0,
-      });
+      return emptyResult();
     }
     conditions.push(
       inArray(
@@ -340,31 +348,38 @@ export function listReferences(
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  const total =
-    connection.database
-      .select({ value: count() })
-      .from(references)
-      .where(whereClause)
-      .get()?.value ?? 0;
-  const orderBy =
-    query.sort === "oldest"
-      ? asc(references.createdAt)
+  const totalQuery = connection.database.select({ value: count() })
+    .from(references).$dynamic();
+  const pageQuery = connection.database.select(getTableColumns(references))
+    .from(references).$dynamic();
+  if (searchExpression !== undefined) {
+    const joinCondition = sql`reference_search.reference_id = ${references.id}`;
+    totalQuery.innerJoin(sql`reference_search`, joinCondition);
+    pageQuery.innerJoin(sql`reference_search`, joinCondition);
+  }
+  const total = totalQuery.where(whereClause).get()?.value ?? 0;
+  const orderBy: SQL[] = query.sort === "relevance" && searchExpression !== undefined
+    ? [referenceSearchRank, desc(references.createdAt)]
+    : query.sort === "oldest"
+      ? [asc(references.createdAt)]
       : query.sort === "title-asc"
-        ? asc(references.title)
+        ? [sql`${references.title} collate nocase asc`]
         : query.sort === "title-desc"
-          ? desc(references.title)
-          : desc(references.createdAt);
-  const rows = connection.database
-    .select()
-    .from(references)
+          ? [sql`${references.title} collate nocase desc`]
+          : [desc(references.createdAt)];
+  const offset = (query.page - 1) * query.limit;
+  const rows = pageQuery
     .where(whereClause)
-    .orderBy(orderBy, asc(references.id))
+    .orderBy(...orderBy, asc(references.id))
     .limit(query.limit)
-    .offset((query.page - 1) * query.limit)
+    .offset(offset)
     .all();
 
   return referenceListResponseSchema.parse({
-    items: hydrateReferences(connection, rows),
+    items: hydrateReferences(connection, rows).map((reference, index) =>
+      query.includeCatalogueIndex
+        ? { ...reference, catalogueIndex: offset + index + 1 }
+        : reference),
     page: query.page,
     limit: query.limit,
     total,

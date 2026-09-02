@@ -128,6 +128,7 @@ export const referenceResponseSchema = z
 export type ReferenceResponse = z.infer<typeof referenceResponseSchema>;
 
 export const referenceSortSchema = z.enum([
+  "relevance",
   "newest",
   "oldest",
   "title-asc",
@@ -136,20 +137,31 @@ export const referenceSortSchema = z.enum([
 
 export const referenceListQuerySchema = z
   .object({
+    q: z.string().trim().max(500).optional(),
     designType: z.string().trim().min(1).max(100).optional(),
     collection: z.string().trim().min(1).max(100).optional(),
     status: analysisStatusSchema.optional(),
-    page: z.coerce.number().int().min(1).default(1),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(24),
-    sort: referenceSortSchema.default("newest"),
+    sort: referenceSortSchema.optional(),
+    includeCatalogueIndex: z.enum(["true", "false"])
+      .transform((value) => value === "true").default(false),
   })
-  .strict();
+  .strict()
+  .transform((value) => ({
+    ...value,
+    sort: value.sort ?? (value.q ? "relevance" : "newest"),
+  }));
 
 export type ReferenceListQuery = z.infer<typeof referenceListQuerySchema>;
 
+export const referenceListItemSchema = referenceResponseSchema.extend({
+  catalogueIndex: z.number().int().positive().optional(),
+});
+
 export const referenceListResponseSchema = z
   .object({
-    items: z.array(referenceResponseSchema),
+    items: z.array(referenceListItemSchema),
     page: z.number().int().min(1),
     limit: z.number().int().min(1),
     total: z.number().int().min(0),

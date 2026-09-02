@@ -1,6 +1,6 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, metadata, tags, filtering, safe reference deletion, and an external-curator analysis workflow with protected manual edits.
+Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, full-text search, live counts, catalogue ordering, safe reference deletion, and an external-curator analysis workflow with protected manual edits.
 
 ## Prerequisites
 
@@ -75,7 +75,28 @@ PATCH  /api/v1/references/:id
 DELETE /api/v1/references/:id
 ```
 
-The list endpoint accepts `designType`, `collection`, `status`, `page`, `limit`, and `sort` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
+The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
+
+## Search and catalogue queries
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:4611/api/v1/references?q=technical%20mono&sort=relevance&page=1&limit=24&includeCatalogueIndex=true'
+```
+
+Search covers titles, Design DNA, design theses, visual tags, design-type names/slugs/descriptions and vocabulary, source URLs, design briefs, image recipes, and text values inside structured analysis. It is local SQLite search; no embedding model, vector database, AI API, or external service is used.
+
+| Parameter | Behaviour |
+| --- | --- |
+| `q` | Up to 500 characters. All words must match, possibly across different fields. Matching is case-insensitive and ignores Latin accents. Punctuation separates words; FTS operators and SQL syntax are not executed. This is whole-word matching, not arbitrary substring or fuzzy search. Empty/whitespace input lists all references; punctuation-only input matches none. |
+| `designType`, `collection` | Exact slugs; combined with each other and the search/status filters. Unknown slugs return an empty result. |
+| `status` | `pending`, `analyzed`, `manual`, or `failed` |
+| `sort` | `relevance`, `newest`, `oldest`, `title-asc`, or `title-desc`. Defaults to relevance when `q` is nonempty, newest otherwise. Explicit relevance without a query uses newest. Title sorting uses SQLite's `NOCASE` collation. |
+| `page`, `limit` | One-based page (default 1, maximum 1,000,000) and page size (default 24, range 1–100). The response includes `page`, `limit`, `total`, and `totalPages`; an out-of-range page is empty but retains the matching total. |
+| `includeCatalogueIndex` | Literal `true` or `false` (default false). When true, each list item includes a one-based `catalogueIndex` within the complete filtered/sorted result set, before pagination. Otherwise the property is omitted. |
+
+Relevance gives more weight to titles, Design DNA, and visual tags than long-form text. Ties use stable UUID ordering (relevance also uses newest-first for equally ranked results). Catalogue indexes remain stable for unchanged data/query/sort, not across library edits or different filters. Totals, page items, and their relations are read from one database snapshot. Design-type and collection `referenceCount` values are live totals across all statuses, independent of the current search.
+
+The custom migration `apps/api/drizzle/0004_reference_search.sql` owns the [SQLite FTS5](https://www.sqlite.org/fts5.html) table, a shared source projection, and transactional synchronization triggers. It backfills existing references and refreshes the index when reference text, tags, assignments, or category vocabulary changes, including analysis imports. Reference UUIDs—not implicit database rowids—identify documents. Future migrations that rebuild source tables must preserve these triggers; changes to indexed columns must keep the projection and BM25 weights in `reference-search.ts` aligned.
 
 ## External-curator analysis
 
