@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { AddReferenceView } from "@/components/ingest/AddReferenceView";
 
 import {
   AllRoute,
@@ -26,6 +27,7 @@ export const routes: readonly RouteObject[] = [
       { path: "type/:slug", element: <DesignTypeRoute /> },
       { path: "collection/:slug", element: <CollectionRoute /> },
       { path: "reference/:id", element: <ReferenceRoute /> },
+      { path: "add", element: <AddReferenceView /> },
       { path: "foundation", element: <FoundationRoute /> },
       { path: "*", element: <NotFoundRoute /> },
     ],

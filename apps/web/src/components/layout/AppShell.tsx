@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, Outlet } from "react-router-dom";
 
-import { MonoLabel, PageRule } from "@/components/primitives";
+import { ActionLink, MonoLabel, PageRule } from "@/components/primitives";
 
 import { ConnectionStatus } from "./ConnectionStatus";
 import styles from "./AppShell.module.css";
@@ -44,6 +44,9 @@ export function AppShell({ navigation, children }: AppShellProps) {
                 Local · single user
               </MonoLabel>
               <ConnectionStatus />
+              <ActionLink variant="outline" size="small" to="/add">
+                Add reference
+              </ActionLink>
             </div>
           </div>
         </div>

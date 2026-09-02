@@ -27,6 +27,25 @@ class TestRequest extends BaseRequest {
 
 globalThis.Request = TestRequest as unknown as typeof Request;
 
+/*
+ * jsdom's Blob implements neither text() nor arrayBuffer(), although every
+ * browser this app targets has shipped both since 2019. Analysis files chosen
+ * on the desk are read with Blob.text(), so the standard reader is supplied
+ * here rather than the source being written around a test-environment gap.
+ */
+if (typeof Blob.prototype.text !== "function") {
+  Blob.prototype.text = function text(this: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result)));
+      reader.addEventListener("error", () =>
+        reject(reader.error ?? new Error("The file could not be read")),
+      );
+      reader.readAsText(this);
+    });
+  };
+}
+
 afterEach(() => {
   cleanup();
 });

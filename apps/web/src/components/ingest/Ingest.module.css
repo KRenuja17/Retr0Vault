@@ -1,0 +1,577 @@
+/*
+ * Accession and the analysis desk.
+ *
+ * Same rules as the rest of the archive: warm paper, square geometry, thin
+ * black rules, mono for every control and label. No dashed drop-zone, no
+ * rounded upload card, no gradient, no floating anything.
+ */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-8);
+}
+
+/* --- the two accession lanes ------------------------------------------- */
+/* The two lanes are a matched pair of plates, so they share a bottom edge. */
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rv-grid-gap);
+}
+
+.lane {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  padding: var(--rv-space-8) var(--rv-space-8) var(--rv-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-6);
+}
+
+.laneHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.laneNote {
+  max-width: 52ch;
+  color: var(--rv-ink-soft);
+  font-size: var(--rv-text-md);
+  line-height: var(--rv-leading-normal);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-5);
+  /* Fills the lane so the action rule sits on both plates at the same height. */
+  flex: 1;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rv-space-5);
+}
+
+.formGridWide {
+  grid-column: 1 / -1;
+}
+
+/* --- fields ------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+  min-width: 0;
+}
+
+.fieldHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-3);
+}
+
+.fieldHead label:hover {
+  text-decoration: none;
+}
+
+.control {
+  width: 100%;
+  min-width: 0;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-base);
+  line-height: var(--rv-leading-normal);
+  padding: var(--rv-space-2) var(--rv-space-3);
+  transition:
+    border-color var(--rv-motion-fast) var(--rv-easing),
+    background-color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.control:hover:not(:disabled) {
+  border-color: var(--rv-rule);
+}
+
+.control:disabled {
+  color: var(--rv-ink-muted);
+  background-color: var(--rv-paper-deep);
+}
+
+.control::placeholder {
+  color: var(--rv-ink-faint);
+}
+
+.controlInvalid {
+  border-color: var(--rv-signal-error);
+}
+
+.controlMono {
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  line-height: var(--rv-leading-snug);
+}
+
+textarea.control {
+  resize: vertical;
+}
+
+/* The platform caret is kept: it is the one control the archive does not draw. */
+.select {
+  cursor: pointer;
+}
+
+.fieldHint {
+  color: var(--rv-ink-muted);
+}
+
+.fieldError {
+  color: var(--rv-signal-error);
+}
+
+/* --- the specimen area (drag/drop + picker) ----------------------------- */
+.specimen {
+  position: relative;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface-sunken);
+  background-image: var(--rv-paper-grain);
+  background-size: var(--rv-paper-grain-size);
+  padding: var(--rv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-4);
+  transition: border-color var(--rv-motion-fast) var(--rv-easing);
+}
+
+/* Registration ticks at the corners; the plate reads as a specimen mount. */
+.specimen::before,
+.specimen::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  pointer-events: none;
+}
+
+.specimen::before {
+  top: 5px;
+  left: 5px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.specimen::after {
+  bottom: 5px;
+  right: 5px;
+  border-left: none;
+  border-top: none;
+}
+
+.specimenActive {
+  border-color: var(--rv-accent);
+  background-color: var(--rv-accent-wash);
+}
+
+.specimenLegend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--rv-space-2);
+  padding-block: var(--rv-space-10);
+  text-align: center;
+}
+
+.specimenActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+  padding-top: var(--rv-space-4);
+}
+
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The visible half of the file input; the input itself carries the label. */
+.picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: transparent;
+  color: var(--rv-ink);
+  cursor: pointer;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  padding: var(--rv-space-2) var(--rv-space-5);
+  transition: background-color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.picker:hover {
+  background-color: var(--rv-paper-deep);
+  text-decoration: none;
+}
+
+.fileInput:focus-visible + .picker {
+  outline: var(--rv-focus-ring);
+  outline-offset: var(--rv-focus-offset);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-3);
+  margin: 0;
+}
+
+.previewImage {
+  width: 100%;
+  max-height: 22rem;
+  object-fit: contain;
+  background-color: var(--rv-paper-deep);
+  border: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.previewMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+}
+
+/* --- action rows, notices, progress ------------------------------------- */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  border-top: var(--rv-border) solid var(--rv-rule);
+  padding-top: var(--rv-space-5);
+  margin-top: auto;
+}
+
+.actionsNote {
+  margin-left: auto;
+  text-align: right;
+}
+
+.notice {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface-sunken);
+  padding: var(--rv-space-4) var(--rv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.noticeFailure {
+  border-color: var(--rv-signal-error);
+}
+
+.noticeTitle {
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-xl);
+  line-height: var(--rv-leading-snug);
+}
+
+.noticeBody {
+  color: var(--rv-ink-soft);
+  font-size: var(--rv-text-base);
+  line-height: var(--rv-leading-normal);
+}
+
+.noticeLinks {
+  display: flex;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  padding-top: var(--rv-space-1);
+}
+
+.noticeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-1);
+  padding-top: var(--rv-space-2);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.progress {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
+  padding: var(--rv-space-4) var(--rv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.progressHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-4);
+}
+
+/* A ruler of ticks that fills as the capture runs: no spinner, no bar chrome. */
+.progressTicks {
+  display: flex;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.progressTick {
+  flex: 1 1 0;
+  height: 6px;
+  background-color: rgb(246 241 233 / 18%);
+}
+
+.progressTickFilled {
+  background-color: var(--rv-accent);
+}
+
+/* --- checkbox ----------------------------------------------------------- */
+.check {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  flex-wrap: wrap;
+}
+
+.checkBox {
+  appearance: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  cursor: pointer;
+  translate: 0 0.12rem;
+}
+
+.checkBox:checked {
+  background-color: var(--rv-ink);
+  box-shadow: inset 0 0 0 2px var(--rv-surface);
+}
+
+.checkBox:disabled {
+  cursor: not-allowed;
+  border-color: var(--rv-rule-soft);
+}
+
+.check label:hover {
+  text-decoration: none;
+}
+
+.checkHint {
+  flex-basis: 100%;
+}
+
+/* --- analysis desk ------------------------------------------------------ */
+.desk {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  padding: var(--rv-space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-6);
+}
+
+.deskHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--rv-space-6);
+  flex-wrap: wrap;
+}
+
+.counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: var(--rv-border) solid var(--rv-rule);
+}
+
+.countTile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+  padding: var(--rv-space-4) var(--rv-space-5);
+  border-left: var(--rv-border) solid var(--rv-rule);
+  min-width: 0;
+}
+
+.countTile:first-child {
+  border-left: none;
+}
+
+.countValue {
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-display-sm);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.countValuePending {
+  color: var(--rv-accent);
+}
+
+.countValueUnknown {
+  color: var(--rv-ink-faint);
+}
+
+.deskActions {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+  border-block: var(--rv-border) solid var(--rv-rule-hairline);
+  padding-block: var(--rv-space-5);
+}
+
+/* --- accession ledger --------------------------------------------------- */
+.ledger {
+  display: flex;
+  flex-direction: column;
+}
+
+.ledgerRow {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--rv-space-3) var(--rv-space-4);
+  padding-block: var(--rv-space-3);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.ledgerRow:first-child {
+  border-top: var(--rv-border) solid var(--rv-rule);
+}
+
+.ledgerIndex {
+  color: var(--rv-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledgerEntry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-1);
+  min-width: 0;
+}
+
+.ledgerTitle {
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-xl);
+  line-height: var(--rv-leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.ledgerMeta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+}
+
+.ledgerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.statusPending {
+  color: var(--rv-accent);
+}
+
+.statusFailed {
+  color: var(--rv-signal-error);
+}
+
+/* --- metadata editor ---------------------------------------------------- */
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-5);
+}
+
+.editorGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rv-space-5);
+}
+
+.editorWide {
+  grid-column: 1 / -1;
+}
+
+.editorNote {
+  color: var(--rv-ink-soft);
+  font-size: var(--rv-text-base);
+  line-height: var(--rv-leading-normal);
+  max-width: 62ch;
+}
+
+@media (max-width: 1179px) {
+  .lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .countTile:nth-child(3) {
+    border-left: none;
+  }
+
+  .countTile:nth-child(n + 3) {
+    border-top: var(--rv-border) solid var(--rv-rule);
+  }
+}
+
+@media (max-width: 759px) {
+  .lane,
+  .desk {
+    padding: var(--rv-space-6) var(--rv-space-5);
+  }
+
+  .formGrid,
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ledgerRow {
+    grid-template-columns: 2rem minmax(0, 1fr);
+  }
+
+  .ledgerActions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .actionsNote {
+    margin-left: 0;
+    text-align: left;
+  }
+}
