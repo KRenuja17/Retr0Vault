@@ -126,6 +126,8 @@ export const collections = sqliteTable(
 );
 
 export const references = sqliteTable(
+  // JSON object/protected-field validity is enforced by the custom 0006 SQL
+  // triggers, which avoid rebuilding this FTS-indexed table during upgrades.
   "references",
   {
     id: text("id").primaryKey(),

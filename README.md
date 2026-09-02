@@ -12,7 +12,7 @@ No Docker, XAMPP/WAMP, external database server, cloud service, or AI API key is
 
 ## Start the backend on Windows
 
-From PowerShell in the repository root:
+From PowerShell in a development working copy's root:
 
 ```powershell
 npm install
@@ -30,6 +30,19 @@ Invoke-RestMethod http://127.0.0.1:4611/api/v1/health
 
 The database is created at `data/retr0vault.db`. The API also applies committed migrations during startup, so explicitly running `db:migrate` is safe and repeatable but not required after the first setup.
 
+To keep a source-only checkout such as `D:\Retr0Vault` free of dependencies/build output, clone it to a separate working directory and run these commands there. Keep persistent runtime paths outside both checkouts, for example:
+
+```powershell
+git clone D:\Retr0Vault "$env:LOCALAPPDATA\Retr0Vault\workspace"
+Set-Location "$env:LOCALAPPDATA\Retr0Vault\workspace"
+$env:DATABASE_PATH = "$env:LOCALAPPDATA\Retr0Vault\runtime\retr0vault.db"
+$env:STORAGE_ROOT = "$env:LOCALAPPDATA\Retr0Vault\runtime\storage"
+$env:ANALYSIS_DATA_DIR = "$env:LOCALAPPDATA\Retr0Vault\runtime\data"
+# Then run the install, migrate, seed and dev:api commands above.
+```
+
+Use the same environment variables for the API and every CLI command in each new PowerShell session. `seed` is optional representative content: rerunning it refreshes seed-owned records and can replace edits to them. Seed and seed-clear operations are atomic; a slug conflict or in-use design type leaves the entire operation unchanged. Neither command is a restore operation.
+
 ## Backend commands
 
 ```powershell
@@ -42,6 +55,7 @@ npm run seed:clear   # Remove only the development seed records
 npm run test         # Run the backend test suite
 npm run typecheck    # Type-check all TypeScript sources and tests
 npm run build        # Build shared and API packages
+npm run storage:orphans # Report old unowned files; does not move/delete them
 ```
 
 Environment variables are optional and validated at startup:
@@ -57,6 +71,73 @@ Environment variables are optional and validated at startup:
 | `ANALYSIS_DATA_DIR` | `data` | Parent directory for local analysis inbox/results; relative to the repository root or absolute |
 | `CAPTURE_TIMEOUT_MS` | `45000` | Maximum browser-capture duration, including DNS and launch (1,000–120,000 ms), followed by process cleanup |
 | `NODE_ENV` | `development` | Runtime mode |
+
+## Library statistics
+
+`GET /api/v1/stats` returns one consistent database snapshot, with no query parameters:
+
+```json
+{
+  "totalReferences": 0,
+  "pendingReferences": 0,
+  "analyzedReferences": 0,
+  "unassignedReferences": 0,
+  "countsByDesignType": [],
+  "countsByCollection": []
+}
+```
+
+Each group is `{ "id": "uuid", "name": "Name", "slug": "name", "referenceCount": 0 }`, ordered by configured sort order then UUID. Empty groups are included. Totals and group counts include all four statuses; pending/analyzed counters match those exact statuses, not manual/failed. Unassigned means no design type. A reference may belong to multiple collections, so collection counts are not additive. No counts are cached.
+
+## Local access, validation and error safety
+
+- The server binds only to `127.0.0.1` or `localhost`; no LAN/public bind or reverse proxy is supported. Host headers must name `localhost`, `127.0.0.1`, or `[::1]`, blocking arbitrary DNS-rebinding hostnames.
+- Browser origins are restricted to HTTP loopback names on frontend port `4610` or the configured API port. Other origins, including `null`, are rejected **before writes**, not merely denied CORS response headers. Cross-site browser requests without Origin are also rejected. Exact-origin CORS supports GET/HEAD/POST/PATCH/DELETE preflights, Content-Type, and exposed Content-Disposition; no credentials or wildcard origins.
+- This is a single-user local application, not an authenticated multi-user service. Native local programs can omit Origin. Keep the machine, loopback frontend, runtime directories and their parents trusted; filesystem checks are not a sandbox against another process running as your Windows user. Do not expose the API through port forwarding or a tunnel.
+- Ordinary JSON requests are limited to 1 MiB; analysis/export routes allow 2 MiB. Uploads allow one file (25 MiB default), up to 20 fields, 8 KiB per field and 100-byte field names. Truncated fields are rejected. Images are actually decoded, limited to 100 million pixels, and thumbnails are generated before exclusive file writes. Existing files and links are never intentionally overwritten by ingestion.
+- Newly supplied metadata source URLs must be HTTP(S), at most 2,048 characters, without credentials, whitespace, control characters or backslashes. They are not fetched. Website capture additionally enforces the public-network rules above. Historical metadata remains readable; unsafe links are not rendered as clickable links in exports.
+- Manual analysis JSON is limited to 20 nesting levels and 10,000 values. Protected field names are unique and validated. Strict analysis imports retain their full dimension schema, per-record transactions and protected-edit rules. CLI imports read one regular, non-linked, bounded 2 MiB JSON file at a time and detect duplicates across the whole batch; input files are not consumed or deleted.
+- Responses use the shared `{ error: { code, message, statusCode }, requestId }` envelope. Unexpected failures are generic in every environment; expected API failures retain actionable messages. SQLite lock contention has a one-second wait and returns 503 `DATABASE_BUSY` with `Retry-After: 1`. Before retrying a write after a lost connection, check whether it already succeeded.
+- HTTP logs retain request IDs, methods, response statuses and timing, but omit raw URLs/query strings, bodies, authorization headers, SQL parameters and exception stacks. Responses default to `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+
+## Database integrity and migrations
+
+SQLite connections enable foreign keys, WAL and full synchronous durability. Existing foreign-key delete/restrict behavior, unique relations, enums, positive image dimensions and ordering constraints remain enforced. Committed migrations are repeatable; never edit a migration already applied to a real library.
+
+The additive `0006_backend_json_guards.sql` migration validates legacy JSON and installs insert/update guards: analysis must be a JSON object or SQL NULL, and protected fields must be a unique array of supported names. It does not rebuild references or alter their rowids, relations or FTS triggers. If the preflight fails, the migration rolls back without repairing or discarding user data. Back up first, inspect the affected JSON with a SQLite tool, repair only the confirmed bad record, and retry. Future table-rebuild migrations must recreate these custom guards as well as the FTS projection/triggers; Drizzle's table snapshot does not model custom triggers.
+
+## Deletion and orphan-file maintenance
+
+Reference deletion commits database cascades first, then removes only that UUID's validated original, thumbnail and recorded capture frames. Database rejection retains all files. Missing files are harmless on repeated cleanup; unsafe paths, linked directories or filesystem failures are left alone and produce a cleanup warning. An HTTP 204 means the database deletion succeeded, even if file cleanup could not finish. API deletion is permanent; recovery requires a backup.
+
+Crashes between file creation and the database transaction, or failed filesystem cleanup, can leave orphans. There is no automatic startup deletion. Stop the API, captures, importers and other storage writers; make a backup; verify that `DATABASE_PATH` and `STORAGE_ROOT` identify the same library. Then:
+
+```powershell
+npm run storage:orphans
+# Review candidates before explicitly moving them:
+npm run storage:orphans -- --quarantine
+```
+
+The command requires an existing database and passes SQLite quick/foreign-key checks before touching storage. Only recognized UUID image/frame filenames at least 24 hours old qualify. Files belonging to any live reference ID or referenced database path, recent files, unknown names, nested/unrecognized content and links are retained; linked managed directories abort the scan. Empty directories are not recursively removed.
+
+Quarantine moves eligible files to `STORAGE_ROOT/quarantine/<batch-uuid>/` with their original relative paths intact. It never removes database rows or permanently deletes quarantined content. Review the JSON report's `candidates`, `quarantined`, `skipped` and `quarantineDirectory`. If interrupted, completed moves remain recoverable under quarantine; rerunning scans remaining files. To recover a mistaken move, keep writers stopped and copy the selected file back to its original relative path only after checking that destination is absent. Keep quarantine until a verified backup and manual review make it unnecessary.
+
+## Backup and restore expectations
+
+Git contains code, migrations and documentation—not the library. Back up before upgrades, bulk changes or cleanup, and periodically to a separate local disk. There is no automatic backup/cloud sync requirement.
+
+1. Stop the API and every importer/maintenance process, and wait for them to exit. Use a new backup directory outside the repository and live runtime roots.
+2. Copy the configured SQLite database and any remaining `-wal`/`-shm` sidecars together, the entire `STORAGE_ROOT` (including originals, thumbnails, captures and quarantine), and `ANALYSIS_DATA_DIR` inbox/results. Record the runtime path settings and Git commit used. Do not modify/remove WAL files manually: committed data may still be in the [SQLite WAL](https://www.sqlite.org/wal.html).
+3. Verify the backup by restoring it into fresh, separate directories with all processes stopped; never mix database/storage from different backups or overwrite the only good copy. Point the three environment variables at the restored paths, run `npm run db:migrate`, then start the API.
+4. Compare `/api/v1/stats`, open representative reference metadata, check original/thumbnail/capture files and search terms, and confirm analysis protections. Regenerate pending manifests after restoring to a new path because their absolute image paths can be stale. Do not run `seed` as part of recovery unless deliberately refreshing sample content.
+
+Copying only a live `.db` file is not a valid backup procedure. SQLite has an [online backup API](https://www.sqlite.org/backup.html), but a database-only snapshot would still need coordination with image-file writes; V1 documents and tests the stopped-process backup procedure instead. Store backups with appropriate Windows permissions because source URLs and curator results may be private.
+
+## Backend V1 verification
+
+Run `npm run test`, `npm run typecheck` and `npm run build` after installing Chromium. Tests cover fresh and populated migrations, constraints, CRUD/deletion, real Chromium lifecycle and SSRF boundaries, analysis safety, exports, FTS updates/relevance/pagination, live statistics, browser-origin rejection, upload rollback, orphan quarantine and cold-backup restoration. Tests use disposable runtime directories; no frontend is implemented or required.
+
+Dependency audit at this checkpoint: `npm audit --omit=dev` reports no runtime advisories. The full audit reports four moderate entries in the development-only Drizzle Kit → esbuild-kit → esbuild chain, all stemming from [esbuild's development-server CORS advisory](https://github.com/evanw/esbuild/security/advisories/GHSA-67mh-4wv8-2f99). Retr0Vault does not run that esbuild server or Drizzle Studio. Keep migration generation local/trusted; do not use `npm audit fix --force`, which currently proposes a breaking Drizzle Kit downgrade. Review upstream fixes when upgrading the pinned lockfile.
 
 ## Reference image API
 

@@ -148,7 +148,7 @@ describe("B1 backend foundation", () => {
       const body = errorResponseSchema.parse(response.json());
       expect(body.error).toEqual({
         code: "ROUTE_NOT_FOUND",
-        message: "Route GET /api/v1/does-not-exist was not found",
+        message: "The requested route was not found",
         statusCode: 404,
       });
       expect(body.requestId).not.toHaveLength(0);

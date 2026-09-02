@@ -15,10 +15,12 @@
     "db:generate": "drizzle-kit generate",
     "seed": "tsx src/database/seed-cli.ts",
     "seed:clear": "tsx src/database/seed-cli.ts --clear",
+    "storage:orphans": "tsx --tsconfig ../../tsconfig.typecheck.json src/storage/orphans-cli.ts",
     "analysis:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts export",
     "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import"
   },
   "dependencies": {
+    "@fastify/cors": "11.3.0",
     "@fastify/multipart": "^10.1.1",
     "@retr0vault/shared": "*",
     "better-sqlite3": "^12.2.0",

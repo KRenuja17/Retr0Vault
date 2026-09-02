@@ -22,13 +22,18 @@ export function createDatabaseConnection(
   }
 
   const sqlite = new BetterSqlite3(databasePath);
-  sqlite.pragma("foreign_keys = ON");
-
-  if (databasePath !== ":memory:") {
-    sqlite.pragma("journal_mode = WAL");
+  try {
+    sqlite.pragma("foreign_keys = ON");
+    sqlite.pragma("busy_timeout = 1000");
+    if (databasePath !== ":memory:") {
+      sqlite.pragma("journal_mode = WAL");
+    }
+    // Persist each committed WAL transaction before reporting success.
+    sqlite.pragma("synchronous = FULL");
+    const database = drizzle(sqlite, { schema: databaseSchema });
+    return { database, sqlite };
+  } catch (error) {
+    sqlite.close();
+    throw error;
   }
-
-  const database = drizzle(sqlite, { schema: databaseSchema });
-
-  return { database, sqlite };
 }

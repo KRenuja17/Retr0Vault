@@ -8,7 +8,6 @@ import type { AnalysisImportResult } from "@retr0vault/shared";
 import type { DatabaseConnection } from "../database/connection.js";
 import {
   analysisReport, failedAnalysisResult, getPendingAnalysis, importAnalyses,
-  type AnalysisEntry,
 } from "../services/analysis.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
 
@@ -47,7 +46,11 @@ async function readBoundedJson(path: string): Promise<unknown> {
   if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Result must be a regular JSON file, not a link");
   const handle = await open(path, "r");
   try {
-    if ((await handle.stat()).size > maximumAnalysisFileBytes) throw new Error("Analysis file exceeds 2 MiB");
+    const opened = await handle.stat();
+    const current = await lstat(path);
+    if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== entry.ino || opened.dev !== entry.dev ||
+        opened.ino !== current.ino || opened.dev !== current.dev) throw new Error("Result file changed while opening");
+    if (opened.size > maximumAnalysisFileBytes) throw new Error("Analysis file exceeds 2 MiB");
     const buffer = Buffer.alloc(maximumAnalysisFileBytes + 1);
     let length = 0;
     while (length < buffer.length) {
@@ -75,17 +78,19 @@ export async function importAnalysisFiles(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return analysisReport([]);
     throw error;
   }
-  const entries: AnalysisEntry[] = [];
-  const failures: AnalysisImportResult[] = [];
+  const results: AnalysisImportResult[] = [];
+  const seen = new Set<string>();
   for (const entry of directoryEntries.sort((a, b) => a.name.localeCompare(b.name, "en"))) {
     if (!entry.name.toLowerCase().endsWith(".json") || entry.isDirectory()) continue;
     try {
-      entries.push({ source: entry.name, value: await readBoundedJson(join(resultsDirectory, entry.name)) });
+      // Keep only one bounded JSON document in memory. The shared set preserves
+      // duplicate detection across the entire directory, including failed imports.
+      const value = await readBoundedJson(join(resultsDirectory, entry.name));
+      results.push(...importAnalyses(connection, [{ source: entry.name, value }], overwriteProtected, seen).results);
     } catch (error) {
-      failures.push(failedAnalysisResult(entry.name, null, "INVALID_RESULT_FILE",
+      results.push(failedAnalysisResult(entry.name, null, "INVALID_RESULT_FILE",
         error instanceof Error ? error.message : "Result file could not be read"));
     }
   }
-  const imported = importAnalyses(connection, entries, overwriteProtected);
-  return analysisReport([...imported.results, ...failures].sort((a, b) => a.source.localeCompare(b.source, "en")));
+  return analysisReport(results);
 }

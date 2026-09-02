@@ -32,6 +32,7 @@ storage/thumbnails/*
 !storage/thumbnails/.gitkeep
 storage/captures/*
 !storage/captures/.gitkeep
+storage/quarantine/
 
 # Upload staging directories
 uploads/

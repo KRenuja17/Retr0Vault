@@ -22,7 +22,7 @@ export interface SeedResult {
   readonly collections: number;
 }
 
-export function seedDevelopmentData(
+function seedRecords(
   connection: DatabaseConnection,
 ): SeedResult {
   developmentDesignTypes.forEach((designType, sortOrder) => {
@@ -66,7 +66,7 @@ export function seedDevelopmentData(
   };
 }
 
-export function clearDevelopmentData(
+function clearSeedRecords(
   connection: DatabaseConnection,
 ): SeedResult {
   let removedDesignTypes = 0;
@@ -93,4 +93,12 @@ export function clearDevelopmentData(
     designTypes: removedDesignTypes,
     collections: removedCollections,
   };
+}
+
+export function seedDevelopmentData(connection: DatabaseConnection): SeedResult {
+  return connection.database.transaction(() => seedRecords(connection));
+}
+
+export function clearDevelopmentData(connection: DatabaseConnection): SeedResult {
+  return connection.database.transaction(() => clearSeedRecords(connection));
 }

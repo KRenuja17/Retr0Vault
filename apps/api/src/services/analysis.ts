@@ -93,8 +93,8 @@ export function importAnalyses(
   connection: DatabaseConnection,
   entries: readonly AnalysisEntry[],
   overwriteProtected = false,
+  seen = new Set<string>(),
 ): AnalysisImportReport {
-  const seen = new Set<string>();
   const results = entries.map(({ source, value }): AnalysisImportResult => {
     const parsed = referenceAnalysisSchema.safeParse(value);
     if (!parsed.success) {

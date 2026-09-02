@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, rmdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, realpath, rmdir, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import sharp, { type Metadata } from "sharp";
@@ -146,18 +146,16 @@ export class ReferenceStorage {
         const storedPath = `captures/${referenceId}/${frame.name}.png`;
         const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "capture");
         await this.#safeDirectory(dirname(absolutePath), true);
-        await writeFile(absolutePath, frame.buffer, { flag: "wx" });
-        written.push(storedPath);
+        await this.#writeExclusive(absolutePath, frame.buffer, () => written.push(storedPath));
       }
       const thumbnail = this.#resolveManagedPath(referenceId, thumbnailPath, "thumbnail");
       await this.#safeDirectory(dirname(thumbnail), true);
       const buffer = await sharp(frames[0].buffer).resize({ width: 640, height: 480, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
-      await writeFile(thumbnail, buffer, { flag: "wx" });
-      written.push(thumbnailPath);
+      await this.#writeExclusive(thumbnail, buffer, () => written.push(thumbnailPath));
       return { ...await this.inspectImage(frames[0].buffer), originalPath, thumbnailPath,
         frames: frames.map((frame, sortOrder) => ({ frameType: frame.frameType, imagePath: `captures/${referenceId}/${frame.name}.png`, sortOrder })) };
     } catch (error) {
-      // Only files successfully created by this call may be rolled back.
+      // Include partially written files, but never paths owned by an earlier call.
       for (const storedPath of written) {
         const absolutePath = this.#resolveManagedPath(referenceId, storedPath, storedPath.startsWith("captures/") ? "capture" : "thumbnail");
         await this.#safeDirectory(dirname(absolutePath), false).then(() => unlinkIfPresent(absolutePath)).catch(() => undefined);
@@ -185,15 +183,10 @@ export class ReferenceStorage {
       "thumbnail",
     );
 
-    await mkdir(resolve(this.#root, "originals"), { recursive: true });
-    await mkdir(resolve(this.#root, "thumbnails"), { recursive: true });
-
-    let originalWritten = false;
+    // Decode before creating files: header-valid but truncated images are 400s.
+    let thumbnail: Buffer;
     try {
-      await writeFile(originalAbsolutePath, buffer, { flag: "wx" });
-      originalWritten = true;
-
-      await sharp(buffer, {
+      thumbnail = await sharp(buffer, {
         failOn: "error",
         limitInputPixels: 100_000_000,
       })
@@ -205,12 +198,22 @@ export class ReferenceStorage {
           withoutEnlargement: true,
         })
         .webp({ quality: 82 })
-        .toFile(thumbnailAbsolutePath);
+        .toBuffer();
+    } catch {
+      throw new ApiError(400, "INVALID_IMAGE", "The uploaded file is not a valid readable image");
+    }
+
+    const written: string[] = [];
+    try {
+      await this.#safeDirectory(dirname(originalAbsolutePath), true);
+      await this.#safeDirectory(dirname(thumbnailAbsolutePath), true);
+      await this.#writeExclusive(originalAbsolutePath, buffer, () => written.push(originalAbsolutePath));
+      await this.#writeExclusive(thumbnailAbsolutePath, thumbnail, () => written.push(thumbnailAbsolutePath));
     } catch (error) {
-      await Promise.allSettled([
-        unlinkIfPresent(thumbnailAbsolutePath),
-        ...(originalWritten ? [unlinkIfPresent(originalAbsolutePath)] : []),
-      ]);
+      await Promise.allSettled(written.map(async (path) => {
+        await this.#safeDirectory(dirname(path), false);
+        await unlinkIfPresent(path);
+      }));
       throw error;
     }
 
@@ -240,8 +243,9 @@ export class ReferenceStorage {
         await this.#safeDirectory(dirname(absolutePath), false);
         await unlinkIfPresent(absolutePath);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
-        warnings.push(`${kind}: ${message}`);
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          warnings.push(`${kind}: managed file could not be removed safely`);
+        }
       }
     }
 
@@ -302,12 +306,27 @@ export class ReferenceStorage {
     const parts = relative(this.#root, directory).split(/[\\/]/).filter(Boolean);
     if (parts.some((part) => part === "..") || isAbsolute(relative(this.#root, directory))) throw new Error("Unsafe storage directory");
     if (create) await mkdir(this.#root, { recursive: true });
+    const rootEntry = await lstat(this.#root);
+    if (!rootEntry.isDirectory() || rootEntry.isSymbolicLink()) throw new Error("Storage root must be a real directory");
     let current = this.#root;
     for (const part of parts) {
       current = resolve(current, part);
       if (create) await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
       const entry = await lstat(current);
       if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Storage directory must be inside the storage root and must not be a symbolic link");
+    }
+  }
+
+  async #writeExclusive(path: string, buffer: Buffer, onCreated: () => void): Promise<void> {
+    // wx refuses an existing file or link. Record ownership before the first write
+    // so disk-full errors cannot leave an untracked partially written file.
+    const handle = await open(path, "wx");
+    onCreated();
+    try {
+      await handle.writeFile(buffer);
+      await handle.sync();
+    } finally {
+      await handle.close();
     }
   }
 

@@ -39,7 +39,7 @@ async function readImageMultipart(
     );
   }
 
-  const fields: Record<string, unknown> = {};
+  const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   let buffer: Buffer | undefined;
 
   for await (const part of request.parts()) {
@@ -69,11 +69,14 @@ async function readImageMultipart(
         );
       }
     } else {
+      if (part.valueTruncated || part.fieldnameTruncated) {
+        throw new ApiError(413, "MULTIPART_FIELD_TOO_LARGE", "An upload field exceeds the size limit");
+      }
       if (Object.hasOwn(fields, part.fieldname)) {
         throw new ApiError(
           400,
           "DUPLICATE_MULTIPART_FIELD",
-          `Multipart field '${part.fieldname}' was provided more than once`,
+          "A multipart field was provided more than once",
         );
       }
       fields[part.fieldname] = part.value;
@@ -118,6 +121,7 @@ export async function registerReferenceRoutes(
   });
 
   app.post("/api/v1/references/image", async (request, reply) => {
+    parseRequest(z.object({}).strict(), request.query);
     const { fields, buffer } = await readImageMultipart(request);
     const input = parseRequest(createImageReferenceFieldsSchema, fields);
     const id = randomUUID();
