@@ -1,0 +1,50 @@
+.heading {
+  font-family: var(--rv-font-display);
+  font-weight: 400;
+  line-height: var(--rv-leading-tight);
+  letter-spacing: var(--rv-tracking-display);
+  color: var(--rv-ink);
+  text-wrap: balance;
+  overflow-wrap: break-word;
+}
+
+.display {
+  font-size: var(--rv-display-lg);
+}
+
+.section {
+  font-size: var(--rv-display-md);
+}
+
+.card {
+  font-size: var(--rv-display-sm);
+  line-height: var(--rv-leading-snug);
+}
+
+.inverse {
+  color: var(--rv-ink-inverse);
+}
+
+.withMarker {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-4);
+}
+
+.marker {
+  flex: none;
+  font-size: 0.42em;
+  line-height: 1;
+  color: var(--rv-ink);
+  transform: translateY(-0.18em);
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: var(--rv-space-3);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  color: var(--rv-ink-muted);
+}

@@ -1,0 +1,113 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-12);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-5);
+}
+
+.blockHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-6);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rv-space-3);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  gap: var(--rv-space-4);
+}
+
+.swatch {
+  border: var(--rv-border) solid var(--rv-rule);
+}
+
+.swatchChip {
+  height: 4.5rem;
+}
+
+.swatchMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: var(--rv-space-3);
+  border-top: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+}
+
+.specimen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-5);
+}
+
+.specimenRow {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
+  gap: var(--rv-space-6);
+  align-items: baseline;
+  padding-top: var(--rv-space-4);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.bodyCopy {
+  max-width: 62ch;
+  color: var(--rv-ink-soft);
+}
+
+.placeholderMedia {
+  background-color: var(--rv-paper-deep);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(23, 20, 15, 0.07) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+.modalImage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16rem;
+  background-color: var(--rv-paper-deep);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(23, 20, 15, 0.07) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+.recipe {
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+  padding: var(--rv-space-5);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recipeHead {
+  color: var(--rv-accent);
+}
+
+@media (max-width: 759px) {
+  .specimenRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--rv-space-2);
+  }
+}

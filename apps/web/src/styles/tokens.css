@@ -1,0 +1,125 @@
+/*
+ * Retr0Vault design tokens.
+ *
+ * The archive is printed matter first: a warm paper ground, near-black ink,
+ * thin structural rules, square geometry and exactly one warm accent. Nothing
+ * here is allowed to introduce a radius, a gradient, a glow or a soft shadow.
+ */
+
+:root {
+  /* ---- Surfaces ------------------------------------------------------- */
+  --rv-paper: #f1ece5;
+  --rv-paper-deep: #e8e1d8;
+  --rv-surface: #fbf8f3;
+  --rv-surface-sunken: #f6f1e9;
+  --rv-surface-inverse: #17140f;
+
+  /* ---- Ink ------------------------------------------------------------ */
+  --rv-ink: #17140f;
+  --rv-ink-soft: #453d34;
+  --rv-ink-muted: #766a5d;
+  --rv-ink-faint: #9c9084;
+  --rv-ink-inverse: #f6f1e9;
+
+  /* ---- Rules ---------------------------------------------------------- */
+  --rv-rule: #17140f;
+  --rv-rule-hairline: #d7cdbf;
+  --rv-rule-soft: #c4b9a9;
+
+  /* ---- Accent (used sparingly: counters, markers, one action) ---------- */
+  --rv-accent: #b4472a;
+  --rv-accent-deep: #93381f;
+  --rv-accent-wash: #f3e4dd;
+
+  /* ---- Feedback (kept in the same earthen family) ---------------------- */
+  --rv-signal-pending: #8a6a2f;
+  --rv-signal-error: #97301c;
+
+  /* ---- Geometry ------------------------------------------------------- */
+  --rv-radius: 0;
+  --rv-border: 1px;
+  --rv-rule-weight: 1px;
+  --rv-rule-weight-heavy: 2px;
+
+  /* ---- Type families -------------------------------------------------- */
+  --rv-font-display: "Newsreader Variable", "Newsreader", "Iowan Old Style",
+    "Georgia", "Times New Roman", serif;
+  --rv-font-body: "Inter Variable", "Inter", "Helvetica Neue", Arial,
+    system-ui, sans-serif;
+  --rv-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "IBM Plex Mono",
+    "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+
+  /* ---- Type scale ----------------------------------------------------- */
+  --rv-text-2xs: 0.6875rem; /* 11px — ruler ticks, catalogue index */
+  --rv-text-xs: 0.75rem; /* 12px — mono micro-labels */
+  --rv-text-sm: 0.8125rem; /* 13px — chips, tabs */
+  --rv-text-base: 0.875rem; /* 14px — mono metadata */
+  --rv-text-md: 0.9375rem; /* 15px — body */
+  --rv-text-lg: 1.0625rem; /* 17px — lead body */
+  --rv-text-xl: 1.25rem; /* 20px */
+  --rv-display-sm: 1.5rem; /* 24px — card titles */
+  --rv-display-md: 2.0625rem; /* 33px — section headings */
+  --rv-display-lg: 2.75rem; /* 44px — style-guide title */
+
+  --rv-leading-tight: 1.1;
+  --rv-leading-snug: 1.3;
+  --rv-leading-normal: 1.55;
+  --rv-leading-relaxed: 1.7;
+
+  --rv-tracking-mono: 0.06em;
+  --rv-tracking-mono-wide: 0.12em;
+  --rv-tracking-display: -0.012em;
+
+  /* ---- Spacing -------------------------------------------------------- */
+  --rv-space-1: 0.25rem;
+  --rv-space-2: 0.5rem;
+  --rv-space-3: 0.75rem;
+  --rv-space-4: 1rem;
+  --rv-space-5: 1.25rem;
+  --rv-space-6: 1.5rem;
+  --rv-space-8: 2rem;
+  --rv-space-10: 2.5rem;
+  --rv-space-12: 3rem;
+  --rv-space-16: 4rem;
+  --rv-space-20: 5rem;
+
+  /* ---- Layout --------------------------------------------------------- */
+  --rv-shell-max: 1680px;
+  --rv-shell-gutter: clamp(1.25rem, 3vw, 3.5rem);
+  --rv-grid-gap: clamp(1rem, 1.6vw, 1.625rem);
+  --rv-grid-columns: 3;
+
+  /* ---- Motion (restrained: colour and border only, never transforms) --- */
+  --rv-motion-fast: 90ms;
+  --rv-motion-base: 140ms;
+  --rv-easing: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ---- Depth ---------------------------------------------------------- */
+  --rv-scrim: rgba(23, 20, 15, 0.62);
+  --rv-focus-ring: 2px solid var(--rv-accent);
+  --rv-focus-offset: 2px;
+
+  /* Paper grain. One repeating 4px dot field; no image request. */
+  --rv-paper-grain: radial-gradient(
+    rgba(23, 20, 15, 0.05) 0.5px,
+    transparent 0.5px
+  );
+  --rv-paper-grain-size: 4px 4px;
+
+  --rv-z-modal: 100;
+}
+
+@media (max-width: 1179px) {
+  :root {
+    --rv-grid-columns: 2;
+  }
+}
+
+@media (max-width: 759px) {
+  :root {
+    --rv-grid-columns: 1;
+    --rv-display-lg: 2.125rem;
+    --rv-display-md: 1.625rem;
+    --rv-display-sm: 1.375rem;
+  }
+}

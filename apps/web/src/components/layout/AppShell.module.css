@@ -1,0 +1,117 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.container {
+  width: 100%;
+  max-width: var(--rv-shell-max);
+  margin-inline: auto;
+  padding-inline: var(--rv-shell-gutter);
+}
+
+.main {
+  flex: 1;
+  padding-block: var(--rv-space-8) var(--rv-space-16);
+}
+
+/* --- masthead ---------------------------------------------------------- */
+.masthead {
+  padding-block: var(--rv-space-6) var(--rv-space-5);
+}
+
+.mastheadInner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--rv-space-6);
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+}
+
+.wordmark:hover {
+  text-decoration: none;
+}
+
+.wordmarkText {
+  font-family: var(--rv-font-display);
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  letter-spacing: var(--rv-tracking-display);
+  line-height: 1;
+}
+
+.wordmarkMark {
+  color: var(--rv-accent);
+}
+
+.strapline {
+  color: var(--rv-ink-muted);
+}
+
+.mastheadMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-5);
+  flex-wrap: wrap;
+}
+
+/* --- navigation slot (the filter rail lands here in the next phase) ----- */
+.navSlot {
+  padding-block: var(--rv-space-5);
+}
+
+/* --- footer ------------------------------------------------------------ */
+.footer {
+  padding-block: var(--rv-space-5) var(--rv-space-8);
+  color: var(--rv-ink-muted);
+}
+
+.footerInner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-5);
+  flex-wrap: wrap;
+}
+
+.footerLinks {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-5);
+}
+
+/* --- connection status ------------------------------------------------- */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rv-space-2);
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  background-color: var(--rv-ink-faint);
+}
+
+.statusOnline .statusDot {
+  background-color: var(--rv-accent);
+}
+
+.statusOffline .statusDot {
+  background-color: var(--rv-signal-error);
+}
+
+@media (max-width: 759px) {
+  .mastheadInner,
+  .footerInner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

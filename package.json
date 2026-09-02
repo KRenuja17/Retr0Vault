@@ -13,10 +13,19 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "concurrently --names api,web --prefix-colors yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run dev --workspace @retr0vault/api",
-    "build": "tsc -b packages/shared apps/api --pretty false",
-    "typecheck": "tsc -p tsconfig.typecheck.json --pretty false",
-    "test": "npm run test --workspace @retr0vault/api",
+    "dev:web": "npm run dev --workspace @retr0vault/web",
+    "build": "npm run build:api && npm run build:web",
+    "build:api": "tsc -b packages/shared apps/api --pretty false",
+    "build:web": "npm run build --workspace @retr0vault/web",
+    "preview:web": "npm run preview --workspace @retr0vault/web",
+    "typecheck": "npm run typecheck:api && npm run typecheck:web",
+    "typecheck:api": "tsc -p tsconfig.typecheck.json --pretty false",
+    "typecheck:web": "npm run typecheck --workspace @retr0vault/web",
+    "test": "npm run test:api && npm run test:web",
+    "test:api": "npm run test --workspace @retr0vault/api",
+    "test:web": "npm run test --workspace @retr0vault/web",
     "capture:install": "npm run capture:install --workspace @retr0vault/api",
     "db:migrate": "npm run db:migrate --workspace @retr0vault/api",
     "db:generate": "npm run db:generate --workspace @retr0vault/api",
@@ -27,6 +36,7 @@
     "analysis:import": "npm run analysis:import --workspace @retr0vault/api --"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "typescript": "^5.9.2"
   }
 }

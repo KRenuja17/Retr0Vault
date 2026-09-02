@@ -1,0 +1,73 @@
+.label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--rv-space-2);
+  font-family: var(--rv-font-mono);
+  font-weight: 400;
+  font-variant-ligatures: none;
+  line-height: var(--rv-leading-snug);
+  color: var(--rv-ink);
+}
+
+/* --- sizes ------------------------------------------------------------- */
+.micro {
+  font-size: var(--rv-text-2xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+}
+
+.small {
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+}
+
+.regular {
+  font-size: var(--rv-text-sm);
+  letter-spacing: var(--rv-tracking-mono);
+}
+
+.large {
+  font-size: var(--rv-text-base);
+  letter-spacing: var(--rv-tracking-mono);
+}
+
+/* --- tones ------------------------------------------------------------- */
+.toneInk {
+  color: var(--rv-ink);
+}
+
+.toneMuted {
+  color: var(--rv-ink-muted);
+}
+
+.toneSoft {
+  color: var(--rv-ink-soft);
+}
+
+.toneAccent {
+  color: var(--rv-accent);
+}
+
+.toneInverse {
+  color: var(--rv-ink-inverse);
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+/* The lozenge marker that opens a category line: ◆ in accent. */
+.marker::before {
+  content: "◆";
+  margin-right: var(--rv-space-2);
+  font-size: 0.85em;
+  color: var(--rv-accent);
+  line-height: 1;
+}
+
+.markerHollow::before {
+  content: "◇";
+}
+
+.markerSquare::before {
+  content: "■";
+}

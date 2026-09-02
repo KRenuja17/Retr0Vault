@@ -1,0 +1,100 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--rv-z-modal);
+  background-color: var(--rv-scrim);
+}
+
+.positioner {
+  position: fixed;
+  inset: 0;
+  z-index: var(--rv-z-modal);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(1rem, 3vh, 3rem) var(--rv-shell-gutter);
+  pointer-events: none;
+}
+
+.surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1180px);
+  max-height: calc(100vh - clamp(2rem, 6vh, 6rem));
+  pointer-events: auto;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  color: var(--rv-ink);
+  overflow: hidden;
+}
+
+.wide {
+  width: min(100%, 1480px);
+}
+
+/* The reference image leads; metadata follows underneath. */
+.media {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background-color: var(--rv-surface-sunken);
+  border-bottom: var(--rv-border) solid var(--rv-rule);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--rv-space-8) var(--rv-space-10) var(--rv-space-6);
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rv-space-3);
+  padding: var(--rv-space-5) var(--rv-space-10) var(--rv-space-6);
+  border-top: var(--rv-border) dotted var(--rv-rule-soft);
+}
+
+.close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  padding: var(--rv-space-3) var(--rv-space-4);
+  border-left: var(--rv-border) solid var(--rv-rule);
+  border-bottom: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.close:hover {
+  background-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
+}
+
+@media (max-width: 759px) {
+  .positioner {
+    padding: 0;
+  }
+
+  .surface {
+    width: 100%;
+    max-height: 100vh;
+    border-left: none;
+    border-right: none;
+  }
+
+  .body,
+  .footer {
+    padding-inline: var(--rv-space-5);
+  }
+}

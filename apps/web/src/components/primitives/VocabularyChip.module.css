@@ -1,0 +1,60 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.34rem 0.55rem 0.32rem;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+  color: var(--rv-ink-soft);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.interactive {
+  transition:
+    border-color var(--rv-motion-fast) var(--rv-easing),
+    color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.interactive:hover {
+  border-color: var(--rv-rule);
+  color: var(--rv-ink);
+  text-decoration: none;
+}
+
+.small {
+  font-size: var(--rv-text-xs);
+  padding: 0.28rem 0.45rem 0.26rem;
+}
+
+/* The `+4` counter that closes a truncated vocabulary run. */
+.overflow {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--rv-ink-muted);
+  padding-inline: var(--rv-space-1);
+}
+
+.selected {
+  border-color: var(--rv-rule);
+  background-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
+}
+
+/* A run of chips; the gaps are part of the primitive, not the caller. */
+.set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rv-space-2);
+}

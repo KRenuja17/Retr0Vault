@@ -1,0 +1,49 @@
+.count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-family: var(--rv-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: var(--rv-leading-snug);
+  letter-spacing: var(--rv-tracking-mono);
+  white-space: nowrap;
+}
+
+.small {
+  font-size: var(--rv-text-xs);
+}
+
+.regular {
+  font-size: var(--rv-text-sm);
+}
+
+.large {
+  font-size: var(--rv-text-base);
+}
+
+.value {
+  color: var(--rv-accent);
+}
+
+.toneMuted .value {
+  color: var(--rv-ink-muted);
+}
+
+.toneInk .value {
+  color: var(--rv-ink);
+}
+
+.toneInverse .value {
+  color: var(--rv-ink-inverse);
+}
+
+.separator,
+.total {
+  color: var(--rv-ink-muted);
+}
+
+.toneInverse .separator,
+.toneInverse .total {
+  color: color-mix(in srgb, var(--rv-ink-inverse) 66%, transparent);
+}

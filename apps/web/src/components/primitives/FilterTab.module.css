@@ -1,0 +1,65 @@
+.tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  padding: 0.62rem 0.95rem 0.6rem;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color var(--rv-motion-fast) var(--rv-easing),
+    color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.tab:hover {
+  background-color: var(--rv-paper-deep);
+  text-decoration: none;
+}
+
+.tab:disabled,
+.tab[aria-disabled="true"] {
+  color: var(--rv-ink-faint);
+  border-color: var(--rv-rule-soft);
+  background-color: transparent;
+}
+
+.marker {
+  font-size: 0.9em;
+  line-height: 1;
+  color: var(--rv-accent);
+}
+
+.label {
+  display: inline-block;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  color: var(--rv-accent);
+}
+
+/* --- active ------------------------------------------------------------ */
+.active {
+  background-color: var(--rv-surface-inverse);
+  border-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
+}
+
+.active:hover {
+  background-color: var(--rv-surface-inverse);
+}
+
+.active .count {
+  color: color-mix(in srgb, var(--rv-accent) 55%, var(--rv-ink-inverse));
+}
+
+.active .marker {
+  color: color-mix(in srgb, var(--rv-accent) 55%, var(--rv-ink-inverse));
+}

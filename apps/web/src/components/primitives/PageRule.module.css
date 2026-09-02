@@ -1,0 +1,37 @@
+.rule {
+  display: block;
+  width: 100%;
+  border: none;
+  border-top-style: solid;
+  border-top-color: var(--rv-rule);
+  border-top-width: var(--rv-rule-weight);
+}
+
+.heavy {
+  border-top-width: var(--rv-rule-weight-heavy);
+}
+
+.hairline {
+  border-top-color: var(--rv-rule-hairline);
+}
+
+.dotted {
+  border-top-style: dotted;
+  border-top-color: var(--rv-rule-soft);
+}
+
+.spaceNone {
+  margin-block: 0;
+}
+
+.spaceTight {
+  margin-block: var(--rv-space-4);
+}
+
+.spaceRegular {
+  margin-block: var(--rv-space-8);
+}
+
+.spaceLoose {
+  margin-block: var(--rv-space-12);
+}
