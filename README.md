@@ -52,11 +52,15 @@ npm run db:migrate   # Apply committed SQLite migrations
 npm run db:generate  # Generate migrations after schema changes
 npm run seed         # Add representative development design types/collection
 npm run seed:clear   # Remove only the development seed records
-npm run test         # Run the backend test suite
-npm run typecheck    # Type-check all TypeScript sources and tests
-npm run build        # Build shared and API packages
+npm run test:api     # Run the backend test suite
+npm run typecheck:api # Type-check shared/backend sources and backend tests
+npm run build:api    # Build shared and API packages
 npm run storage:orphans # Report old unowned files; does not move/delete them
 ```
+
+No manual shared-package build is needed after `npm install`. `seed` and `seed:clear` build `@retr0vault/shared` first, including when invoked directly with `--workspace @retr0vault/api`. Direct API workspace `typecheck` builds shared declarations first; `start` builds the API and its shared dependency before running the compiled server. These pre-scripts stop the command if compilation fails.
+
+`build:api` (and the API workspace `build`) already orders shared/API compilation through TypeScript project references. `dev:api`, `test:api`, the root `typecheck:api`, and the analysis/orphan CLIs use shared TypeScript source directly. `db:migrate`, `db:generate`, and `capture:install` do not need shared runtime output. The full root `typecheck` and `build` commands also check/build the frontend.
 
 Environment variables are optional and validated at startup:
 
