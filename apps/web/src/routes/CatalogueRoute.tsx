@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 
 import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
 import { CatalogueView } from "@/components/catalogue/CatalogueView";
+import { DesignTypeGuide } from "@/components/design-type/DesignTypeGuide";
 import { MonoLabel } from "@/components/primitives";
 import {
   useCollections,
@@ -14,9 +15,9 @@ export function AllRoute() {
 }
 
 /**
- * `/type/:slug` — the catalogue filtered to one design type. The style-guide
- * header that belongs above these plates is a later phase; this route only
- * carries the filter.
+ * `/type/:slug` — the design type read as a style guide, with its own plates
+ * beneath it. The guide comes from the design-type list the filter rail has
+ * already fetched, so the route adds no request of its own.
  */
 export function DesignTypeRoute() {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -30,6 +31,9 @@ export function DesignTypeRoute() {
       filter={{ kind: "designType", slug }}
       label={match?.name ?? slug}
       missing={resolved && match === undefined}
+      intro={
+        <DesignTypeGuide designType={match} pending={designTypes.isPending} />
+      }
     />
   );
 }

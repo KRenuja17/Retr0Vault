@@ -1,0 +1,187 @@
+/*
+ * The design-type specification sheet. Two bordered plates on warm paper: the
+ * identity plate (what the style is, what it is for, its vocabulary) and the
+ * rules plate (principles against anti-patterns). Printed matter, not docs.
+ */
+
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-grid-gap);
+  padding-block: var(--rv-space-6) var(--rv-space-10);
+}
+
+.plate {
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface);
+}
+
+/* --- identity ---------------------------------------------------------- */
+.identity {
+  padding: var(--rv-space-10) var(--rv-space-10) var(--rv-space-8);
+}
+
+/*
+ * Deliberate asymmetry: the title anchors the left, the risk line runs to the
+ * right margin as marginalia. Not a warning box — a note in the gutter.
+ */
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rv-space-10);
+  flex-wrap: wrap;
+}
+
+.risk {
+  flex: 0 1 46ch;
+  min-width: 0;
+  text-align: right;
+  line-height: var(--rv-leading-normal);
+}
+
+.riskKey {
+  color: var(--rv-ink-muted);
+}
+
+.riskBody {
+  color: var(--rv-ink-muted);
+}
+
+.summary {
+  margin-top: var(--rv-space-6);
+  max-width: 68ch;
+  font-size: var(--rv-text-lg);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+}
+
+.deploy {
+  margin-top: var(--rv-space-5);
+  max-width: 78ch;
+  font-size: var(--rv-text-md);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+}
+
+.deployKey {
+  margin-right: var(--rv-space-2);
+  color: var(--rv-ink);
+}
+
+.vocabulary {
+  margin-top: var(--rv-space-8);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rv-space-3);
+  margin-top: var(--rv-space-6);
+}
+
+/* --- principles / avoid ------------------------------------------------ */
+.rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.column {
+  padding: var(--rv-space-8) var(--rv-space-10);
+  min-width: 0;
+}
+
+/* One hairline between the columns; no boxes around the rows. */
+.columnSecond {
+  border-left: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.columnHead {
+  display: block;
+  margin-bottom: var(--rv-space-4);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  display: flex;
+  gap: var(--rv-space-4);
+  padding-block: var(--rv-space-4);
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+  font-size: var(--rv-text-md);
+  line-height: var(--rv-leading-relaxed);
+  color: var(--rv-ink-soft);
+}
+
+.item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.bullet {
+  flex: none;
+  width: 0.42em;
+  height: 0.42em;
+  margin-top: 0.62em;
+  background-color: var(--rv-ink);
+}
+
+.bulletAvoid {
+  background-color: var(--rv-accent);
+}
+
+/* --- absent metadata --------------------------------------------------- */
+.absent {
+  display: block;
+  padding-block: var(--rv-space-3);
+  color: var(--rv-ink-faint);
+}
+
+/* --- loading ----------------------------------------------------------- */
+.ghostLine {
+  height: 0.9rem;
+  margin-bottom: var(--rv-space-3);
+  background-color: var(--rv-surface-sunken);
+  border: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.ghostTitle {
+  width: 34%;
+  height: 2rem;
+  margin-bottom: var(--rv-space-6);
+}
+
+.ghostShort {
+  width: 48%;
+}
+
+@media (max-width: 979px) {
+  .rules {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .columnSecond {
+    border-left: none;
+    border-top: var(--rv-border) solid var(--rv-rule-hairline);
+  }
+}
+
+@media (max-width: 759px) {
+  .identity,
+  .column {
+    padding: var(--rv-space-6) var(--rv-space-5);
+  }
+
+  .masthead {
+    gap: var(--rv-space-4);
+  }
+
+  .risk {
+    flex-basis: 100%;
+    text-align: left;
+  }
+}

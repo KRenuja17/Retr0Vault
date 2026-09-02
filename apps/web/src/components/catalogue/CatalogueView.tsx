@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
 import {
   ActionButton,
@@ -30,6 +32,12 @@ export interface CatalogueViewProps {
    * tells the view what it found.
    */
   readonly missing?: boolean;
+  /**
+   * Content between the filter rail and the plates — the design-type style
+   * guide. Rendered whatever the catalogue's own state, so a type with no
+   * references still explains itself.
+   */
+  readonly intro?: ReactNode;
 }
 
 /** Bordered plates that hold the grid's rhythm while the first page loads. */
@@ -83,7 +91,12 @@ function describeError(error: unknown): {
  * can be in. Used unchanged by /all, /type/:slug and /collection/:slug — the
  * route supplies the filter, nothing here is hard-coded.
  */
-export function CatalogueView({ filter, label, missing = false }: CatalogueViewProps) {
+export function CatalogueView({
+  filter,
+  label,
+  missing = false,
+  intro,
+}: CatalogueViewProps) {
   const designTypes = useDesignTypes();
   const designTypeIndex = useDesignTypeIndex(designTypes.data);
   const catalogue = useCatalogueReferences(filter);
@@ -95,6 +108,8 @@ export function CatalogueView({ filter, label, missing = false }: CatalogueViewP
     <div className={styles.view}>
       <FilterRail active={filter} />
       <PageRule weight="hairline" />
+
+      {missing ? null : intro}
 
       {missing ? (
         <MissingSliceState filter={filter} label={label} />
