@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: var(--rv-space-3);
-  padding: 0.62rem 0.95rem 0.6rem;
+  padding: 0.72rem 1rem 0.7rem;
   border: var(--rv-border) solid var(--rv-rule);
   background-color: var(--rv-surface);
   color: var(--rv-ink);

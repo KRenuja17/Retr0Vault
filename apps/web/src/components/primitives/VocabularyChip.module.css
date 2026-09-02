@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  padding: 0.34rem 0.55rem 0.32rem;
+  padding: 0.4rem 0.62rem 0.38rem;
   border: var(--rv-border) solid var(--rv-rule-soft);
   background-color: var(--rv-surface-sunken);
   color: var(--rv-ink-soft);

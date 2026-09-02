@@ -1,0 +1,40 @@
+.rail {
+  padding-block: var(--rv-space-5) var(--rv-space-6);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--rv-space-3);
+}
+
+/*
+ * Collections are the same control as a design type but read as a separate
+ * group: a leading hairline gutter rather than a second visual style.
+ */
+.collectionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--rv-space-3);
+}
+
+.placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rv-space-3);
+}
+
+.placeholderTab {
+  height: 2.6rem;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-surface-sunken);
+}
+
+.railError {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  flex-wrap: wrap;
+}

@@ -57,7 +57,7 @@
   --rv-text-md: 0.9375rem; /* 15px — body */
   --rv-text-lg: 1.0625rem; /* 17px — lead body */
   --rv-text-xl: 1.25rem; /* 20px */
-  --rv-display-sm: 1.5rem; /* 24px — card titles */
+  --rv-display-sm: 1.625rem; /* 26px — card titles */
   --rv-display-md: 2.0625rem; /* 33px — section headings */
   --rv-display-lg: 2.75rem; /* 44px — style-guide title */
 
@@ -84,9 +84,9 @@
   --rv-space-20: 5rem;
 
   /* ---- Layout --------------------------------------------------------- */
-  --rv-shell-max: 1680px;
+  --rv-shell-max: 1760px;
   --rv-shell-gutter: clamp(1.25rem, 3vw, 3.5rem);
-  --rv-grid-gap: clamp(1rem, 1.6vw, 1.625rem);
+  --rv-grid-gap: clamp(1rem, 1.6vw, 1.75rem);
   --rv-grid-columns: 3;
 
   /* ---- Motion (restrained: colour and border only, never transforms) --- */

@@ -1,95 +1,60 @@
 import { useParams } from "react-router-dom";
 
 import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
+import { CatalogueView } from "@/components/catalogue/CatalogueView";
 import { MonoLabel } from "@/components/primitives";
+import {
+  useCollections,
+  useDesignTypes,
+} from "@/lib/catalogue/useCatalogue";
 
-const CATALOGUE_MANIFEST = [
-  "Design-type filter rail with live counts",
-  "Three-column catalogue grid",
-  "Screenshot-first plates",
-  "Design DNA opposite each title",
-  "Vocabulary chips with +N overflow",
-  "Catalogue numbering",
-];
-
-/** `/all` — the main catalogue. The grid itself is built in the next phase. */
+/** `/all` — the complete catalogue. */
 export function AllRoute() {
-  return (
-    <SectionPanel
-      eyebrow="Catalogue"
-      title="The full archive"
-      aside={
-        <MonoLabel size="small" tone="muted" uppercase>
-          Route · /all
-        </MonoLabel>
-      }
-      lede="Every reference in Retr0Vault, ordered as a catalogue rather than a feed. The visual system and route shell are in place; the plates land next."
-    >
-      <ManifestList label="Next in this view" items={CATALOGUE_MANIFEST} />
-    </SectionPanel>
-  );
+  return <CatalogueView filter={{ kind: "all" }} label="Complete archive" />;
 }
 
-/** `/type/:slug` — a design type read as a mini style guide, then its plates. */
+/**
+ * `/type/:slug` — the catalogue filtered to one design type. The style-guide
+ * header that belongs above these plates is a later phase; this route only
+ * carries the filter.
+ */
 export function DesignTypeRoute() {
   const { slug = "" } = useParams<{ slug: string }>();
+  const designTypes = useDesignTypes();
+
+  const match = designTypes.data?.find((designType) => designType.slug === slug);
+  const resolved = designTypes.data !== undefined;
 
   return (
-    <SectionPanel
-      eyebrow="Design type"
-      title={slug || "Unknown type"}
-      marker
-      aside={
-        <MonoLabel size="small" tone="muted" uppercase>
-          Route · /type/{slug}
-        </MonoLabel>
-      }
-      lede="A design type is a style guide, not a filter label: description, deploy-for, risk, principles, anti-patterns and reusable vocabulary, with its own plates beneath."
-    >
-      <ManifestList
-        label="Next in this view"
-        items={[
-          "Description and DEPLOY FOR line",
-          "RISK statement as marginalia",
-          "Vocabulary chip set",
-          "Principles and AVOID columns",
-          "COPY BRIEF BLOCK / COPY VOCAB ONLY",
-          "Filtered catalogue plates",
-        ]}
-      />
-    </SectionPanel>
+    <CatalogueView
+      filter={{ kind: "designType", slug }}
+      label={match?.name ?? slug}
+      missing={resolved && match === undefined}
+    />
   );
 }
 
-/** `/collection/:slug` — pinned and user collections, same plate language. */
+/**
+ * `/collection/:slug` — the catalogue filtered to one collection. Creating,
+ * renaming and editing membership belong to a later phase.
+ */
 export function CollectionRoute() {
   const { slug = "" } = useParams<{ slug: string }>();
+  const collections = useCollections();
+
+  const match = collections.data?.find((collection) => collection.slug === slug);
+  const resolved = collections.data !== undefined;
 
   return (
-    <SectionPanel
-      eyebrow="Collection"
-      title={slug || "Unknown collection"}
-      aside={
-        <MonoLabel size="small" tone="muted" uppercase>
-          Route · /collection/{slug}
-        </MonoLabel>
-      }
-      lede="Collections are ordinary records, not hard-coded categories. Reference Styles ships pinned; further collections are created from the archive itself."
-    >
-      <ManifestList
-        label="Next in this view"
-        items={[
-          "Pinned collections in the filter rail",
-          "Collection plates",
-          "Add and remove membership",
-          "Rename, pin and delete",
-        ]}
-      />
-    </SectionPanel>
+    <CatalogueView
+      filter={{ kind: "collection", slug }}
+      label={match?.name ?? slug}
+      missing={resolved && match === undefined}
+    />
   );
 }
 
-/** `/reference/:id` — route-backed modal state for a single reference. */
+/** `/reference/:id` — route-backed detail state; the modal is a later phase. */
 export function ReferenceRoute() {
   const { id = "" } = useParams<{ id: string }>();
 
@@ -102,7 +67,7 @@ export function ReferenceRoute() {
           Route · /reference/{id.slice(0, 8)}
         </MonoLabel>
       }
-      lede="Opening a plate raises the large detail modal over a darkened catalogue. This route exists so a reference stays linkable and survives a reload."
+      lede="Opening a plate will raise the large detail modal over a darkened catalogue. This route exists so a reference stays linkable and survives a reload."
     >
       <ManifestList
         label="Next in this view"

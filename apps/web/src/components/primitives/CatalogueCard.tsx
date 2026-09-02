@@ -58,12 +58,13 @@ export function CatalogueCardMedia({
 }: CatalogueCardMediaProps) {
   return (
     <div className={cx(styles.media, className)} {...rest}>
-      {src ? (
-        <img src={src} alt={alt} loading={loading} decoding="async" />
-      ) : (
-        <span className={styles.mediaFallback}>{fallback}</span>
-      )}
-      {children}
+      {/* A caller that supplies children owns the whole frame. */}
+      {children ??
+        (src ? (
+          <img src={src} alt={alt} loading={loading} decoding="async" />
+        ) : (
+          <span className={styles.mediaFallback}>{fallback}</span>
+        ))}
     </div>
   );
 }

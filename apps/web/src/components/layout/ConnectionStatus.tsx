@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { MonoLabel } from "@/components/primitives";
+import { ApiError } from "@/lib/api/client";
 import { fetchHealth } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
@@ -19,28 +20,34 @@ export function ConnectionStatus() {
     refetchInterval: 60_000,
   });
 
+  /*
+   * "Offline" means nothing is listening. An API that answers with an error is
+   * reachable, and saying otherwise would send the reader to the wrong place.
+   */
   const state = health.isPending
     ? "checking"
     : health.isSuccess
       ? "online"
-      : "offline";
+      : health.error instanceof ApiError && !health.error.isOffline
+        ? "faulty"
+        : "offline";
 
-  const text =
-    state === "checking"
-      ? "Checking API"
-      : state === "online"
-        ? "API 4611 online"
-        : "API 4611 offline";
+  const text = {
+    checking: "Checking API",
+    online: "API 4611 online",
+    faulty: "API 4611 erroring",
+    offline: "API 4611 offline",
+  }[state];
 
   return (
     <MonoLabel
       size="small"
-      tone={state === "offline" ? "soft" : "muted"}
+      tone={state === "online" || state === "checking" ? "muted" : "soft"}
       uppercase
       className={cx(
         styles.status,
         state === "online" && styles.statusOnline,
-        state === "offline" && styles.statusOffline,
+        (state === "offline" || state === "faulty") && styles.statusOffline,
       )}
       role="status"
     >

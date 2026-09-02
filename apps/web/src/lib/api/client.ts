@@ -29,9 +29,15 @@ export class ApiError extends Error {
     this.requestId = options.requestId;
   }
 
-  /** True when the API could not be reached at all (process down, DNS, CORS). */
+  /**
+   * True when the API process could not be reached at all, as opposed to
+   * reached and answering with an error. Covers a failed fetch, and a proxy or
+   * gateway that could not connect to the API behind it.
+   */
   get isOffline(): boolean {
-    return this.code === "NETWORK_UNREACHABLE";
+    return (
+      this.code === "NETWORK_UNREACHABLE" || this.code === "UPSTREAM_UNREACHABLE"
+    );
   }
 }
 
@@ -113,15 +119,19 @@ export async function apiRequest<TResponse>(
 
   const raw = await response.text();
   let payload: unknown;
+  let parseFailure: unknown;
+
   if (raw.length > 0) {
     try {
       payload = JSON.parse(raw) as unknown;
     } catch (cause) {
-      throw new ApiError("The API returned a response that was not JSON.", {
-        code: "INVALID_RESPONSE",
-        statusCode: response.status,
-        cause,
-      });
+      /*
+       * Deliberately not thrown here. An unparseable body on a FAILED response
+       * is evidence about who answered — a proxy that could not connect sends
+       * plain text or nothing — so it is classified below with the status.
+       * Only an unparseable body on a SUCCESSFUL response is a broken contract.
+       */
+      parseFailure = cause;
     }
   }
 
@@ -133,9 +143,35 @@ export async function apiRequest<TResponse>(
         requestId: payload.requestId,
       });
     }
+
+    /*
+     * The API answers every error — 500s included — with the structured
+     * envelope above. So a 5xx that arrives WITHOUT one did not come from the
+     * API: it came from something in front of it that could not connect, such
+     * as the Vite dev proxy answering 500 on ECONNREFUSED. Report that as
+     * unreachable rather than as a server fault, which would send the reader
+     * looking for a bug in a process that is not even running.
+     *
+     * A genuine backend 500 still carries the envelope and is never masked.
+     */
+    if (response.status >= 500) {
+      throw new ApiError(
+        "Retr0Vault could not reach the local API on 127.0.0.1:4611.",
+        { code: "UPSTREAM_UNREACHABLE", statusCode: response.status },
+      );
+    }
+
     throw new ApiError(`Request failed with status ${response.status}.`, {
       code: "REQUEST_FAILED",
       statusCode: response.status,
+    });
+  }
+
+  if (parseFailure !== undefined) {
+    throw new ApiError("The API returned a response that was not JSON.", {
+      code: "INVALID_RESPONSE",
+      statusCode: response.status,
+      cause: parseFailure,
     });
   }
 

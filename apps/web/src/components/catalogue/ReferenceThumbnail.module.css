@@ -1,0 +1,41 @@
+.frame {
+  position: absolute;
+  inset: 0;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  /*
+   * The plate stays blank rather than flashing a half-decoded image; the
+   * transition is opacity only, so nothing moves as the grid fills in.
+   */
+  opacity: 0;
+  transition: opacity var(--rv-motion-base) var(--rv-easing);
+}
+
+.imageReady {
+  opacity: 1;
+}
+
+/* Loading, missing and failed all resolve to the same paper ground. */
+.state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rv-space-2);
+  background-color: var(--rv-surface-sunken);
+  background-image: var(--rv-paper-grain);
+  background-size: var(--rv-paper-grain-size);
+  text-align: center;
+  padding: var(--rv-space-4);
+}
+
+.stateFailed {
+  background-color: var(--rv-paper-deep);
+}

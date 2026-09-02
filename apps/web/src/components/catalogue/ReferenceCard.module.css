@@ -1,0 +1,63 @@
+/*
+ * Plate proportions are taken from the reference screenshots: the capture owns
+ * roughly two thirds of the plate, the metadata block sits on warm paper below
+ * it, and the whole thing is bounded by a single hairline black rule.
+ */
+.plate {
+  height: 100%;
+}
+
+.mediaLink {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.mediaLink:hover {
+  text-decoration: none;
+}
+
+.titleLink {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.titleLink:hover {
+  text-decoration: none;
+}
+
+.titleLink:hover .title {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  text-decoration-thickness: 1px;
+}
+
+.title {
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Design DNA: mono marginalia, opposite the title, never competing with it. */
+.dna {
+  color: var(--rv-ink-muted);
+}
+
+.pending {
+  color: var(--rv-signal-pending);
+}
+
+.tags {
+  /* Two rows at most; the +N tail closes the run. */
+  row-gap: var(--rv-space-2);
+}
+
+.category {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unassigned {
+  color: var(--rv-ink-faint);
+}
