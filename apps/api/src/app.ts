@@ -17,6 +17,7 @@ import { registerExportRoutes } from "./routes/exports.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerReferenceRoutes } from "./routes/references.js";
 import { registerStatsRoute } from "./routes/stats.js";
+import { registerMediaRoutes } from "./routes/media.js";
 import { registerLocalAccess } from "./http/local-access.js";
 import { ApiError, sqliteErrorCode } from "./errors.js";
 import { ReferenceStorage } from "./storage/reference-storage.js";
@@ -143,6 +144,7 @@ export async function buildApp(
   await registerDesignTypeRoutes(app, connection);
   await registerCollectionRoutes(app, connection);
   await registerReferenceRoutes(app, connection, storage, captureService);
+  await registerMediaRoutes(app, connection, storage);
   await registerAnalysisRoutes(app, connection, storage, config.analysisDataDirectory);
   await registerExportRoutes(app, connection);
 

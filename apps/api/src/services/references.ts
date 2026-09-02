@@ -294,6 +294,16 @@ export function getReference(
   return hydrateReferences(connection, [findReferenceRow(connection, id)])[0]!;
 }
 
+export function getReferenceMediaPaths(
+  connection: DatabaseConnection,
+  id: string,
+): Pick<ReferenceRow, "id" | "originalPath" | "thumbnailPath"> {
+  const row = connection.database.select({ id: references.id, originalPath: references.originalPath, thumbnailPath: references.thumbnailPath })
+    .from(references).where(eq(references.id, id)).get();
+  if (row === undefined) throw new ApiError(404, "REFERENCE_NOT_FOUND", "Reference not found");
+  return row;
+}
+
 export function createWebsiteReferenceRecord(
   connection: DatabaseConnection,
   id: string,

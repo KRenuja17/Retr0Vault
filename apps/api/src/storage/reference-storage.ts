@@ -1,5 +1,7 @@
-import { lstat, mkdir, open, realpath, rmdir, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath, rmdir, unlink, type FileHandle } from "node:fs/promises";
+import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 
 import sharp, { type Metadata } from "sharp";
 
@@ -32,6 +34,13 @@ export interface StoredWebsiteCapture extends StoredReferenceImage {
 
 export interface FileCleanupResult {
   readonly warnings: string[];
+}
+
+export interface OpenReferenceImage {
+  readonly file: FileHandle;
+  readonly contentType: string;
+  readonly size: number;
+  readonly etag: string;
 }
 
 function isSupportedFormat(format: string | undefined): format is ImageFormat {
@@ -111,6 +120,36 @@ export class ReferenceStorage {
 
   public async getCaptureFramePath(referenceId: string, storedPath: string): Promise<string> {
     return this.#readableImagePath(this.#resolveManagedPath(referenceId, storedPath, "capture"));
+  }
+
+  public async openReferenceImage(
+    referenceId: string,
+    storedPath: string,
+    kind: "original" | "thumbnail",
+  ): Promise<OpenReferenceImage> {
+    const absolutePath = this.#resolveManagedPath(referenceId, storedPath, kind);
+    const safePath = await this.#readableImagePath(absolutePath);
+    const before = await lstat(safePath);
+    const file = await open(safePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const stat = await file.stat();
+      // Serve the verified handle, not a path that is reopened later by HTTP.
+      // Recheck both directory safety and identity after opening to reject swaps.
+      const after = await lstat(await this.#readableImagePath(absolutePath));
+      if (!stat.isFile() || stat.size === 0 || stat.dev !== before.dev || stat.ino !== before.ino ||
+          stat.dev !== after.dev || stat.ino !== after.ino) {
+        throw new Error("Reference image changed while opening or is not a regular image file");
+      }
+      const contentType = { ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" }[extname(storedPath)];
+      if (contentType === undefined) throw new Error("Unsupported reference image extension");
+      const validator = createHash("sha256").update(
+        [referenceId, kind, stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":"),
+      ).digest("hex");
+      return { file, contentType, size: stat.size, etag: `W/"${validator}"` };
+    } catch (error) {
+      await file.close();
+      throw error;
+    }
   }
 
   async #readableImagePath(absolutePath: string): Promise<string> {

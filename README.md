@@ -162,6 +162,23 @@ DELETE /api/v1/references/:id
 
 The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
 
+### Reference media for the frontend
+
+Use the reference **ID**, not `originalPath` or `thumbnailPath`, to construct image URLs:
+
+```text
+GET /api/v1/media/:referenceId/thumbnail
+GET /api/v1/media/:referenceId/original
+```
+
+With the existing F1 Vite `/api` proxy, use the same-origin image `src` `/api/v1/media/<reference-id>/thumbnail`; use `/original` in a detail view. Direct URLs use the API origin `http://127.0.0.1:4611`; when frontend/API hostnames differ, set the image's `crossOrigin="anonymous"` so the request includes the allowed Origin header. No change to the existing origin restrictions is needed.
+
+Both routes return raw image bytes (not JSON) with `Content-Length` and `X-Content-Type-Options: nosniff`. Thumbnails are `image/webp`; originals are `image/jpeg`, `image/png`, or `image/webp`. For website captures, original means the primary `viewport.png`, not the full-page or other frames. HEAD returns the same headers without an image body.
+
+The ID must be a UUID (case-insensitive); no query parameters or filesystem paths are accepted. Missing references return 404 `REFERENCE_NOT_FOUND`; missing, unreadable or unsafe media returns 404 `MEDIA_NOT_FOUND`. Invalid IDs/query parameters return 400 `VALIDATION_ERROR`. Errors use the existing JSON envelope and `Cache-Control: no-store`. Existing reference response fields and storage layout are unchanged; `storage/` is not exposed as a static directory.
+
+Successful responses use `Cache-Control: private, max-age=0, must-revalidate` and a weak ETag. Browsers can cache bytes and revalidate with `If-None-Match`; a matching validator returns an empty 304 only after the reference and safe file are checked again. Deleted/missing media returns 404 even with a previously valid ETag. Normal image loading handles this automatically; the existing localhost/Origin/CORS policy still applies. Byte-range requests are not supported (GET returns the complete image).
+
 ## Website capture API
 
 Install Chromium once with `npm run capture:install`, and rerun it after a Playwright version update. [Playwright](https://playwright.dev/docs/browsers) manages its own browser in the per-user cache; no installed Chrome profile, cloud service, Docker image, or external browser server is required. Ordinary uploads, search, analysis, and exports still work if Chromium has not been installed. The full test suite includes real headless Chromium tests and therefore requires this install step.
