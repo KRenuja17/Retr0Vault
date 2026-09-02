@@ -1,0 +1,952 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "b5196d8a-3e7b-40c0-a402-c32fb3ff164b",
+  "prevId": "d9d3b0af-d3cc-4cd9-8a12-c64a40ff7db7",
+  "tables": {
+    "app_metadata": {
+      "name": "app_metadata",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "collection_references": {
+      "name": "collection_references",
+      "columns": {
+        "collection_id": {
+          "name": "collection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reference_id": {
+          "name": "reference_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "collection_references_order_index": {
+          "name": "collection_references_order_index",
+          "columns": [
+            "collection_id",
+            "sort_order"
+          ],
+          "isUnique": false
+        },
+        "collection_references_reference_index": {
+          "name": "collection_references_reference_index",
+          "columns": [
+            "reference_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "collection_references_collection_id_collections_id_fk": {
+          "name": "collection_references_collection_id_collections_id_fk",
+          "tableFrom": "collection_references",
+          "tableTo": "collections",
+          "columnsFrom": [
+            "collection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "collection_references_reference_id_references_id_fk": {
+          "name": "collection_references_reference_id_references_id_fk",
+          "tableFrom": "collection_references",
+          "tableTo": "references",
+          "columnsFrom": [
+            "reference_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "collection_references_collection_id_reference_id_pk": {
+          "columns": [
+            "collection_id",
+            "reference_id"
+          ],
+          "name": "collection_references_collection_id_reference_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "collection_references_sort_order_nonnegative": {
+          "name": "collection_references_sort_order_nonnegative",
+          "value": "\"collection_references\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "collections": {
+      "name": "collections",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "is_pinned": {
+          "name": "is_pinned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "collections_slug_unique": {
+          "name": "collections_slug_unique",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
+        },
+        "collections_sort_order_index": {
+          "name": "collections_sort_order_index",
+          "columns": [
+            "sort_order"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "collections_sort_order_nonnegative": {
+          "name": "collections_sort_order_nonnegative",
+          "value": "\"collections\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "design_type_rules": {
+      "name": "design_type_rules",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "design_type_id": {
+          "name": "design_type_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "design_type_rules_design_type_index": {
+          "name": "design_type_rules_design_type_index",
+          "columns": [
+            "design_type_id"
+          ],
+          "isUnique": false
+        },
+        "design_type_rules_order_unique": {
+          "name": "design_type_rules_order_unique",
+          "columns": [
+            "design_type_id",
+            "kind",
+            "sort_order"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "design_type_rules_design_type_id_design_types_id_fk": {
+          "name": "design_type_rules_design_type_id_design_types_id_fk",
+          "tableFrom": "design_type_rules",
+          "tableTo": "design_types",
+          "columnsFrom": [
+            "design_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "design_type_rules_kind_check": {
+          "name": "design_type_rules_kind_check",
+          "value": "\"design_type_rules\".\"kind\" in ('principle', 'avoid')"
+        },
+        "design_type_rules_text_nonempty": {
+          "name": "design_type_rules_text_nonempty",
+          "value": "length(trim(\"design_type_rules\".\"text\")) > 0"
+        },
+        "design_type_rules_sort_order_nonnegative": {
+          "name": "design_type_rules_sort_order_nonnegative",
+          "value": "\"design_type_rules\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "design_type_vocabulary": {
+      "name": "design_type_vocabulary",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "design_type_id": {
+          "name": "design_type_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "term": {
+          "name": "term",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "design_type_vocabulary_design_type_index": {
+          "name": "design_type_vocabulary_design_type_index",
+          "columns": [
+            "design_type_id"
+          ],
+          "isUnique": false
+        },
+        "design_type_vocabulary_order_unique": {
+          "name": "design_type_vocabulary_order_unique",
+          "columns": [
+            "design_type_id",
+            "sort_order"
+          ],
+          "isUnique": true
+        },
+        "design_type_vocabulary_term_unique": {
+          "name": "design_type_vocabulary_term_unique",
+          "columns": [
+            "design_type_id",
+            "term"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "design_type_vocabulary_design_type_id_design_types_id_fk": {
+          "name": "design_type_vocabulary_design_type_id_design_types_id_fk",
+          "tableFrom": "design_type_vocabulary",
+          "tableTo": "design_types",
+          "columnsFrom": [
+            "design_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "design_type_vocabulary_term_nonempty": {
+          "name": "design_type_vocabulary_term_nonempty",
+          "value": "length(trim(\"design_type_vocabulary\".\"term\")) > 0"
+        },
+        "design_type_vocabulary_sort_order_nonnegative": {
+          "name": "design_type_vocabulary_sort_order_nonnegative",
+          "value": "\"design_type_vocabulary\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "design_types": {
+      "name": "design_types",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deploy_for": {
+          "name": "deploy_for",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "risk": {
+          "name": "risk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brief_block": {
+          "name": "brief_block",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "design_types_slug_unique": {
+          "name": "design_types_slug_unique",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
+        },
+        "design_types_sort_order_index": {
+          "name": "design_types_sort_order_index",
+          "columns": [
+            "sort_order"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "design_types_sort_order_nonnegative": {
+          "name": "design_types_sort_order_nonnegative",
+          "value": "\"design_types\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "reference_frames": {
+      "name": "reference_frames",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reference_id": {
+          "name": "reference_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "frame_type": {
+          "name": "frame_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_path": {
+          "name": "image_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "reference_frames_order_unique": {
+          "name": "reference_frames_order_unique",
+          "columns": [
+            "reference_id",
+            "sort_order"
+          ],
+          "isUnique": true
+        },
+        "reference_frames_path_unique": {
+          "name": "reference_frames_path_unique",
+          "columns": [
+            "image_path"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "reference_frames_reference_id_references_id_fk": {
+          "name": "reference_frames_reference_id_references_id_fk",
+          "tableFrom": "reference_frames",
+          "tableTo": "references",
+          "columnsFrom": [
+            "reference_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "reference_frames_type_check": {
+          "name": "reference_frames_type_check",
+          "value": "\"reference_frames\".\"frame_type\" in ('viewport', 'hero', 'scroll', 'fullpage')"
+        },
+        "reference_frames_order_nonnegative": {
+          "name": "reference_frames_order_nonnegative",
+          "value": "\"reference_frames\".\"sort_order\" >= 0"
+        },
+        "reference_frames_path_nonempty": {
+          "name": "reference_frames_path_nonempty",
+          "value": "length(trim(\"reference_frames\".\"image_path\")) > 0"
+        }
+      }
+    },
+    "reference_tags": {
+      "name": "reference_tags",
+      "columns": {
+        "reference_id": {
+          "name": "reference_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "reference_tags_order_unique": {
+          "name": "reference_tags_order_unique",
+          "columns": [
+            "reference_id",
+            "sort_order"
+          ],
+          "isUnique": true
+        },
+        "reference_tags_tag_index": {
+          "name": "reference_tags_tag_index",
+          "columns": [
+            "tag_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "reference_tags_reference_id_references_id_fk": {
+          "name": "reference_tags_reference_id_references_id_fk",
+          "tableFrom": "reference_tags",
+          "tableTo": "references",
+          "columnsFrom": [
+            "reference_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reference_tags_tag_id_tags_id_fk": {
+          "name": "reference_tags_tag_id_tags_id_fk",
+          "tableFrom": "reference_tags",
+          "tableTo": "tags",
+          "columnsFrom": [
+            "tag_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "reference_tags_reference_id_tag_id_pk": {
+          "columns": [
+            "reference_id",
+            "tag_id"
+          ],
+          "name": "reference_tags_reference_id_tag_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "reference_tags_sort_order_nonnegative": {
+          "name": "reference_tags_sort_order_nonnegative",
+          "value": "\"reference_tags\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "references": {
+      "name": "references",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "original_path": {
+          "name": "original_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thumbnail_path": {
+          "name": "thumbnail_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "design_type_id": {
+          "name": "design_type_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "design_dna": {
+          "name": "design_dna",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "design_thesis": {
+          "name": "design_thesis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "design_brief": {
+          "name": "design_brief",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "image_recipe": {
+          "name": "image_recipe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "motion_brief": {
+          "name": "motion_brief",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "asset_brief": {
+          "name": "asset_brief",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "analysis_status": {
+          "name": "analysis_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "analysis_json": {
+          "name": "analysis_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "protected_fields": {
+          "name": "protected_fields",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "image_width": {
+          "name": "image_width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_height": {
+          "name": "image_height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_format": {
+          "name": "image_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "references_design_type_index": {
+          "name": "references_design_type_index",
+          "columns": [
+            "design_type_id"
+          ],
+          "isUnique": false
+        },
+        "references_analysis_status_index": {
+          "name": "references_analysis_status_index",
+          "columns": [
+            "analysis_status"
+          ],
+          "isUnique": false
+        },
+        "references_created_at_index": {
+          "name": "references_created_at_index",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "references_design_type_id_design_types_id_fk": {
+          "name": "references_design_type_id_design_types_id_fk",
+          "tableFrom": "references",
+          "tableTo": "design_types",
+          "columnsFrom": [
+            "design_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "references_source_type_check": {
+          "name": "references_source_type_check",
+          "value": "\"references\".\"source_type\" in ('image', 'website')"
+        },
+        "references_analysis_status_check": {
+          "name": "references_analysis_status_check",
+          "value": "\"references\".\"analysis_status\" in ('pending', 'analyzed', 'manual', 'failed')"
+        },
+        "references_title_nonempty": {
+          "name": "references_title_nonempty",
+          "value": "length(trim(\"references\".\"title\")) > 0"
+        },
+        "references_original_path_nonempty": {
+          "name": "references_original_path_nonempty",
+          "value": "length(trim(\"references\".\"original_path\")) > 0"
+        },
+        "references_thumbnail_path_nonempty": {
+          "name": "references_thumbnail_path_nonempty",
+          "value": "length(trim(\"references\".\"thumbnail_path\")) > 0"
+        },
+        "references_image_width_positive": {
+          "name": "references_image_width_positive",
+          "value": "\"references\".\"image_width\" > 0"
+        },
+        "references_image_height_positive": {
+          "name": "references_image_height_positive",
+          "value": "\"references\".\"image_height\" > 0"
+        },
+        "references_image_format_check": {
+          "name": "references_image_format_check",
+          "value": "\"references\".\"image_format\" in ('jpeg', 'png', 'webp')"
+        }
+      }
+    },
+    "tags": {
+      "name": "tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_value": {
+          "name": "normalized_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tags_type_normalized_value_unique": {
+          "name": "tags_type_normalized_value_unique",
+          "columns": [
+            "type",
+            "normalized_value"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "tags_type_nonempty": {
+          "name": "tags_type_nonempty",
+          "value": "length(trim(\"tags\".\"type\")) > 0"
+        },
+        "tags_value_nonempty": {
+          "name": "tags_value_nonempty",
+          "value": "length(trim(\"tags\".\"value\")) > 0"
+        },
+        "tags_normalized_value_nonempty": {
+          "name": "tags_normalized_value_nonempty",
+          "value": "length(trim(\"tags\".\"normalized_value\")) > 0"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

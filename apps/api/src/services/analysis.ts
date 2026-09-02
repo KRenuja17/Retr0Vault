@@ -16,7 +16,7 @@ import {
 } from "@retr0vault/shared";
 
 import type { DatabaseConnection } from "../database/connection.js";
-import { designTypes, references } from "../database/schema.js";
+import { designTypes, references, referenceFrames } from "../database/schema.js";
 import { ApiError } from "../errors.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
 import { getReference, updateReference } from "./references.js";
@@ -35,11 +35,18 @@ export async function getPendingAnalysis(
   for (const reference of pending) {
     try {
       const imagePath = await storage.getOriginalImagePath(reference.id, reference.originalPath);
+      const frames = connection.database.select().from(referenceFrames).where(eq(referenceFrames.referenceId, reference.id))
+        .orderBy(asc(referenceFrames.sortOrder)).all();
+      const availableFrames = await Promise.all(frames.map(async (frame) => ({
+        frameType: frame.frameType, sortOrder: frame.sortOrder,
+        imagePath: await storage.getCaptureFramePath(reference.id, frame.imagePath),
+      })));
       items.push({
         referenceId: reference.id,
         title: reference.title,
         sourceUrl: reference.sourceUrl,
         imagePath,
+        frames: availableFrames,
         protectedFields: protectedFieldsSchema.parse(JSON.parse(reference.protectedFields)),
       });
     } catch {

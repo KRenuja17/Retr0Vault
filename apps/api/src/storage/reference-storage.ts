@@ -1,11 +1,13 @@
-import { lstat, mkdir, realpath, unlink, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { lstat, mkdir, realpath, rmdir, unlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import sharp, { type Metadata } from "sharp";
 
 import type { ImageFormat } from "@retr0vault/shared";
 
 import { ApiError } from "../errors.js";
+import { captureFrameNames, type CapturedFrame } from "../capture/service.js";
+import { z } from "zod";
 
 const originalExtensions: Record<ImageFormat, string> = {
   jpeg: "jpg",
@@ -22,6 +24,10 @@ export interface ImageMetadata {
 export interface StoredReferenceImage extends ImageMetadata {
   readonly originalPath: string;
   readonly thumbnailPath: string;
+}
+
+export interface StoredWebsiteCapture extends StoredReferenceImage {
+  readonly frames: Array<{ frameType: CapturedFrame["frameType"]; imagePath: string; sortOrder: number }>;
 }
 
 export interface FileCleanupResult {
@@ -100,6 +106,15 @@ export class ReferenceStorage {
 
   public async getOriginalImagePath(referenceId: string, storedPath: string): Promise<string> {
     const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "original");
+    return this.#readableImagePath(absolutePath);
+  }
+
+  public async getCaptureFramePath(referenceId: string, storedPath: string): Promise<string> {
+    return this.#readableImagePath(this.#resolveManagedPath(referenceId, storedPath, "capture"));
+  }
+
+  async #readableImagePath(absolutePath: string): Promise<string> {
+    await this.#safeDirectory(dirname(absolutePath), false);
     const entry = await lstat(absolutePath);
     const canonicalRoot = await realpath(this.#root);
     const canonicalPath = await realpath(absolutePath);
@@ -108,6 +123,48 @@ export class ReferenceStorage {
       throw new Error("Original image is not a regular file inside the storage root");
     }
     return canonicalPath;
+  }
+
+  public async storeCapture(referenceId: string, frames: CapturedFrame[]): Promise<StoredWebsiteCapture> {
+    z.uuid().parse(referenceId);
+    if (frames[0]?.name !== "viewport" || frames.length < 3 || frames.length > 5 ||
+        new Set(frames.map((frame) => frame.name)).size !== frames.length ||
+        !frames.some((frame) => frame.name === "scroll-50") || !frames.some((frame) => frame.name === "scroll-80") ||
+        frames.some((frame, index) => index > 0 && captureFrameNames.indexOf(frame.name) <= captureFrameNames.indexOf(frames[index - 1]!.name))) {
+      throw new Error("Capture must contain an ordered primary viewport and scroll frames");
+    }
+    const originalPath = `captures/${referenceId}/viewport.png`;
+    const thumbnailPath = `thumbnails/${referenceId}.webp`;
+    const written: string[] = [];
+    try {
+      for (const frame of frames) {
+        if (!captureFrameNames.includes(frame.name)) throw new Error("Invalid capture frame name");
+        const expectedType = frame.name.startsWith("scroll-") ? "scroll" : frame.name;
+        if (frame.frameType !== expectedType) throw new Error("Invalid capture frame type");
+        const metadata = await this.inspectImage(frame.buffer);
+        if (metadata.format !== "png") throw new Error("Capture frames must be PNG images");
+        const storedPath = `captures/${referenceId}/${frame.name}.png`;
+        const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "capture");
+        await this.#safeDirectory(dirname(absolutePath), true);
+        await writeFile(absolutePath, frame.buffer, { flag: "wx" });
+        written.push(storedPath);
+      }
+      const thumbnail = this.#resolveManagedPath(referenceId, thumbnailPath, "thumbnail");
+      await this.#safeDirectory(dirname(thumbnail), true);
+      const buffer = await sharp(frames[0].buffer).resize({ width: 640, height: 480, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+      await writeFile(thumbnail, buffer, { flag: "wx" });
+      written.push(thumbnailPath);
+      return { ...await this.inspectImage(frames[0].buffer), originalPath, thumbnailPath,
+        frames: frames.map((frame, sortOrder) => ({ frameType: frame.frameType, imagePath: `captures/${referenceId}/${frame.name}.png`, sortOrder })) };
+    } catch (error) {
+      // Only files successfully created by this call may be rolled back.
+      for (const storedPath of written) {
+        const absolutePath = this.#resolveManagedPath(referenceId, storedPath, storedPath.startsWith("captures/") ? "capture" : "thumbnail");
+        await this.#safeDirectory(dirname(absolutePath), false).then(() => unlinkIfPresent(absolutePath)).catch(() => undefined);
+      }
+      await this.#removeEmptyCaptureDirectory(referenceId);
+      throw error;
+    }
   }
 
   public async storeImage(
@@ -164,25 +221,31 @@ export class ReferenceStorage {
     referenceId: string,
     originalPath: string,
     thumbnailPath: string,
+    framePaths: string[] = [],
   ): Promise<FileCleanupResult> {
     const warnings: string[] = [];
 
-    for (const [kind, storedPath] of [
+    const entries: Array<["original" | "thumbnail" | "capture", string]> = [
       ["original", originalPath],
       ["thumbnail", thumbnailPath],
-    ] as const) {
+      ...framePaths.filter((path) => path !== originalPath).map((path): ["capture", string] => ["capture", path]),
+    ];
+    for (const [kind, storedPath] of entries) {
       try {
         const absolutePath = this.#resolveManagedPath(
           referenceId,
           storedPath,
           kind,
         );
+        await this.#safeDirectory(dirname(absolutePath), false);
         await unlinkIfPresent(absolutePath);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         warnings.push(`${kind}: ${message}`);
       }
     }
+
+    if (originalPath.startsWith("captures/")) await this.#removeEmptyCaptureDirectory(referenceId);
 
     return { warnings };
   }
@@ -201,8 +264,9 @@ export class ReferenceStorage {
   #resolveManagedPath(
     referenceId: string,
     storedPath: string,
-    kind: "original" | "thumbnail",
+    kind: "original" | "thumbnail" | "capture",
   ): string {
+    z.uuid().parse(referenceId);
     if (isAbsolute(storedPath) || storedPath.includes("\\")) {
       throw new Error("Stored image path must be a portable relative path");
     }
@@ -210,10 +274,12 @@ export class ReferenceStorage {
     const expectedPattern =
       kind === "original"
         ? new RegExp(
-            `^originals/${referenceId}\\.(?:jpg|png|webp)$`,
+            `^(?:originals/${referenceId}\\.(?:jpg|png|webp)|captures/${referenceId}/viewport\\.png)$`,
             "u",
           )
-        : new RegExp(`^thumbnails/${referenceId}\\.webp$`, "u");
+        : kind === "capture"
+          ? new RegExp(`^captures/${referenceId}/(?:viewport|hero|scroll-50|scroll-80|fullpage)\\.png$`, "u")
+          : new RegExp(`^thumbnails/${referenceId}\\.webp$`, "u");
 
     if (!expectedPattern.test(storedPath)) {
       throw new Error("Stored image path is outside the reference namespace");
@@ -230,5 +296,23 @@ export class ReferenceStorage {
     }
 
     return absolutePath;
+  }
+
+  async #safeDirectory(directory: string, create: boolean): Promise<void> {
+    const parts = relative(this.#root, directory).split(/[\\/]/).filter(Boolean);
+    if (parts.some((part) => part === "..") || isAbsolute(relative(this.#root, directory))) throw new Error("Unsafe storage directory");
+    if (create) await mkdir(this.#root, { recursive: true });
+    let current = this.#root;
+    for (const part of parts) {
+      current = resolve(current, part);
+      if (create) await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
+      const entry = await lstat(current);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Storage directory must be inside the storage root and must not be a symbolic link");
+    }
+  }
+
+  async #removeEmptyCaptureDirectory(referenceId: string): Promise<void> {
+    const directory = dirname(this.#resolveManagedPath(referenceId, `captures/${referenceId}/viewport.png`, "capture"));
+    await this.#safeDirectory(directory, false).then(() => rmdir(directory)).catch(() => undefined);
   }
 }

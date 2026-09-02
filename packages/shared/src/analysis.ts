@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { protectedFieldsSchema, referenceTagInputSchema } from "./references.js";
+import { referenceFrameSchema } from "./capture.js";
 
 const text = (maximum: number) => z.string().trim().min(1).max(maximum);
 const observations = z.array(text(2_000)).max(100);
@@ -72,6 +73,7 @@ export const pendingAnalysisManifestSchema = z.object({
     title: z.string(),
     sourceUrl: z.string().nullable(),
     imagePath: z.string(),
+    frames: z.array(referenceFrameSchema.pick({ frameType: true, imagePath: true, sortOrder: true })).default([]),
     protectedFields: protectedFieldsSchema,
   })),
   unavailable: z.array(z.object({ referenceId: z.uuid(), message: z.string() })),

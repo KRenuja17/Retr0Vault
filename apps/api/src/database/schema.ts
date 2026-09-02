@@ -261,6 +261,20 @@ export const collectionReferences = sqliteTable(
   ],
 );
 
+export const referenceFrames = sqliteTable("reference_frames", {
+  id: text("id").primaryKey(),
+  referenceId: text("reference_id").notNull().references(() => references.id, { onDelete: "cascade" }),
+  frameType: text("frame_type", { enum: ["viewport", "hero", "scroll", "fullpage"] }).notNull(),
+  imagePath: text("image_path").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+}, (table) => [
+  uniqueIndex("reference_frames_order_unique").on(table.referenceId, table.sortOrder),
+  uniqueIndex("reference_frames_path_unique").on(table.imagePath),
+  check("reference_frames_type_check", sql`${table.frameType} in ('viewport', 'hero', 'scroll', 'fullpage')`),
+  check("reference_frames_order_nonnegative", sql`${table.sortOrder} >= 0`),
+  check("reference_frames_path_nonempty", sql`length(trim(${table.imagePath})) > 0`),
+]);
+
 export const databaseSchema = {
   appMetadata,
   collectionReferences,
@@ -269,6 +283,7 @@ export const databaseSchema = {
   designTypeVocabulary,
   designTypes,
   referenceTags,
+  referenceFrames,
   references,
   tags,
 };

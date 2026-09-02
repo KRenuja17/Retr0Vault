@@ -33,11 +33,13 @@ import {
   collections,
   designTypes,
   references,
+  referenceFrames,
   referenceTags,
   tags,
 } from "../database/schema.js";
 import { ApiError, sqliteErrorCode } from "../errors.js";
-import type { StoredReferenceImage } from "../storage/reference-storage.js";
+import type { StoredReferenceImage, StoredWebsiteCapture } from "../storage/reference-storage.js";
+import type { CreateWebsiteReferenceInput } from "@retr0vault/shared";
 import { referenceSearchExpression, referenceSearchRank } from "./reference-search.js";
 
 type ReferenceRow = typeof references.$inferSelect;
@@ -50,6 +52,7 @@ export interface DeletedReferenceFiles {
   readonly id: string;
   readonly originalPath: string;
   readonly thumbnailPath: string;
+  readonly framePaths: string[];
 }
 
 function findReferenceRow(
@@ -172,6 +175,8 @@ function hydrateReferences(
   if (rows.length === 0) return [];
 
   const referenceIds = rows.map((row) => row.id);
+  const frameRows = connection.database.select().from(referenceFrames)
+    .where(inArray(referenceFrames.referenceId, referenceIds)).orderBy(asc(referenceFrames.sortOrder)).all();
   const tagRows = connection.database
     .select({
       referenceId: referenceTags.referenceId,
@@ -244,6 +249,7 @@ function hydrateReferences(
         sortOrder: tag.sortOrder,
       })),
       collectionIds: collectionsByReference.get(row.id) ?? [],
+      frames: frameRows.filter((frame) => frame.referenceId === row.id),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }),
@@ -286,6 +292,28 @@ export function getReference(
   id: string,
 ): ReferenceResponse {
   return hydrateReferences(connection, [findReferenceRow(connection, id)])[0]!;
+}
+
+export function createWebsiteReferenceRecord(
+  connection: DatabaseConnection,
+  id: string,
+  input: CreateWebsiteReferenceInput,
+  capture: StoredWebsiteCapture,
+): ReferenceResponse {
+  assertDesignTypeExists(connection, input.designTypeId);
+  return connection.database.transaction((transaction) => {
+    const now = new Date();
+    transaction.insert(references).values({
+      id, title: input.title ?? new URL(input.url).hostname, sourceType: "website", sourceUrl: input.url,
+      originalPath: capture.originalPath, thumbnailPath: capture.thumbnailPath, designTypeId: input.designTypeId ?? null,
+      imageWidth: capture.width, imageHeight: capture.height, imageFormat: capture.format,
+      analysisStatus: "pending", createdAt: now, updatedAt: now,
+    }).run();
+    for (const frame of capture.frames) {
+      transaction.insert(referenceFrames).values({ id: randomUUID(), referenceId: id, ...frame }).run();
+    }
+    return getReference(connection, id);
+  });
 }
 
 export function listReferences(
@@ -559,6 +587,8 @@ export function deleteReferenceRecord(
   id: string,
 ): DeletedReferenceFiles {
   const row = findReferenceRow(connection, id);
+  const framePaths = connection.database.select({ path: referenceFrames.imagePath }).from(referenceFrames)
+    .where(eq(referenceFrames.referenceId, id)).all().map((entry) => entry.path);
 
   try {
     connection.database.transaction((transaction) => {
@@ -626,6 +656,7 @@ export function deleteReferenceRecord(
     id: row.id,
     originalPath: row.originalPath,
     thumbnailPath: row.thumbnailPath,
+    framePaths,
   };
 }
 

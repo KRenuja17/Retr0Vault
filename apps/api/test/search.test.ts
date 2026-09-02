@@ -295,10 +295,14 @@ describe("reference search and catalogue queries", () => {
       applyMigrations(legacy, oldFolder);
       const designType = createDesignType(legacy, validDesignTypeInput);
       const id = randomUUID();
-      createImageReferenceRecord(legacy, id, { title: "Legacyword", designTypeId: designType.id }, {
-        originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 1, height: 1, format: "png",
-      });
-      updateReference(legacy, id, { tags: [{ type: "texture", value: "Oldgrain" }], analysisJson: { palette: ["Oldorange"] } });
+      // Seed the historical schema directly; current hydration also reads newer tables.
+      legacy.database.insert(references).values({ id, title: "Legacyword", designTypeId: designType.id,
+        sourceType: "image", originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
+        imageWidth: 1, imageHeight: 1, imageFormat: "png", analysisJson: JSON.stringify({ palette: ["Oldorange"] }),
+      }).run();
+      const tagId = randomUUID();
+      legacy.database.insert(tags).values({ id: tagId, type: "texture", value: "Oldgrain", normalizedValue: "oldgrain" }).run();
+      legacy.database.insert(referenceTags).values({ referenceId: id, tagId, sortOrder: 0 }).run();
       applyMigrations(legacy);
       applyMigrations(legacy);
       for (const q of ["legacyword", "oldgrain", "oldorange", "editorial grid"]) {

@@ -14,7 +14,7 @@ const reference: ReferenceResponse = {
   designTypeId: null, designDNA: "editorial × silence", designThesis: "Space gives the subject authority",
   designBrief: "Keep the composition quiet.\nLet one subject lead.", imageRecipe: "[SUBJECT] in an open field",
   motionBrief: null, assetBrief: null, analysisStatus: "pending", analysisJson: null,
-  protectedFields: [], image: { width: 1, height: 1, format: "png" }, tags: [], collectionIds: [],
+  protectedFields: [], image: { width: 1, height: 1, format: "png" }, tags: [], collectionIds: [], frames: [],
   createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
 };
 

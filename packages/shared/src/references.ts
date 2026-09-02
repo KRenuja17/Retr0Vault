@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { referenceFrameSchema } from "./capture.js";
 
 export const sourceTypeSchema = z.enum(["image", "website"]);
 export type SourceType = z.infer<typeof sourceTypeSchema>;
@@ -120,6 +121,7 @@ export const referenceResponseSchema = z
     }),
     tags: z.array(referenceTagResponseSchema),
     collectionIds: z.array(z.uuid()),
+    frames: z.array(referenceFrameSchema).default([]),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

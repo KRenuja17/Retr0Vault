@@ -15,6 +15,7 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().trim().min(1).optional(),
   STORAGE_ROOT: z.string().trim().min(1).optional(),
   ANALYSIS_DATA_DIR: z.string().trim().min(1).optional(),
+  CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(45_000),
   MAX_UPLOAD_BYTES: z.coerce
     .number()
     .int()
@@ -41,6 +42,7 @@ export interface AppConfig {
   readonly storageRoot: string;
   readonly maxUploadBytes: number;
   readonly analysisDataDirectory: string;
+  readonly captureTimeoutMs: number;
 }
 
 export function loadConfig(
@@ -72,5 +74,6 @@ export function loadConfig(
       : resolve(repositoryRoot, configuredStorageRoot),
     maxUploadBytes: result.data.MAX_UPLOAD_BYTES,
     analysisDataDirectory: resolve(repositoryRoot, result.data.ANALYSIS_DATA_DIR ?? "data"),
+    captureTimeoutMs: result.data.CAPTURE_TIMEOUT_MS,
   };
 }

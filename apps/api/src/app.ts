@@ -17,6 +17,7 @@ import { registerExportRoutes } from "./routes/exports.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerReferenceRoutes } from "./routes/references.js";
 import { ReferenceStorage } from "./storage/reference-storage.js";
+import { ChromiumCaptureService, type CaptureService } from "./capture/service.js";
 
 export interface BuildAppOptions {
   readonly config?: AppConfig;
@@ -25,6 +26,7 @@ export interface BuildAppOptions {
   readonly logger?: FastifyServerOptions["logger"];
   readonly storageRoot?: string;
   readonly maxUploadBytes?: number;
+  readonly captureService?: CaptureService;
 }
 
 function errorPayload(
@@ -52,6 +54,8 @@ export async function buildApp(
   const storage = new ReferenceStorage(
     options.storageRoot ?? config.storageRoot,
   );
+  const captureService = options.captureService ?? new ChromiumCaptureService({ timeoutMs: config.captureTimeoutMs });
+  app.addHook("preClose", async () => captureService.close());
 
   try {
     applyMigrations(
@@ -118,7 +122,7 @@ export async function buildApp(
   await registerHealthRoute(app, connection);
   await registerDesignTypeRoutes(app, connection);
   await registerCollectionRoutes(app, connection);
-  await registerReferenceRoutes(app, connection, storage);
+  await registerReferenceRoutes(app, connection, storage, captureService);
   await registerAnalysisRoutes(app, connection, storage, config.analysisDataDirectory);
   await registerExportRoutes(app, connection);
 

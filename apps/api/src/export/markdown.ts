@@ -200,6 +200,7 @@ export function renderCombinationManifest(references: ExportReference[], intent?
     sourceUrl: reference.sourceUrl,
     // Paths are relative to the configured STORAGE_ROOT; no files are copied.
     imagePath: reference.originalPath,
+    frames: reference.frames.map(({ frameType, imagePath, sortOrder }) => ({ frameType, imagePath, sortOrder })),
     analysisStatus: reference.analysisStatus,
     designType: designType === null ? null : {
       id: designType.id, name: designType.name, slug: designType.slug,

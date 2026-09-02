@@ -8,6 +8,7 @@ import type { CreateDesignTypeInput } from "@retr0vault/shared";
 
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import type { CaptureService } from "../src/capture/service.js";
 
 export interface TestAppContext {
   readonly app: FastifyInstance;
@@ -18,7 +19,7 @@ export interface TestAppContext {
 
 export async function createTestApp(
   label: string,
-  options: { readonly maxUploadBytes?: number } = {},
+  options: { readonly maxUploadBytes?: number; readonly captureService?: CaptureService } = {},
 ): Promise<TestAppContext> {
   const directory = mkdtempSync(join(tmpdir(), `retr0vault-${label}-`));
   const databasePath = join(directory, "test.db");
@@ -28,6 +29,7 @@ export async function createTestApp(
     databasePath,
     storageRoot,
     logger: false,
+    ...(options.captureService === undefined ? {} : { captureService: options.captureService }),
     ...(options.maxUploadBytes === undefined
       ? {}
       : { maxUploadBytes: options.maxUploadBytes }),

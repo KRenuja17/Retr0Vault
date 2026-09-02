@@ -1,10 +1,10 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports.
+Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, Chromium website capture, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports.
 
 ## Prerequisites
 
-- Windows 10 or later
+- Windows 11 or later for website capture ([Playwright system requirements](https://playwright.dev/docs/intro#system-requirements))
 - Node.js 22 or later
 - npm 10 or later
 
@@ -16,6 +16,7 @@ From PowerShell in the repository root:
 
 ```powershell
 npm install
+npm run capture:install
 npm run db:migrate
 npm run seed
 npm run dev:api
@@ -33,6 +34,7 @@ The database is created at `data/retr0vault.db`. The API also applies committed 
 
 ```powershell
 npm run dev:api      # Start the API in watch mode
+npm run capture:install # Install the pinned Playwright Chromium browser
 npm run db:migrate   # Apply committed SQLite migrations
 npm run db:generate  # Generate migrations after schema changes
 npm run seed         # Add representative development design types/collection
@@ -53,6 +55,7 @@ Environment variables are optional and validated at startup:
 | `STORAGE_ROOT` | `storage` | Absolute path, or a path relative to the repository root, for originals and thumbnails |
 | `MAX_UPLOAD_BYTES` | `26214400` | Maximum multipart image size in bytes (25 MiB by default) |
 | `ANALYSIS_DATA_DIR` | `data` | Parent directory for local analysis inbox/results; relative to the repository root or absolute |
+| `CAPTURE_TIMEOUT_MS` | `45000` | Maximum browser-capture duration, including DNS and launch (1,000–120,000 ms), followed by process cleanup |
 | `NODE_ENV` | `development` | Runtime mode |
 
 ## Reference image API
@@ -69,6 +72,7 @@ Reference endpoints:
 
 ```text
 POST   /api/v1/references/image
+POST   /api/v1/references/url
 GET    /api/v1/references
 GET    /api/v1/references/:id
 PATCH  /api/v1/references/:id
@@ -76,6 +80,43 @@ DELETE /api/v1/references/:id
 ```
 
 The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
+
+## Website capture API
+
+Install Chromium once with `npm run capture:install`, and rerun it after a Playwright version update. [Playwright](https://playwright.dev/docs/browsers) manages its own browser in the per-user cache; no installed Chrome profile, cloud service, Docker image, or external browser server is required. Ordinary uploads, search, analysis, and exports still work if Chromium has not been installed. The full test suite includes real headless Chromium tests and therefore requires this install step.
+
+```powershell
+$captureRequest = @{
+  url = 'https://example.com/'
+  title = 'Example website' # Optional; defaults to the submitted hostname
+  fullPage = $false        # Optional; defaults to false
+} | ConvertTo-Json
+Invoke-RestMethod 'http://127.0.0.1:4611/api/v1/references/url' `
+  -Method Post -ContentType 'application/json' -Body $captureRequest
+```
+
+Optional `designTypeId` selects an existing category. Input is strictly validated; callers cannot provide browser flags, executable paths, scripts, storage paths, or a private-network override.
+
+The endpoint waits for the capture and returns HTTP 201 with the normal reference response, `sourceType: "website"`, `analysisStatus: "pending"`, and ordered `frames`. A fresh, sandboxed, headless Chromium process uses a 1440 × 900 viewport, pixel ratio 1, English locale, UTC, light colour scheme, and reduced motion. It waits for DOM readiness, then up to two seconds of network idle. Navigation is limited to 15 seconds; the overall browser deadline defaults to 45 seconds. Dynamic sites, login screens, consent banners, bot protection, and lazy content can affect what is visible; capture does not interact with or bypass them.
+
+Frames are PNG files beneath `storage/captures/<reference-id>/`:
+
+- `viewport.png`: primary top viewport, also used as `originalPath` and to generate the card's WebP thumbnail under `storage/thumbnails`.
+- `hero.png`: optional top hero/first section when a visible matching element fits inside the viewport. It is omitted if no suitable region is found.
+- `scroll-50.png`, `scroll-80.png`: viewports at approximately 50% and 80% of the scrollable distance. Short pages can produce identical views.
+- `fullpage.png`: only when `fullPage` is true; maximum page dimensions are 4096 × 20000 pixels. Oversized pages fail clearly; retry without `fullPage`.
+
+Each frame has its own UUID, `referenceId`, `frameType` (`viewport`, `hero`, `scroll`, or `fullpage`), relative `imagePath`, and zero-based `sortOrder`. Reference detail/list responses include `frames` (empty for ordinary image uploads). Original capture files are not duplicated under `originals`. Analysis manifests include safe absolute paths for the primary image and all frames; comparison manifests include their storage-relative paths.
+
+### Public-network boundary and failures
+
+Capture accepts public HTTP/HTTPS URLs on their standard ports only (80/443). Credentials, unsafe schemes such as `file:`, local hostnames, private/loopback/link-local/metadata addresses, reserved ranges, and mixed public/private DNS answers are rejected. Redirects and page resources use the same policy. A short-lived authenticated loopback proxy connects to the validated numeric IP address, preventing a second DNS lookup from bypassing the address check. It is closed after capture and is not a standalone service to configure.
+
+The browser has no saved user session. Service workers, WebSockets, downloads, non-GET/HEAD requests, and non-proxied WebRTC/QUIC traffic are disabled or blocked. Only one capture runs per backend instance; simultaneous requests receive 429 `CAPTURE_BUSY` (there is no background queue). Network transfer is limited to 100 MiB, captured PNGs to 50 MiB, and requests/connections to 1,000. These restrictions can omit resources from some sites; the screenshot records the resulting visible page.
+
+Errors use the usual structured JSON envelope: 400 for invalid/unsafe targets, 413 for size limits, 502 for DNS/navigation/remote-page failures, 503 if Chromium is unavailable or shutdown cancels capture, and 504 for timeouts. `CAPTURE_BROWSER_UNAVAILABLE` instructs you to run `npm run capture:install`. A failed capture creates no reference with missing images. Files are rolled back if database insertion fails. Deletion cascades frame rows first, then removes only that reference's known files; unrelated files are retained. Chromium and its network proxy are cleaned up after success, failure, timeout, or backend shutdown.
+
+The additive `0005_website_capture.sql` migration creates `reference_frames` without rebuilding references or disturbing search triggers. No frontend implementation is included; the HTML page under the backend tests is a deterministic browser fixture only.
 
 ## Search and catalogue queries
 

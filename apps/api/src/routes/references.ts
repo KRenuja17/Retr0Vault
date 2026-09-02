@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   createImageReferenceFieldsSchema,
+  createWebsiteReferenceSchema,
   referenceListQuerySchema,
   updateReferenceSchema,
 } from "@retr0vault/shared";
@@ -14,12 +15,16 @@ import { ApiError } from "../errors.js";
 import { parseRequest } from "../http/validation.js";
 import {
   createImageReferenceRecord,
+  createWebsiteReferenceRecord,
   deleteReferenceRecord,
   getReference,
   listReferences,
   updateReference,
 } from "../services/references.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
+import type { CaptureService } from "../capture/service.js";
+import { validateCaptureUrl } from "../capture/url-policy.js";
+import { getDesignTypeById } from "../services/design-types.js";
 
 const idParametersSchema = z.object({ id: z.uuid() }).strict();
 
@@ -90,7 +95,28 @@ export async function registerReferenceRoutes(
   app: FastifyInstance,
   connection: DatabaseConnection,
   storage: ReferenceStorage,
+  captureService: CaptureService,
 ): Promise<void> {
+  app.post("/api/v1/references/url", async (request, reply) => {
+    const input = parseRequest(createWebsiteReferenceSchema, request.body);
+    parseRequest(z.object({}).strict(), request.query);
+    validateCaptureUrl(input.url);
+    if (input.designTypeId !== undefined) getDesignTypeById(connection, input.designTypeId);
+    const captured = await captureService.capture(input);
+    const id = randomUUID();
+    const stored = await storage.storeCapture(id, captured.frames).catch((error: unknown) => {
+      request.log.error({ err: error }, "Could not store website capture");
+      throw new ApiError(500, "CAPTURE_STORAGE_FAILED", "Could not store captured images; no reference was saved");
+    });
+    try {
+      return reply.status(201).send(createWebsiteReferenceRecord(connection, id, input, stored));
+    } catch (error) {
+      const cleanup = await storage.deleteReferenceFiles(id, stored.originalPath, stored.thumbnailPath, stored.frames.map((frame) => frame.imagePath));
+      if (cleanup.warnings.length > 0) request.log.warn({ referenceId: id, warnings: cleanup.warnings }, "Capture rollback warnings");
+      throw error;
+    }
+  });
+
   app.post("/api/v1/references/image", async (request, reply) => {
     const { fields, buffer } = await readImageMultipart(request);
     const input = parseRequest(createImageReferenceFieldsSchema, fields);
@@ -141,6 +167,7 @@ export async function registerReferenceRoutes(
       deleted.id,
       deleted.originalPath,
       deleted.thumbnailPath,
+      deleted.framePaths,
     );
     if (cleanup.warnings.length > 0) {
       request.log.warn(
