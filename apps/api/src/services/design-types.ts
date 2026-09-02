@@ -147,6 +147,13 @@ export function listDesignTypes(
   return hydrateDesignTypes(connection, rows);
 }
 
+export function getDesignTypeById(
+  connection: DatabaseConnection,
+  id: string,
+): DesignTypeResponse {
+  return hydrateDesignTypes(connection, [findDesignTypeRowById(connection, id)])[0]!;
+}
+
 export function findDesignTypeBySlug(
   connection: DatabaseConnection,
   slug: string,
