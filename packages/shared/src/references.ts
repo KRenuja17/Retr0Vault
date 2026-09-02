@@ -64,6 +64,13 @@ export type ReferenceTagResponse = z.infer<
 const optionalNullableText = (maximum: number) =>
   z.union([z.string().trim().max(maximum), z.null()]);
 
+export const protectedFieldSchema = z.enum([
+  "title", "designTypeId", "designDNA", "designThesis", "designBrief",
+  "imageRecipe", "motionBrief", "assetBrief", "analysisJson", "tags",
+]);
+export type ProtectedField = z.infer<typeof protectedFieldSchema>;
+export const protectedFieldsSchema = z.array(protectedFieldSchema).max(10);
+
 export const updateReferenceSchema = z
   .object({
     title: z.string().trim().min(1).max(300).optional(),
@@ -79,6 +86,7 @@ export const updateReferenceSchema = z
     analysisJson: z.record(z.string(), z.unknown()).nullable().optional(),
     tags: z.array(referenceTagInputSchema).max(200).optional(),
     collectionIds: z.array(z.uuid()).max(200).optional(),
+    protectedFields: protectedFieldsSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -104,6 +112,7 @@ export const referenceResponseSchema = z
     assetBrief: z.string().nullable(),
     analysisStatus: analysisStatusSchema,
     analysisJson: z.record(z.string(), z.unknown()).nullable(),
+    protectedFields: protectedFieldsSchema,
     image: z.object({
       width: z.number().int().positive(),
       height: z.number().int().positive(),

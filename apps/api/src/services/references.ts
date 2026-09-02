@@ -13,6 +13,8 @@ import {
 } from "drizzle-orm";
 
 import {
+  protectedFieldSchema,
+  protectedFieldsSchema,
   referenceListResponseSchema,
   referenceResponseSchema,
   type CreateImageReferenceFields,
@@ -225,6 +227,7 @@ function hydrateReferences(
       assetBrief: row.assetBrief,
       analysisStatus: row.analysisStatus,
       analysisJson: parseAnalysisJson(row.analysisJson),
+      protectedFields: protectedFieldsSchema.parse(JSON.parse(row.protectedFields)),
       image: {
         width: row.imageWidth,
         height: row.imageHeight,
@@ -373,8 +376,9 @@ export function updateReference(
   connection: DatabaseConnection,
   id: string,
   input: UpdateReferenceInput,
+  options: { readonly protectEditedFields?: boolean } = {},
 ): ReferenceResponse {
-  findReferenceRow(connection, id);
+  const existing = findReferenceRow(connection, id);
   assertDesignTypeExists(connection, input.designTypeId);
   assertCollectionsExist(connection, input.collectionIds);
   const normalizedTags = normalizeTags(input.tags);
@@ -384,6 +388,15 @@ export function updateReference(
       const values: Partial<typeof references.$inferInsert> = {
         updatedAt: new Date(),
       };
+      const existingProtections = protectedFieldsSchema.parse(JSON.parse(existing.protectedFields));
+      const editedFields = options.protectEditedFields === false ? [] :
+        protectedFieldSchema.options.filter((field) => input[field] !== undefined);
+      const protections = input.protectedFields ?? [
+        ...existingProtections,
+        ...editedFields,
+        ...(input.analysisStatus === "manual" ? protectedFieldSchema.options : []),
+      ];
+      values.protectedFields = JSON.stringify([...new Set(protections)]);
       if (input.title !== undefined) values.title = input.title;
       if (input.sourceUrl !== undefined) values.sourceUrl = input.sourceUrl;
       if (input.designTypeId !== undefined)

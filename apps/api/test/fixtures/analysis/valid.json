@@ -1,0 +1,25 @@
+{
+  "referenceId": "36d51551-eb35-480c-83cd-f4d916aaacef",
+  "title": "Paper Signals",
+  "designType": "Editorial Signal",
+  "designDNA": "warm editorial × technical annotation",
+  "designThesis": "A restrained paper ground gives the oversized headline authority while small technical labels provide contrast.",
+  "visualTags": [
+    { "type": "Texture", "value": " Fine   Grain " },
+    { "type": "typography", "value": "Monumental serif" }
+  ],
+  "designBrief": "Lead with a large serif headline, use a disciplined grid, and reserve monospaced labels for useful metadata. Avoid ornamental dashboard panels.",
+  "imageRecipe": "[SUBJECT] on a warm paper ground, fine grain texture, high contrast, generous negative space, restrained rust accent.",
+  "motionBrief": null,
+  "assetBrief": "Use high-contrast cutout imagery with a subtle paper treatment.",
+  "analysis": {
+    "palette": ["Warm paper, near-black, and one rust accent"],
+    "typography": ["Oversized serif display paired with tiny monospaced labels"],
+    "layout": ["Disciplined columns with generous margins"],
+    "texture": ["Fine grain across the paper ground"],
+    "imagery": ["High-contrast isolated subject"],
+    "uiPatterns": ["Thin square borders"],
+    "motion": [],
+    "avoid": ["Glossy gradients", "Rounded dashboard cards"]
+  }
+}

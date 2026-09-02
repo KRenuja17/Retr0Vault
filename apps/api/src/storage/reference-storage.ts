@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import sharp, { type Metadata } from "sharp";
@@ -96,6 +96,18 @@ export class ReferenceStorage {
       height: orientationSwapsDimensions ? metadata.width : metadata.height,
       format: metadata.format,
     };
+  }
+
+  public async getOriginalImagePath(referenceId: string, storedPath: string): Promise<string> {
+    const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "original");
+    const entry = await lstat(absolutePath);
+    const canonicalRoot = await realpath(this.#root);
+    const canonicalPath = await realpath(absolutePath);
+    const relativePath = relative(canonicalRoot, canonicalPath);
+    if (!entry.isFile() || entry.isSymbolicLink() || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+      throw new Error("Original image is not a regular file inside the storage root");
+    }
+    return canonicalPath;
   }
 
   public async storeImage(

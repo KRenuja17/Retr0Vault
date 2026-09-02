@@ -1,6 +1,6 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management plus local image ingestion, metadata, tags, filtering, and safe reference deletion.
+Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, metadata, tags, filtering, safe reference deletion, and an external-curator analysis workflow with protected manual edits.
 
 ## Prerequisites
 
@@ -52,6 +52,7 @@ Environment variables are optional and validated at startup:
 | `DATABASE_PATH` | `data/retr0vault.db` | Absolute path, or a path relative to the repository root |
 | `STORAGE_ROOT` | `storage` | Absolute path, or a path relative to the repository root, for originals and thumbnails |
 | `MAX_UPLOAD_BYTES` | `26214400` | Maximum multipart image size in bytes (25 MiB by default) |
+| `ANALYSIS_DATA_DIR` | `data` | Parent directory for local analysis inbox/results; relative to the repository root or absolute |
 | `NODE_ENV` | `development` | Runtime mode |
 
 ## Reference image API
@@ -76,6 +77,29 @@ DELETE /api/v1/references/:id
 
 The list endpoint accepts `designType`, `collection`, `status`, `page`, `limit`, and `sort` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
 
+## External-curator analysis
+
+No AI API or provider SDK is used. Export pending references, inspect their local images with an external curator, review the resulting JSON, then import it:
+
+```powershell
+npm run analysis:export-pending
+# Read data/analysis-inbox/manifest.json and instructions.md.
+# Save one reviewed analysis object per file in data/analysis-results.
+npm run analysis:import
+```
+
+The manifest includes stable reference IDs, existing design types, original image paths, and JSON Schema generated from the shared Zod schema. Images are not copied. Each result is validated and imported independently; reports identify failures and preserved manual fields. Imports and resets never modify image files.
+
+Manual edits to analysis fields are automatically protected. Use the reference PATCH endpoint's `protectedFields` array to explicitly replace those locks. Only use `npm run analysis:import -- --overwrite-protected` when intentionally replacing protected content; locks remain for future imports.
+
+```text
+GET  /api/v1/analysis/pending
+POST /api/v1/analysis/import
+POST /api/v1/analysis/:referenceId/reset
+```
+
+The import endpoint accepts `{ "analyses": [ /* analysis objects */ ], "overwriteProtected": false }`. Reset only sets status to pending and preserves all metadata and protections. Read [the analysis contract and curator guide](docs/analysis-schema.md) for schema details, limits, result reports, and safety rules.
+
 ## Workspace layout
 
 ```text
@@ -86,7 +110,7 @@ packages/
   shared/    Shared Zod schemas and inferred TypeScript types
 data/        Local SQLite and analysis runtime data (ignored)
 storage/     Local reference files (ignored)
-docs/        Project documentation added by later phases
+docs/        Analysis schema and external-curator instructions
 ```
 
 Frontend implementation intentionally begins only after backend phases B1-B8 are complete.

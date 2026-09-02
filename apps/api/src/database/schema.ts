@@ -149,6 +149,7 @@ export const references = sqliteTable(
       .notNull()
       .default("pending"),
     analysisJson: text("analysis_json"),
+    protectedFields: text("protected_fields").notNull().default("[]"),
     imageWidth: integer("image_width").notNull(),
     imageHeight: integer("image_height").notNull(),
     imageFormat: text("image_format", {

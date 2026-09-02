@@ -20,7 +20,9 @@
     "db:migrate": "npm run db:migrate --workspace @retr0vault/api",
     "db:generate": "npm run db:generate --workspace @retr0vault/api",
     "seed": "npm run seed --workspace @retr0vault/api",
-    "seed:clear": "npm run seed:clear --workspace @retr0vault/api"
+    "seed:clear": "npm run seed:clear --workspace @retr0vault/api",
+    "analysis:export-pending": "npm run analysis:export-pending --workspace @retr0vault/api --",
+    "analysis:import": "npm run analysis:import --workspace @retr0vault/api --"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

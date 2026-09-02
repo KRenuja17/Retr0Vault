@@ -13,7 +13,9 @@
     "db:migrate": "tsx src/database/migrate-cli.ts",
     "db:generate": "drizzle-kit generate",
     "seed": "tsx src/database/seed-cli.ts",
-    "seed:clear": "tsx src/database/seed-cli.ts --clear"
+    "seed:clear": "tsx src/database/seed-cli.ts --clear",
+    "analysis:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts export",
+    "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.1",

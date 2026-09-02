@@ -11,6 +11,7 @@ import { type AppConfig, loadConfig } from "./config.js";
 import { createDatabaseConnection } from "./database/connection.js";
 import { applyMigrations, defaultMigrationsFolder } from "./database/migrate.js";
 import { registerCollectionRoutes } from "./routes/collections.js";
+import { registerAnalysisRoutes } from "./routes/analysis.js";
 import { registerDesignTypeRoutes } from "./routes/design-types.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerReferenceRoutes } from "./routes/references.js";
@@ -117,6 +118,7 @@ export async function buildApp(
   await registerDesignTypeRoutes(app, connection);
   await registerCollectionRoutes(app, connection);
   await registerReferenceRoutes(app, connection, storage);
+  await registerAnalysisRoutes(app, connection, storage, config.analysisDataDirectory);
 
   return app;
 }

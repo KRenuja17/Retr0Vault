@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import type { CreateDesignTypeInput } from "@retr0vault/shared";
 
 import { buildApp } from "../src/app.js";
+import { loadConfig } from "../src/config.js";
 
 export interface TestAppContext {
   readonly app: FastifyInstance;
@@ -23,6 +24,7 @@ export async function createTestApp(
   const databasePath = join(directory, "test.db");
   const storageRoot = join(directory, "storage");
   const app = await buildApp({
+    config: loadConfig({ ...process.env, ANALYSIS_DATA_DIR: join(directory, "data") }),
     databasePath,
     storageRoot,
     logger: false,
