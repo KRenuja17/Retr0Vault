@@ -11,7 +11,7 @@ import {
   filterToPath,
   originFromState,
 } from "@/lib/catalogue/filters";
-import { requestPlateFocus } from "@/lib/catalogue/plateFocus";
+import { clearPlateFocus, requestPlateFocus } from "@/lib/catalogue/plateFocus";
 import { ActionLink, MonoLabel } from "@/components/primitives";
 import {
   useCollections,
@@ -133,21 +133,39 @@ export function ReferenceRoute() {
    */
   const openedFromCatalogue = location.key !== "default";
 
-  const close = useCallback(() => {
-    // Radix cannot restore focus across a route change, so hand it to the
-    // plate explicitly; it claims this as it remounts behind the sheet.
-    requestPlateFocus(id);
+  /*
+   * Leaving the sheet, whether it was closed or the reference was removed, is
+   * the same navigation: back to the entry it was opened from, so the reader
+   * lands on the exact slice, search and scroll position they left — and a
+   * direct visit, which has no catalogue behind it in history, is sent to the
+   * slice the address named instead.
+   */
+  const returnToCatalogue = useCallback(() => {
     if (openedFromCatalogue) {
       navigate(-1);
     } else {
       navigate(filterToPath(origin), { replace: true });
     }
-  }, [id, navigate, openedFromCatalogue, origin]);
+  }, [navigate, openedFromCatalogue, origin]);
+
+  const close = useCallback(() => {
+    // Radix cannot restore focus across a route change, so hand it to the
+    // plate explicitly; it claims this as it remounts behind the sheet.
+    requestPlateFocus(id);
+    returnToCatalogue();
+  }, [id, returnToCatalogue]);
+
+  const deleted = useCallback(() => {
+    // There is no plate left to hand focus back to; make sure nothing is
+    // waiting to claim it either.
+    clearPlateFocus();
+    returnToCatalogue();
+  }, [returnToCatalogue]);
 
   return (
     <>
       <CatalogueView filter={origin} label={filterLabel(origin)} />
-      <ReferenceModal referenceId={id} onClose={close} />
+      <ReferenceModal referenceId={id} onClose={close} onDeleted={deleted} />
     </>
   );
 }

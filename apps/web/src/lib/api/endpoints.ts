@@ -210,6 +210,17 @@ export function patchReference(
   );
 }
 
+/**
+ * Permanent withdrawal from the archive. The backend answers 204 and owns the
+ * removal of the stored capture, thumbnail and frames along with the row, so
+ * there is nothing for the client to clean up afterwards.
+ */
+export function deleteReference(id: string): Promise<void> {
+  return apiRequest<void>(`/references/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchPendingAnalysis(
   signal?: AbortSignal,
 ): Promise<PendingAnalysisManifest> {

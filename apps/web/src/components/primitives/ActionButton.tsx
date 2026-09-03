@@ -1,11 +1,16 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 import { Link } from "react-router-dom";
 
 import { cx } from "@/lib/cx";
 
 import styles from "./ActionButton.module.css";
 
-export type ActionButtonVariant = "solid" | "accent" | "outline" | "quiet";
+export type ActionButtonVariant =
+  | "solid"
+  | "accent"
+  | "outline"
+  | "quiet"
+  | "remove";
 export type ActionButtonSize = "small" | "regular";
 
 interface ActionButtonBaseProps {
@@ -23,6 +28,11 @@ export interface ActionButtonProps
       "className" | "children" | "type"
     > {
   readonly type?: "button" | "submit" | "reset";
+  /**
+   * The underlying element, for the rare case where a caller has to move focus
+   * onto a button it has just revealed.
+   */
+  readonly ref?: Ref<HTMLButtonElement> | undefined;
 }
 
 export interface ActionLinkProps extends ActionButtonBaseProps {
@@ -37,6 +47,7 @@ const variantClass: Record<ActionButtonVariant, string | undefined> = {
   accent: styles.accent,
   outline: styles.outline,
   quiet: styles.quiet,
+  remove: styles.remove,
 };
 
 const sizeClass: Record<ActionButtonSize, string | undefined> = {
@@ -61,7 +72,8 @@ function classesFor(
 
 /**
  * The archive's only button. Primary actions are solid ink, the image-recipe
- * action may take the terracotta accent, secondary actions are outlined.
+ * action may take the terracotta accent, secondary actions are outlined, and a
+ * withdrawal from the archive is outlined in that same accent.
  */
 export function ActionButton({
   variant = "solid",
@@ -70,11 +82,13 @@ export function ActionButton({
   className,
   children,
   type = "button",
+  ref,
   ...rest
 }: ActionButtonProps) {
   return (
     <button
       type={type}
+      ref={ref}
       className={classesFor(variant, size, block, className)}
       {...rest}
     >

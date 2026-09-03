@@ -78,7 +78,13 @@ describe("collection membership on a reference sheet", () => {
       { path: /^\/collections$/u, handler: () => [REFERENCE_STYLES, TYPE_STUDIES] },
       referenceRoute(() => reference([REFERENCE_STYLES.id])),
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     // The list exists only once both the reference and the collections resolve.
     await screen.findByRole("list", { name: /collection membership/i });
@@ -111,7 +117,13 @@ describe("collection membership on a reference sheet", () => {
         },
       },
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     await screen.findByRole("list", { name: /collection membership/i });
     await userEvent.click(
@@ -146,7 +158,13 @@ describe("collection membership on a reference sheet", () => {
         },
       },
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     await screen.findByRole("list", { name: /collection membership/i });
     await userEvent.click(
@@ -185,7 +203,13 @@ describe("collection membership on a reference sheet", () => {
           ),
       },
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     await screen.findByRole("list", { name: /collection membership/i });
     await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
@@ -203,7 +227,13 @@ describe("collection membership on a reference sheet", () => {
       { path: /^\/collections$/u, handler: () => [] },
       referenceRoute(() => reference([])),
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     expect(
       await screen.findByText(/no collections exist yet/i),
@@ -222,7 +252,13 @@ describe("collection membership on a reference sheet", () => {
       },
       referenceRoute(() => reference([])),
     ]);
-    renderIngest(<ReferenceModal referenceId={REFERENCE_ID} onClose={() => undefined} />);
+    renderIngest(
+      <ReferenceModal
+        referenceId={REFERENCE_ID}
+        onClose={() => undefined}
+        onDeleted={() => undefined}
+      />,
+    );
 
     /*
      * The two queries settle independently, so this waits on the collections

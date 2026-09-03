@@ -32,6 +32,12 @@ export interface SelectionState {
   readonly exit: () => void;
   /** Empties the marks but stays in selection mode. */
   readonly clear: () => void;
+  /**
+   * Drops one id whether or not it was marked. Unlike `toggle` this never adds
+   * one, which is what a reference leaving the archive needs: the plate is
+   * gone, so the mark has to go with it and must not come back.
+   */
+  readonly discard: (id: string) => void;
 }
 
 const SelectionContext = createContext<SelectionState | null>(null);
@@ -53,6 +59,14 @@ export function SelectionProvider({ children }: { readonly children: ReactNode }
 
   const clear = useCallback(() => setIds([]), []);
 
+  const discard = useCallback((id: string) => {
+    setIds((current) =>
+      current.includes(id)
+        ? current.filter((candidate) => candidate !== id)
+        : current,
+    );
+  }, []);
+
   const value = useMemo<SelectionState>(
     () => ({
       active,
@@ -64,8 +78,9 @@ export function SelectionProvider({ children }: { readonly children: ReactNode }
       enter,
       exit,
       clear,
+      discard,
     }),
-    [active, ids, toggle, enter, exit, clear],
+    [active, ids, toggle, enter, exit, clear, discard],
   );
 
   return (

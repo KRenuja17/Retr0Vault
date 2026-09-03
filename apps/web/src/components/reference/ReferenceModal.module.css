@@ -167,6 +167,35 @@
   margin-top: var(--rv-space-6);
 }
 
+/* --- withdrawal ---------------------------------------------------------
+ * The confirmation is the action row, not a panel over it: the same strip, the
+ * same button sizes, one question and two answers. It takes the row's full
+ * width so the question reads as a line of the sheet rather than a label
+ * squeezed beside a control.
+ */
+.confirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rv-space-3);
+  width: 100%;
+}
+
+.confirmPrompt {
+  /* Pushes the two answers to the end of the strip, where CLOSE sat. */
+  margin-right: auto;
+  color: var(--rv-accent);
+}
+
+.deleteError {
+  flex-basis: 100%;
+  margin-top: var(--rv-space-1);
+  max-width: 78ch;
+  font-size: var(--rv-text-sm);
+  line-height: var(--rv-leading-normal);
+  color: var(--rv-signal-error);
+}
+
 /* --- states ------------------------------------------------------------ */
 .state {
   display: flex;

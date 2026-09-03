@@ -3,8 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReferenceResponse } from "@retr0vault/shared";
 
 import {
-  ActionButton,
-  CopyActionButton,
   EditorialHeading,
   ModalSurface,
   ModalTitle,
@@ -19,11 +17,18 @@ import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
 
 import { CollectionMembership } from "./CollectionMembership";
+import { ReferenceActions } from "./ReferenceActions";
 import styles from "./ReferenceModal.module.css";
 
 export interface ReferenceModalProps {
   readonly referenceId: string;
   readonly onClose: () => void;
+  /**
+   * Called after the reference has been removed from the archive. Separate
+   * from `onClose` because the route it returns to must not then try to hand
+   * focus back to a plate that no longer exists.
+   */
+  readonly onDeleted: () => void;
 }
 
 /*
@@ -129,12 +134,16 @@ function describeFailure(error: unknown): {
  *   [term] [term] [term] …
  *   IMAGE RECIPE
  *   ────────────────────────────────────────────
- *   COPY BRIEF   COPY IMAGE RECIPE   CLOSE
+ *   COPY BRIEF   COPY IMAGE RECIPE   DELETE REFERENCE   CLOSE
  *
  * Radix supplies the focus trap, focus return, Escape and scroll lock; there is
  * no corner close affordance, only the CLOSE in the action row.
  */
-export function ReferenceModal({ referenceId, onClose }: ReferenceModalProps) {
+export function ReferenceModal({
+  referenceId,
+  onClose,
+  onDeleted,
+}: ReferenceModalProps) {
   const reference = useQuery({
     queryKey: queryKeys.reference(referenceId),
     queryFn: ({ signal }) => fetchReference(referenceId, signal),
@@ -143,7 +152,6 @@ export function ReferenceModal({ referenceId, onClose }: ReferenceModalProps) {
   const data = reference.data;
   const isPending = data?.analysisStatus === "pending";
   const recipe = data?.imageRecipe?.trim() ?? "";
-  const brief = data?.designBrief?.trim() ?? "";
 
   return (
     <ModalSurface
@@ -161,35 +169,11 @@ export function ReferenceModal({ referenceId, onClose }: ReferenceModalProps) {
       showCloseButton={false}
       {...(data ? { media: <Capture reference={data} /> } : {})}
       footer={
-        <>
-          {data ? (
-            <>
-              <CopyActionButton
-                label="Copy brief"
-                text={brief}
-                variant="solid"
-                title={
-                  brief.length > 0
-                    ? "Copy the design brief for this reference"
-                    : "No design brief filed for this reference"
-                }
-              />
-              <CopyActionButton
-                label="Copy image recipe"
-                text={recipe}
-                variant="solid"
-                title={
-                  recipe.length > 0
-                    ? "Copy the reusable image recipe"
-                    : "No image recipe filed for this reference"
-                }
-              />
-            </>
-          ) : null}
-          <ActionButton variant="outline" onClick={onClose}>
-            Close
-          </ActionButton>
-        </>
+        <ReferenceActions
+          reference={data}
+          onClose={onClose}
+          onDeleted={onDeleted}
+        />
       }
     >
       {reference.isPending ? (

@@ -75,6 +75,24 @@
   color: var(--rv-ink-inverse);
 }
 
+/*
+ * Withdrawal from the archive: an outlined action printed in the accent, which
+ * fills with it on hover. It is deliberately the same terracotta the counters
+ * and markers already use — consequential, but still the archive's own hand
+ * rather than a warning colour borrowed from somewhere else.
+ */
+.remove {
+  background-color: var(--rv-surface);
+  border-color: var(--rv-accent);
+  color: var(--rv-accent);
+}
+
+.remove:hover {
+  background-color: var(--rv-accent);
+  border-color: var(--rv-accent);
+  color: var(--rv-ink-inverse);
+}
+
 .quiet {
   padding-inline: 0;
   border-color: transparent;
