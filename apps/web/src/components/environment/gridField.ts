@@ -7,6 +7,9 @@
  * the lattice there measures exactly 50px in both axes, the pointer's influence
  * has decayed into the noise floor by roughly 280px, and the change a viewer
  * actually reads is contrast, not warp. The geometry moves a pixel or three.
+ *
+ * Two motions are layered: a constant south-easterly drift of the whole
+ * lattice, and the pointer's local deformation on top of it.
  */
 
 const TAU = Math.PI * 2;
@@ -35,12 +38,21 @@ export const MAX_DISPLACEMENT = 5.5;
 
 /**
  * Ink alpha away from the pointer, and at the very centre of the field. The
- * resting value lands the lattice about 1.5% darker than the paper, which is
- * where the reference capture sits; crossings compound to twice that, as they
- * do in any grid drawn as separate runs.
+ * resting value lands the lattice about 2.8% darker than the paper: low
+ * enough that it stays texture behind the type, high enough that the drift
+ * can be read as movement. Crossings compound to twice that, as they do in
+ * any grid drawn as separate runs. The field value is what deepens the
+ * lattice under the pointer, at roughly five times the resting ink.
  */
-export const ALPHA_BASE = 0.017;
-export const ALPHA_FIELD = 0.07;
+export const ALPHA_BASE = 0.028;
+export const ALPHA_FIELD = 0.135;
+
+/**
+ * Constant south-easterly creep of the whole lattice, in CSS pixels per second
+ * along each axis, so one cell passes every six and a quarter seconds. Unlike
+ * the pointer field this applies everywhere: the grid is never entirely still.
+ */
+export const DRIFT_SPEED = 8;
 
 /** Exponential rates, per second: centre inertia, then presence fade. */
 export const FIELD_INERTIA = 6.5;
@@ -52,6 +64,15 @@ const WAVE_K1 = TAU / 210;
 const WAVE_K2 = TAU / 330;
 const WAVE_W1 = 1.25;
 const WAVE_W2 = 0.78;
+
+/**
+ * Where the lattice origin has crept to at `time`, wrapped into one cell. The
+ * whole drawing window is offset by this, so the lattice translates without
+ * the number of lines, or of samples along them, ever changing.
+ */
+export function driftOffset(time: number): number {
+  return (time * DRIFT_SPEED) % GRID_CELL;
+}
 
 /** Smoothstep falloff on a normalised 0..1 radius. 1 at the centre, 0 at the rim. */
 export function falloffAt(t: number): number {

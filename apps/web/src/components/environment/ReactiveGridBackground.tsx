@@ -12,6 +12,7 @@ import {
   SAMPLE_STEP,
   approach,
   clampShift,
+  driftOffset,
   falloff,
   falloffAt,
   idleWaveX,
@@ -178,10 +179,16 @@ function attachGrid(
      * pixels rather than straddling two and rendering at half strength.
      */
     const hairline = 0.5 / dpr;
-    const left = -GRID_CELL;
-    const top = -GRID_CELL;
-    const right = width + GRID_CELL;
-    const bottom = height + GRID_CELL;
+    /*
+     * The drawing window itself creeps south-east by up to one cell, so the
+     * lattice translates as a unit while the number of lines, and of samples
+     * along them, stays fixed.
+     */
+    const drift = driftOffset(time);
+    const left = -GRID_CELL + drift;
+    const top = -GRID_CELL + drift;
+    const right = width + GRID_CELL + drift;
+    const bottom = height + GRID_CELL + drift;
 
     context.clearRect(0, 0, width, height);
     context.lineWidth = Math.max(0.5, 1 / dpr);
@@ -231,16 +238,10 @@ function attachGrid(
     fieldY = approach(fieldY, pointerY, FIELD_INERTIA, seconds);
     presence = approach(presence, presenceTarget, PRESENCE_RATE, seconds);
 
-    /*
-     * Once the pointer is gone the lattice is static again, so the loop stops
-     * rather than repainting an identical frame forever.
-     */
-    if (presenceTarget === 0 && presence < PRESENCE_EPSILON) {
-      presence = 0;
-      draw(elapsed);
-      return;
-    }
+    if (presenceTarget === 0 && presence < PRESENCE_EPSILON) presence = 0;
 
+    /* The drift never settles, so the loop runs for as long as it is allowed
+     * to: it is parked only by the motion preference and by a hidden tab. */
     draw(elapsed);
     frame = requestAnimationFrame(step);
   }
@@ -283,8 +284,11 @@ function attachGrid(
   }
 
   function handleResize(): void {
-    if (!measure()) return;
-    if (frame === 0) draw(elapsed);
+    /*
+     * Resizing the backing store clears it, so repaint at once rather than
+     * leaving the viewport blank until the next frame.
+     */
+    if (measure()) draw(elapsed);
   }
 
   function handleVisibility(): void {
@@ -308,6 +312,7 @@ function attachGrid(
 
   measure();
   draw(0);
+  start();
 
   window.addEventListener("resize", handleResize);
   window.addEventListener("blur", handlePointerGone);
@@ -333,12 +338,14 @@ function attachGrid(
  * The archive's environment layer: a very faint 50px lattice across the
  * viewport, which deforms and gains a little contrast around the pointer.
  *
- * The deformation is a field, not a hover state. A centre chases the pointer
- * with inertia; within ~280px of it the lattice is displaced by a smooth radial
- * falloff, and that displacement is driven by time as well as by position, so
- * the grid keeps breathing around a pointer that has stopped moving. Nothing in
- * the document is touched: this is one fixed, pointer-transparent canvas drawn
- * from local state on requestAnimationFrame, and React never re-renders for it.
+ * The lattice creeps south-east the whole time it animates. On top of that the
+ * pointer carries a field, not a hover state: a centre chases it with inertia,
+ * and within ~280px the lattice bends toward that centre on a smooth radial
+ * falloff and takes a little more ink. The bend is driven by time as well as by
+ * position, so the grid keeps breathing around a pointer that has stopped
+ * moving. Nothing in the document is touched: this is one fixed,
+ * pointer-transparent canvas drawn from local state on requestAnimationFrame,
+ * and React never re-renders for it.
  */
 export function ReactiveGridBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);

@@ -3,11 +3,13 @@ import { render, screen } from "@testing-library/react";
 
 import { ReactiveGridBackground } from "./ReactiveGridBackground";
 import {
+  DRIFT_SPEED,
   FIELD_RADIUS,
   GRID_CELL,
   MAX_DISPLACEMENT,
   approach,
   clampShift,
+  driftOffset,
   falloff,
 } from "./gridField";
 
@@ -230,6 +232,34 @@ describe("reactive grid background", () => {
     expect(context.strokes()).toBe(1);
   });
 
+  it("carries the whole lattice south-east, with or without a pointer", () => {
+    stubMedia();
+    const frames = stubFrames();
+    const context = stubContext();
+
+    render(<ReactiveGridBackground />);
+
+    frames.advance(2);
+    context.points.length = 0;
+    frames.advance(1);
+    const before = [...context.points];
+
+    context.points.length = 0;
+    frames.advance(4);
+    const after = context.points.slice(-before.length);
+
+    /* The window travels with the lattice, so every frame draws the same
+     * number of points and the two can be compared position for position. */
+    expect(after).toHaveLength(before.length);
+
+    const dx = Math.min(...after.map((p) => p.x)) - Math.min(...before.map((p) => p.x));
+    const dy = Math.min(...after.map((p) => p.y)) - Math.min(...before.map((p) => p.y));
+    const expected = 4 * 0.05 * DRIFT_SPEED;
+
+    expect(dx).toBeCloseTo(expected, 6);
+    expect(dy).toBeCloseTo(expected, 6);
+  });
+
   it("keeps breathing around a pointer that has stopped moving", () => {
     stubMedia();
     const frames = stubFrames();
@@ -239,31 +269,40 @@ describe("reactive grid background", () => {
     movePointer(400, 300);
 
     /* Let the centre and the presence envelope settle before comparing. */
-    frames.advance(60);
+    frames.advance(40);
     context.points.length = 0;
     frames.advance(1);
     const before = [...context.points];
 
-    /* Half a second of time passing, with the pointer untouched. */
+    /* Time passing, with the pointer untouched. */
     context.points.length = 0;
-    frames.advance(8);
+    frames.advance(6);
     const after = context.points.slice(-before.length);
 
     expect(after).toHaveLength(before.length);
 
-    let movedNear = 0;
-    let movedFar = 0;
+    /*
+     * The lattice has also crept south-east over those frames. That drift is
+     * the same everywhere, so subtracting it leaves only the deformation.
+     */
+    const drift = Math.min(...after.map((p) => p.x)) - Math.min(...before.map((p) => p.x));
+
+    let breathedNear = 0;
+    let deformedFar = 0;
     for (const [index, start] of before.entries()) {
       const end = after[index];
       if (end === undefined) continue;
-      const delta = Math.max(Math.abs(end.x - start.x), Math.abs(end.y - start.y));
+      const local = Math.max(
+        Math.abs(end.x - start.x - drift),
+        Math.abs(end.y - start.y - drift),
+      );
       const distance = Math.hypot(start.x - 400, start.y - 300);
-      if (distance < 120 && delta > 0.1) movedNear += 1;
-      if (distance > FIELD_RADIUS + GRID_CELL && delta > 0) movedFar += 1;
+      if (distance < 120 && local > 0.1) breathedNear += 1;
+      if (distance > FIELD_RADIUS + GRID_CELL && local > 1e-9) deformedFar += 1;
     }
 
-    expect(movedNear).toBeGreaterThan(0);
-    expect(movedFar).toBe(0);
+    expect(breathedNear).toBeGreaterThan(0);
+    expect(deformedFar).toBe(0);
   });
 
   it("stops while the document is hidden and resumes when it comes back", () => {
@@ -341,6 +380,18 @@ describe("reactive grid field", () => {
     expect(falloff(100)).toBeGreaterThan(0.6);
     expect(falloff(130)).toBeGreaterThan(0.5);
     expect(falloff(250)).toBeLessThan(0.1);
+  });
+
+  it("creeps one cell south-east at the drift speed, and wraps", () => {
+    expect(driftOffset(0)).toBe(0);
+    expect(driftOffset(1)).toBeCloseTo(DRIFT_SPEED, 10);
+    expect(driftOffset(GRID_CELL / DRIFT_SPEED)).toBeCloseTo(0, 10);
+
+    for (const time of [0.3, 2.7, 9.9, 41.2, 600]) {
+      const offset = driftOffset(time);
+      expect(offset).toBeGreaterThanOrEqual(0);
+      expect(offset).toBeLessThan(GRID_CELL);
+    }
   });
 
   it("never lets a line travel past the lattice's limit", () => {
