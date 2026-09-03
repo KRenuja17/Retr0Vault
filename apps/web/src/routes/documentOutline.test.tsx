@@ -86,7 +86,6 @@ describe("document outline", () => {
     ["/add", () => screen.findByRole("heading", { name: /file an image reference/i })],
     ["/compare", () => screen.findByText(/needs at least/)],
     ["/direction", () => screen.findByText(/needs at least/)],
-    ["/foundation", () => screen.findByRole("heading", { name: /paper, rule, plate/i })],
     ["/nowhere-at-all", () => screen.findByText(/No such plate/)],
   ];
 

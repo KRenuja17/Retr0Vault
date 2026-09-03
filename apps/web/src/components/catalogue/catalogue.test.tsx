@@ -193,6 +193,34 @@ describe("catalogue plates", () => {
     expect(within(plate).getByLabelText("01 of 28")).toBeInTheDocument();
   });
 
+  /*
+   * The plate's hover language is presentational — a transform and a shadow —
+   * and must stay that way. What a reader or a keyboard reaches is unchanged:
+   * one tab stop, on the title, pointing at the reference; the capture behind
+   * it carries the same link but is hidden from both.
+   */
+  it("keeps one tab stop on the plate and hides the duplicate capture link", async () => {
+    stubApi({
+      designTypes: [PRINT_TECH],
+      stats: makeStats({ totalReferences: 1 }),
+      references: onePage([STILLPAGE], 1),
+    });
+
+    renderView(<CatalogueView filter={{ kind: "all" }} label="Complete archive" />);
+
+    const plate = await screen.findByRole("article");
+    const href = `/reference/${STILLPAGE.id}`;
+
+    const reachable = within(plate).getAllByRole("link");
+    expect(reachable).toHaveLength(1);
+    expect(reachable[0]).toHaveAttribute("href", href);
+    expect(reachable[0]).toHaveAccessibleName("Stillpage");
+
+    const capture = plate.querySelector(`a[href="${href}"][aria-hidden="true"]`);
+    expect(capture).not.toBeNull();
+    expect(capture).toHaveAttribute("tabindex", "-1");
+  });
+
   it("requests the thumbnail endpoint and never the stored path or the original", async () => {
     stubApi({
       designTypes: [PRINT_TECH],

@@ -4,7 +4,6 @@ import type { DesignTypeResponse, ReferenceResponse } from "@retr0vault/shared";
 
 import { SectionPanel } from "@/components/layout/SectionPanel";
 import {
-  ActionButton,
   MonoLabel,
   VocabularyChip,
   VocabularyChipSet,

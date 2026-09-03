@@ -1,8 +1,28 @@
+/*
+ * The sheet is placed onto the archive rather than flown in: the scrim fades,
+ * the sheet rises the last 6px and settles. No spring, no overshoot, no
+ * scaling. Entrance only — the exit stays instant so Radix returns focus to
+ * the originating plate the moment the dialog closes.
+ */
+@keyframes rv-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rv-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
 .overlay {
   position: fixed;
   inset: 0;
   z-index: var(--rv-z-modal);
   background-color: var(--rv-scrim);
+  animation: rv-scrim-in var(--rv-motion-base) var(--rv-easing-out);
 }
 
 .positioner {
@@ -27,6 +47,9 @@
   background-color: var(--rv-surface);
   color: var(--rv-ink);
   overflow: hidden;
+  /* A physical sheet lying over the catalogue: hard ink offset, no blur. */
+  box-shadow: var(--rv-shadow-sheet);
+  animation: rv-sheet-in var(--rv-motion-sheet) var(--rv-easing-out);
 }
 
 .wide {
@@ -83,6 +106,10 @@
   letter-spacing: var(--rv-tracking-mono-wide);
   text-transform: uppercase;
   line-height: 1;
+  /* The same fill-with-ink hover the outlined actions use. */
+  transition:
+    background-color var(--rv-motion-hover) var(--rv-easing),
+    color var(--rv-motion-hover) var(--rv-easing);
 }
 
 .close:hover {
@@ -101,6 +128,8 @@
     max-height: 100vh;
     border-left: none;
     border-right: none;
+    /* Full-bleed on a phone: there is no sheet edge left to cast a shadow. */
+    box-shadow: none;
   }
 
   .body,

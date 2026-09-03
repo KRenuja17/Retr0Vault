@@ -83,12 +83,6 @@
   flex-wrap: wrap;
 }
 
-.footerLinks {
-  display: flex;
-  align-items: baseline;
-  gap: var(--rv-space-5);
-}
-
 /* --- connection status ------------------------------------------------- */
 .status {
   display: inline-flex;

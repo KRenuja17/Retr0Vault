@@ -13,7 +13,6 @@ import {
   NotFoundRoute,
   ReferenceRoute,
 } from "./CatalogueRoute";
-import { FoundationRoute } from "./FoundationRoute";
 
 /**
  * Route shell for Retr0Vault. `/reference/:id` is a sibling of the catalogue
@@ -39,7 +38,6 @@ export const routes: readonly RouteObject[] = [
       { path: "compare", element: <CompareRoute /> },
       { path: "direction", element: <DirectionRoute /> },
       { path: "add", element: <AddReferenceView /> },
-      { path: "foundation", element: <FoundationRoute /> },
       { path: "*", element: <NotFoundRoute /> },
     ],
   },

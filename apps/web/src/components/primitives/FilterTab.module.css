@@ -13,12 +13,20 @@
   text-transform: uppercase;
   white-space: nowrap;
   transition:
-    background-color var(--rv-motion-fast) var(--rv-easing),
-    color var(--rv-motion-fast) var(--rv-easing);
+    background-color var(--rv-motion-hover) var(--rv-easing),
+    border-color var(--rv-motion-hover) var(--rv-easing),
+    color var(--rv-motion-hover) var(--rv-easing);
 }
 
+/*
+ * An idle tab stays on paper when hovered and answers in terracotta — its rule
+ * and its label pick up the accent its counter already carries. The ink fill
+ * belongs to the active tab alone, so hovering never impersonates the slice
+ * you are actually reading.
+ */
 .tab:hover {
-  background-color: var(--rv-paper-deep);
+  border-color: var(--rv-accent);
+  color: var(--rv-accent);
   text-decoration: none;
 }
 
@@ -52,8 +60,11 @@
   color: var(--rv-ink-inverse);
 }
 
+/* Held against the hover above: the active tab does not change at all. */
 .active:hover {
   background-color: var(--rv-surface-inverse);
+  border-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
 }
 
 .active .count {

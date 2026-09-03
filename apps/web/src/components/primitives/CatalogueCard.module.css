@@ -8,12 +8,27 @@
   transition: border-color var(--rv-motion-fast) var(--rv-easing);
 }
 
-/* Interactive cards keep their geometry; only the rule and the media respond. */
+/*
+ * Interactive cards keep their geometry and their footprint: the plate lifts,
+ * it never grows. Nothing here scales the plate or zooms its capture.
+ */
 .interactive {
   cursor: pointer;
   text-align: left;
   width: 100%;
   font: inherit;
+  /*
+   * `--rv-plate-shadow` is the plate's own inset ring, which selected plates
+   * redefine. Keeping it in a variable lets the lift shadow be appended
+   * without either state clobbering the other.
+   */
+  --rv-plate-shadow: 0 0 0 0 transparent;
+  position: relative;
+  box-shadow: var(--rv-plate-shadow);
+  transition:
+    border-color var(--rv-motion-fast) var(--rv-easing),
+    transform var(--rv-motion-base) var(--rv-easing),
+    box-shadow var(--rv-motion-base) var(--rv-easing);
 }
 
 .interactive:hover,
@@ -28,7 +43,59 @@
 
 .selected {
   border-color: var(--rv-accent);
-  box-shadow: inset 0 0 0 1px var(--rv-accent);
+  --rv-plate-shadow: inset 0 0 0 1px var(--rv-accent);
+  box-shadow: var(--rv-plate-shadow);
+}
+
+/*
+ * The hard lift. On a fine pointer the plate rises 3px up and to the left and
+ * drops an unblurred ink shadow 6px down and to the right — a printed card
+ * picked up off the sheet. Transform and box-shadow only, so the grid never
+ * reflows and no plate below it moves.
+ *
+ * Coarse pointers are excluded deliberately: a tap would otherwise leave the
+ * plate stuck in its lifted state with no way to release it.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .interactive:hover {
+    /* Above its neighbours so the shadow is never clipped by the next plate. */
+    z-index: 1;
+    transform: translate(calc(-1 * var(--rv-lift)), calc(-1 * var(--rv-lift)));
+    box-shadow: var(--rv-plate-shadow), var(--rv-shadow-plate);
+  }
+
+  /* Pressing settles the plate most of the way back down. Nothing more. */
+  .interactive:hover:active {
+    transform: translate(
+      calc(-1 * var(--rv-lift-pressed)),
+      calc(-1 * var(--rv-lift-pressed))
+    );
+    box-shadow: var(--rv-plate-shadow), var(--rv-shadow-plate-pressed);
+  }
+}
+
+/*
+ * Keyboard focus gets the same physical treatment, on every pointer type, so a
+ * plate reached by Tab reads exactly like a plate under the cursor. The focus
+ * ring itself is untouched: it stays on the title link inside the plate, where
+ * `:focus-visible` put it.
+ */
+.interactive:has(:focus-visible) {
+  z-index: 1;
+  transform: translate(calc(-1 * var(--rv-lift)), calc(-1 * var(--rv-lift)));
+  box-shadow: var(--rv-plate-shadow), var(--rv-shadow-plate);
+}
+
+/*
+ * With reduced motion the plate keeps the shadow — depth is not movement — but
+ * gives up the displacement entirely rather than jumping to it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .interactive:hover,
+  .interactive:hover:active,
+  .interactive:has(:focus-visible) {
+    transform: translate(0, 0);
+  }
 }
 
 /* --- media ------------------------------------------------------------- */

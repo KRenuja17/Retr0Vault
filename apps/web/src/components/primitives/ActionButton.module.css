@@ -10,13 +10,19 @@
   line-height: 1;
   white-space: nowrap;
   transition:
-    background-color var(--rv-motion-fast) var(--rv-easing),
-    border-color var(--rv-motion-fast) var(--rv-easing),
-    color var(--rv-motion-fast) var(--rv-easing);
+    background-color var(--rv-motion-hover) var(--rv-easing),
+    border-color var(--rv-motion-hover) var(--rv-easing),
+    color var(--rv-motion-hover) var(--rv-easing),
+    transform var(--rv-motion-fast) var(--rv-easing);
 }
 
 .button:hover {
   text-decoration: none;
+}
+
+/* Pressed: the key travels one pixel down and right. Nothing further. */
+.button:active {
+  transform: translate(var(--rv-lift-pressed), var(--rv-lift-pressed));
 }
 
 /* --- sizes ------------------------------------------------------------- */
@@ -30,7 +36,12 @@
   font-size: var(--rv-text-sm);
 }
 
-/* --- variants ---------------------------------------------------------- */
+/* --- variants ----------------------------------------------------------
+ * The archive has two inks for an action, and hovering swaps which one the
+ * button is wearing: ink becomes terracotta, terracotta becomes ink, and an
+ * outlined action fills with ink and prints its label in paper. No new
+ * colours, no third state, no in-between tint.
+ */
 .solid {
   background-color: var(--rv-surface-inverse);
   border-color: var(--rv-surface-inverse);
@@ -38,8 +49,8 @@
 }
 
 .solid:hover {
-  background-color: #262119;
-  border-color: #262119;
+  background-color: var(--rv-accent);
+  border-color: var(--rv-accent);
 }
 
 .accent {
@@ -49,8 +60,8 @@
 }
 
 .accent:hover {
-  background-color: var(--rv-accent-deep);
-  border-color: var(--rv-accent-deep);
+  background-color: var(--rv-surface-inverse);
+  border-color: var(--rv-surface-inverse);
 }
 
 .outline {
@@ -59,7 +70,9 @@
 }
 
 .outline:hover {
-  background-color: var(--rv-paper-deep);
+  background-color: var(--rv-surface-inverse);
+  border-color: var(--rv-surface-inverse);
+  color: var(--rv-ink-inverse);
 }
 
 .quiet {
@@ -78,6 +91,12 @@
 .button:disabled {
   opacity: 0.42;
   pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button:active {
+    transform: none;
+  }
 }
 
 .block {

@@ -89,15 +89,35 @@
   --rv-grid-gap: clamp(1rem, 1.6vw, 1.75rem);
   --rv-grid-columns: 3;
 
-  /* ---- Motion (restrained: colour and border only, never transforms) --- */
+  /* ---- Motion --------------------------------------------------------- */
+  /*
+   * Restrained throughout: colour, border, and the single physical lift a
+   * plate or sheet is allowed. Nothing bounces, springs or overshoots.
+   */
   --rv-motion-fast: 90ms;
+  --rv-motion-hover: 120ms;
   --rv-motion-base: 140ms;
+  --rv-motion-sheet: 160ms;
   --rv-easing: cubic-bezier(0.2, 0, 0.2, 1);
+  --rv-easing-out: cubic-bezier(0, 0, 0.2, 1);
 
   /* ---- Depth ---------------------------------------------------------- */
   --rv-scrim: rgba(23, 20, 15, 0.62);
   --rv-focus-ring: 2px solid var(--rv-accent);
   --rv-focus-offset: 2px;
+
+  /*
+   * Offset-print depth. Every shadow in the archive is the same object: ink,
+   * hard-edged, no blur and no spread — the shadow a printed card casts on the
+   * sheet below it, not a glow. The distances are measured off the reference
+   * captures: a plate lifts 3px up-left and casts 6px down-right; the
+   * reference sheet sits 12px above the darkened catalogue.
+   */
+  --rv-lift: 3px;
+  --rv-lift-pressed: 1px;
+  --rv-shadow-plate: 6px 6px 0 rgba(var(--rv-grid-ink), 0.9);
+  --rv-shadow-plate-pressed: 2px 2px 0 rgba(var(--rv-grid-ink), 0.9);
+  --rv-shadow-sheet: 12px 12px 0 rgba(var(--rv-grid-ink), 0.7);
 
   /* Paper grain. One repeating 4px dot field; no image request. */
   --rv-paper-grain: radial-gradient(

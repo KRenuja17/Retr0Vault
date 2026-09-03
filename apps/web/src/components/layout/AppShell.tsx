@@ -90,16 +90,9 @@ export function AppShell({ navigation, children }: AppShellProps) {
               <MonoLabel size="micro" tone="muted" uppercase>
                 Retr0Vault V1 · web 4610 · api 4611
               </MonoLabel>
-              <span className={styles.footerLinks}>
-                <Link to="/foundation">
-                  <MonoLabel size="micro" tone="muted" uppercase>
-                    Visual system
-                  </MonoLabel>
-                </Link>
-                <MonoLabel size="micro" tone="muted" uppercase>
-                  No cloud · no AI keys
-                </MonoLabel>
-              </span>
+              <MonoLabel size="micro" tone="muted" uppercase>
+                No cloud · no AI keys
+              </MonoLabel>
             </div>
           </div>
         </footer>

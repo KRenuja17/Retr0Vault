@@ -78,11 +78,26 @@ describe("route shell", () => {
     });
   });
 
-  it("renders the visual system specimen sheet", () => {
+  /*
+   * `/foundation` was the F1 specimen sheet — a development surface, never part
+   * of the product. It is gone, and the address is now nothing special: it
+   * falls through to the same not-found plate as any other unknown route.
+   */
+  it("resolves the retired /foundation address through the not-found plate", () => {
     stubOfflineApi();
     renderAt("/foundation");
-    expect(screen.getByRole("heading", { name: /paper, rule, plate/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open modal surface/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /no such plate/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("prints no visual-system link in the marginalia", () => {
+    stubOfflineApi();
+    renderAt("/all");
+    expect(
+      screen.queryByRole("link", { name: /visual system/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/visual system/i)).not.toBeInTheDocument();
   });
 
   it("falls through to the not-found plate", () => {
