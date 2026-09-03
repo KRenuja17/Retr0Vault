@@ -12,6 +12,11 @@
   flex-wrap: wrap;
 }
 
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .aside {
   flex: 0 1 auto;
   max-width: 62ch;

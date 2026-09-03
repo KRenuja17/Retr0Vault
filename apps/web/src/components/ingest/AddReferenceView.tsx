@@ -20,6 +20,7 @@ export function AddReferenceView() {
       <SectionPanel
         eyebrow="Accession"
         title="Add a reference to the archive"
+        level={1}
         marker
         lede="A new reference is stored on this machine and filed as awaiting analysis. Design DNA, vocabulary, brief and image recipe arrive later, when the exported manifest comes back as analysis JSON."
         aside={

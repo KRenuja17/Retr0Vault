@@ -138,7 +138,7 @@ export function ReferenceCard({
               state={{ origin }}
               className={styles.titleLink}
             >
-              <EditorialHeading level={3} scale="card" className={styles.title}>
+              <EditorialHeading level={2} scale="card" className={styles.title}>
                 {reference.title}
               </EditorialHeading>
             </Link>

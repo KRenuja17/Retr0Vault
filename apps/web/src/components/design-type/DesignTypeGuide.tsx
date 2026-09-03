@@ -169,6 +169,7 @@ export function DesignTypeGuide({
       <section className={cx(styles.plate, styles.rules)}>
         <div className={styles.column}>
           <MonoLabel
+            as="h2"
             size="small"
             tone="muted"
             uppercase
@@ -184,6 +185,7 @@ export function DesignTypeGuide({
 
         <div className={cx(styles.column, styles.columnSecond)}>
           <MonoLabel
+            as="h2"
             size="small"
             tone="muted"
             uppercase

@@ -36,6 +36,16 @@ describe("CountLabel", () => {
     expect(screen.getByLabelText("28")).not.toHaveTextContent("/");
   });
 
+  it("carries a role, so the label it sets is actually exposed", () => {
+    /*
+     * The digits are split across aria-hidden spans for typesetting, leaving
+     * the label as the only announceable text — and aria-label on a bare span
+     * with no role is ignored by screen readers.
+     */
+    render(<CountLabel value={1} total={28} />);
+    expect(screen.getByRole("img", { name: "01 of 28" })).toBeInTheDocument();
+  });
+
   it("pads defensively", () => {
     expect(padCount(3, 2)).toBe("03");
     expect(padCount(128, 2)).toBe("128");

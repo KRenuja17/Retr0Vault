@@ -60,6 +60,10 @@ export function CountLabel({
   return (
     <span
       className={cx(styles.count, sizeClass[size], toneClass[tone], className)}
+      /* The digits are split across aria-hidden spans for typesetting, so the
+       * label is the only thing left to announce — and a bare span would not
+       * expose it. */
+      role="img"
       aria-label={label}
       {...rest}
     >

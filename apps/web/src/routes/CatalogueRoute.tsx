@@ -40,6 +40,7 @@ export function DesignTypeRoute() {
       filter={{ kind: "designType", slug }}
       label={match?.name ?? slug}
       missing={resolved && match === undefined}
+      introHeading={match !== undefined}
       intro={
         <DesignTypeGuide designType={match} pending={designTypes.isPending} />
       }
@@ -64,6 +65,7 @@ export function CollectionRoute() {
       filter={{ kind: "collection", slug }}
       label={match?.name ?? slug}
       missing={resolved && match === undefined}
+      introHeading={match !== undefined}
       intro={
         <CollectionHeader collection={match} pending={collections.isPending} />
       }
@@ -87,6 +89,7 @@ function CollectionHeader({
     <SectionPanel
       eyebrow="Collection"
       title={collection.name}
+      level={1}
       marker
       {...(collection.description
         ? { lede: collection.description }
@@ -155,6 +158,7 @@ export function NotFoundRoute() {
     <SectionPanel
       eyebrow="404"
       title="No such plate"
+      level={1}
       aside={
         <MonoLabel size="small" tone="muted" uppercase>
           Route not found

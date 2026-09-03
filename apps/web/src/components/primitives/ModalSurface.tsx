@@ -73,7 +73,17 @@ export function ModalSurface({
                 Close
               </Dialog.Close>
             ) : null}
-            <div className={styles.scroll}>
+            {/*
+              * The sheet scrolls inside the surface, so the region is named and
+              * given a tab stop: without one a keyboard-only reader can reach
+              * the footer but never scroll the sheet itself.
+              */}
+            <div
+              role="region"
+              aria-label={`${label}, scrollable`}
+              tabIndex={0}
+              className={styles.scroll}
+            >
               {media ? <div className={styles.media}>{media}</div> : null}
               <div className={styles.body}>{children}</div>
             </div>

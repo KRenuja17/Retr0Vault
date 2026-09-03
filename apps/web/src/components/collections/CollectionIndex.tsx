@@ -415,17 +415,24 @@ export function CollectionIndex() {
   }
 
   const items = collections.data ?? [];
+  const memberships = items.reduce(
+    (total, entry) => total + entry.referenceCount,
+    0,
+  );
 
   return (
     <div className={styles.view}>
       <SectionPanel
         eyebrow="Collection index"
         title="Curated groupings"
+        level={1}
         marker
         lede="A collection is whatever you decide belongs together — a shortlist, a mood, a client's world. Design types describe a visual language the archive recognises; these do not, and the two are never mixed."
         aside={
           <MonoLabel size="small" tone="muted" uppercase marker="hollow">
-            {collections.data ? `${items.length} collections` : "Reading register"}
+            {collections.data
+              ? `${items.length} ${items.length === 1 ? "collection" : "collections"}`
+              : "Reading register"}
           </MonoLabel>
         }
       >
@@ -489,13 +496,9 @@ export function CollectionIndex() {
       </div>
 
       <div className={styles.meta}>
-        <CountLabel
-          value={items.reduce((total, entry) => total + entry.referenceCount, 0)}
-          tone="muted"
-          size="small"
-        />
+        <CountLabel value={memberships} tone="muted" size="small" />
         <MonoLabel size="micro" tone="muted" uppercase>
-          memberships across all collections
+          {`${memberships === 1 ? "membership" : "memberships"} across all collections`}
         </MonoLabel>
       </div>
     </div>

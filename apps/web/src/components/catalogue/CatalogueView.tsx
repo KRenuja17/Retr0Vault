@@ -51,6 +51,12 @@ export interface CatalogueViewProps {
    * references still explains itself.
    */
   readonly intro?: ReactNode;
+  /**
+   * The intro already prints this page's h1 — the design-type guide and the
+   * collection header both do. The view then leaves the heading alone rather
+   * than announcing the same slice name twice.
+   */
+  readonly introHeading?: boolean;
 }
 
 /** Bordered plates that hold the grid's rhythm while the first page loads. */
@@ -109,6 +115,7 @@ export function CatalogueView({
   label,
   missing = false,
   intro,
+  introHeading = false,
 }: CatalogueViewProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const selection = useSelection();
@@ -152,6 +159,12 @@ export function CatalogueView({
 
   return (
     <div className={styles.view}>
+      {/*
+        * The catalogue is a grid of plates, not a titled article, so the page
+        * heading is carried for screen readers only — unless the slice already
+        * prints one above the plates, in which case that is the h1.
+        */}
+      {introHeading ? null : <h1 className="rv-visually-hidden">{label}</h1>}
       <FilterRail active={active} />
       <PageRule weight="hairline" />
       <ArchiveSearch
@@ -202,7 +215,7 @@ export function CatalogueView({
         )
       ) : (
         <>
-          <div className={styles.ledger}>
+          <div className={styles.ledger} role="status">
             <MonoLabel size="small" tone="muted" uppercase>
               {query.length > 0 ? (
                 <>

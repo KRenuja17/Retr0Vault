@@ -52,7 +52,7 @@ function Block({
   return (
     <section className={styles.block}>
       <div className={styles.blockHead}>
-        <MonoLabel size="small" tone="ink" uppercase>
+        <MonoLabel as="h2" size="small" tone="ink" uppercase>
           {title}
         </MonoLabel>
         <MonoLabel size="micro" tone="muted" uppercase>
@@ -77,6 +77,7 @@ export function FoundationRoute() {
       <SectionPanel
         eyebrow="Visual system"
         title="Paper, rule, plate"
+        level={1}
         marker
         aside={
           <MonoLabel size="small" tone="muted" uppercase>

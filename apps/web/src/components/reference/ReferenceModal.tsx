@@ -97,7 +97,15 @@ function describeFailure(error: unknown): {
         "Retr0Vault could not reach the local API on 127.0.0.1:4611. Start it with npm run dev:api.",
     };
   }
-  if (error instanceof ApiError && error.statusCode === 404) {
+  /*
+   * 404 is an id the archive does not hold; 400 is an id it could never hold,
+   * since the only input this route takes is that id. Both are the same thing
+   * to a reader who followed a stale or hand-edited link.
+   */
+  if (
+    error instanceof ApiError &&
+    (error.statusCode === 404 || error.statusCode === 400)
+  ) {
     return {
       title: "No such reference",
       detail: "The archive holds no reference under that id.",

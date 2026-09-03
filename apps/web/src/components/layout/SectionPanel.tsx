@@ -4,6 +4,7 @@ import {
   EditorialHeading,
   MonoLabel,
   PageRule,
+  type EditorialHeadingLevel,
 } from "@/components/primitives";
 import { cx } from "@/lib/cx";
 
@@ -16,6 +17,12 @@ export interface SectionPanelProps {
   readonly aside?: ReactNode;
   readonly lede?: ReactNode;
   readonly marker?: boolean;
+  /**
+   * Heading level for the panel's title. A panel that IS the page — the
+   * collection register, accession, a 404 — takes 1; a panel inside a page
+   * that already has an h1 keeps the default 2.
+   */
+  readonly level?: EditorialHeadingLevel;
   readonly className?: string | undefined;
   readonly children?: ReactNode;
 }
@@ -30,20 +37,28 @@ export function SectionPanel({
   aside,
   lede,
   marker = false,
+  level = 2,
   className,
   children,
 }: SectionPanelProps) {
   return (
     <section className={cx(styles.panel, className)}>
       <div className={styles.head}>
-        <EditorialHeading
-          level={2}
-          scale="section"
-          marker={marker}
-          {...(eyebrow === undefined ? {} : { eyebrow })}
-        >
-          {title}
-        </EditorialHeading>
+        {/*
+          * EditorialHeading prints its eyebrow as a sibling of the heading, so
+          * the pair is boxed here: otherwise each becomes its own flex item and
+          * the kicker sits beside the title instead of above it.
+          */}
+        <div className={styles.title}>
+          <EditorialHeading
+            level={level}
+            scale="section"
+            marker={marker}
+            {...(eyebrow === undefined ? {} : { eyebrow })}
+          >
+            {title}
+          </EditorialHeading>
+        </div>
         {aside ? <div className={styles.aside}>{aside}</div> : null}
       </div>
       {lede ? <p className={styles.lede}>{lede}</p> : null}

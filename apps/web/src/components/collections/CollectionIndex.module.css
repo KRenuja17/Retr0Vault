@@ -114,7 +114,9 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: var(--rv-space-2);
+  /* Quiet controls carry no padding of their own, so the gap is the only thing
+   * separating RENAME / PIN / DELETE into three controls rather than one line. */
+  gap: var(--rv-space-4);
   flex-wrap: wrap;
   justify-content: flex-end;
 }

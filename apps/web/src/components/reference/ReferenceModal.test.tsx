@@ -56,9 +56,16 @@ interface Options {
   readonly list?: unknown[];
   readonly detail?: unknown;
   readonly detailStatus?: number;
+  /** The envelope the API pairs with that status, when it is not a 404. */
+  readonly detailError?: { readonly code: string; readonly message: string };
 }
 
-function stubApi({ list = [STILLPAGE], detail = STILLPAGE, detailStatus }: Options = {}) {
+function stubApi({
+  list = [STILLPAGE],
+  detail = STILLPAGE,
+  detailStatus,
+  detailError,
+}: Options = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     const json = (body: unknown, status = 200) =>
@@ -77,8 +84,8 @@ function stubApi({ list = [STILLPAGE], detail = STILLPAGE, detailStatus }: Optio
         return json(
           {
             error: {
-              code: "REFERENCE_NOT_FOUND",
-              message: "Reference not found",
+              code: detailError?.code ?? "REFERENCE_NOT_FOUND",
+              message: detailError?.message ?? "Reference not found",
               statusCode: detailStatus,
             },
             requestId: "req-4",
@@ -296,5 +303,38 @@ describe("reference modal", () => {
       await within(sheet).findByRole("heading", { name: /no such reference/i }),
     ).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /^close$/i })).toBeInTheDocument();
+  });
+
+  it("reads a malformed id as no such reference, not as a refused request", async () => {
+    /*
+     * The id is the only input this route takes, so the 400 the API answers for
+     * an unparseable one means exactly what a 404 means to whoever followed the
+     * link — not "the archive refused that request".
+     */
+    stubApi({
+      detailStatus: 400,
+      detailError: { code: "VALIDATION_ERROR", message: "id: Invalid UUID" },
+    });
+    renderAt("/reference/aaaaaaaa-0000-4000-8000-0000000000ff");
+
+    const sheet = await screen.findByRole("dialog");
+    expect(
+      await within(sheet).findByRole("heading", { name: /no such reference/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("gives the scrolling sheet a name and a tab stop of its own", async () => {
+    /*
+     * Without one, a keyboard-only reader can reach the action row but can
+     * never scroll the sheet holding the capture and the recipe.
+     */
+    stubApi();
+    renderAt(`/reference/${STILLPAGE.id}`);
+
+    const sheet = await screen.findByRole("dialog");
+    const region = await within(sheet).findByRole("region", {
+      name: /stillpage/i,
+    });
+    expect(region).toHaveAttribute("tabindex", "0");
   });
 });

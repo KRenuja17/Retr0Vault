@@ -271,6 +271,14 @@ describe("design-type style guide", () => {
       await screen.findByRole("heading", { name: /no design type called not-a-real-type/i }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /copy brief block/i })).toBeNull();
-    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    /*
+     * The page still carries its own h1 — the slice name, for screen readers —
+     * so absence of the guide is proved by the guide's own title being gone,
+     * not by the page having no level-1 heading at all.
+     */
+    expect(
+      screen.queryByRole("heading", { level: 1, name: /^dither mono$/i }),
+    ).toBeNull();
+    expect(document.querySelector("#design-type-title")).toBeNull();
   });
 });

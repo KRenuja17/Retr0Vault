@@ -1,6 +1,6 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The current backend supports design-type and collection management, local image ingestion, Chromium website capture, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports.
+Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The backend supports design-type and collection management, local image ingestion, Chromium website capture, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports. The React frontend is the editorial catalogue over it: the plate gallery, design-type style guides, the reference sheet, accession and the analysis desk, search, collections, and multi-reference compare/direction/export.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Retr0Vault is a local-first visual inspiration and design-vocabulary archive. Th
 
 No Docker, XAMPP/WAMP, external database server, cloud service, or AI API key is required.
 
-## Start the backend on Windows
+## Start Retr0Vault on Windows
 
 From PowerShell in a development working copy's root:
 
@@ -19,14 +19,26 @@ npm install
 npm run capture:install
 npm run db:migrate
 npm run seed
-npm run dev:api
+npm run dev
 ```
 
-The API listens on `http://127.0.0.1:4611`. Check it with:
+`npm run dev` runs both processes together:
+
+| | |
+| --- | --- |
+| Web | `http://localhost:4610` |
+| API | `http://127.0.0.1:4611` |
+
+Open the web address; the catalogue is at `/all`. `npm run capture:install` is
+needed only for website capture — image upload, search, analysis and exports
+work without it. Check the API on its own with:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:4611/api/v1/health
 ```
+
+Run either half alone with `npm run dev:api` or `npm run dev:web`; the web
+server proxies `/api` to the API, so the frontend needs the API running.
 
 The database is created at `data/retr0vault.db`. The API also applies committed migrations during startup, so explicitly running `db:migrate` is safe and repeatable but not required after the first setup.
 
@@ -46,6 +58,7 @@ Use the same environment variables for the API and every CLI command in each new
 ## Backend commands
 
 ```powershell
+npm run dev          # Start API and web together
 npm run dev:api      # Start the API in watch mode
 npm run capture:install # Install the pinned Playwright Chromium browser
 npm run db:migrate   # Apply committed SQLite migrations
@@ -139,7 +152,7 @@ Copying only a live `.db` file is not a valid backup procedure. SQLite has an [o
 
 ## Backend V1 verification
 
-Run `npm run test`, `npm run typecheck` and `npm run build` after installing Chromium. Tests cover fresh and populated migrations, constraints, CRUD/deletion, real Chromium lifecycle and SSRF boundaries, analysis safety, exports, FTS updates/relevance/pagination, live statistics, browser-origin rejection, upload rollback, orphan quarantine and cold-backup restoration. Tests use disposable runtime directories; no frontend is implemented or required.
+Run `npm run test`, `npm run typecheck` and `npm run build` after installing Chromium. Tests cover fresh and populated migrations, constraints, CRUD/deletion, real Chromium lifecycle and SSRF boundaries, analysis safety, exports, FTS updates/relevance/pagination, live statistics, browser-origin rejection, upload rollback, orphan quarantine and cold-backup restoration. Frontend tests cover the catalogue, style guides, the reference sheet, accession and the analysis desk, search, collections, selection, compare, direction and exports against a stubbed API. Tests use disposable runtime directories.
 
 Dependency audit at this checkpoint: `npm audit --omit=dev` reports no runtime advisories. The full audit reports four moderate entries in the development-only Drizzle Kit → esbuild-kit → esbuild chain, all stemming from [esbuild's development-server CORS advisory](https://github.com/evanw/esbuild/security/advisories/GHSA-67mh-4wv8-2f99). Retr0Vault does not run that esbuild server or Drizzle Studio. Keep migration generation local/trusted; do not use `npm audit fix --force`, which currently proposes a breaking Drizzle Kit downgrade. Review upstream fixes when upgrading the pinned lockfile.
 
@@ -218,7 +231,7 @@ The browser has no saved user session. Service workers, WebSockets, downloads, n
 
 Errors use the usual structured JSON envelope: 400 for invalid/unsafe targets, 413 for size limits, 502 for DNS/navigation/remote-page failures, 503 if Chromium is unavailable or shutdown cancels capture, and 504 for timeouts. `CAPTURE_BROWSER_UNAVAILABLE` instructs you to run `npm run capture:install`. A failed capture creates no reference with missing images. Files are rolled back if database insertion fails. Deletion cascades frame rows first, then removes only that reference's known files; unrelated files are retained. Chromium and its network proxy are cleaned up after success, failure, timeout, or backend shutdown.
 
-The additive `0005_website_capture.sql` migration creates `reference_frames` without rebuilding references or disturbing search triggers. No frontend implementation is included; the HTML page under the backend tests is a deterministic browser fixture only.
+The additive `0005_website_capture.sql` migration creates `reference_frames` without rebuilding references or disturbing search triggers. The HTML page under the backend tests is a deterministic browser fixture only.
 
 ## Search and catalogue queries
 
@@ -353,7 +366,7 @@ Requests are capped at 2 MiB and generated files at 8 MiB (413 if exceeded; sele
 ```text
 apps/
   api/       Fastify backend
-  web/       Empty frontend workspace placeholder
+  web/       React catalogue frontend (Vite)
 packages/
   shared/    Shared Zod schemas and inferred TypeScript types
 data/        Local SQLite and analysis runtime data (ignored)
@@ -361,4 +374,13 @@ storage/     Local reference files (ignored)
 docs/        Analysis schema and external-curator instructions
 ```
 
-Frontend implementation intentionally begins only after backend phases B1-B8 are complete.
+## Verifying a change
+
+```powershell
+npm run typecheck
+npm run test
+npm run build
+```
+
+`npm run test` runs the API suite then the web suite. Website-capture tests need
+Chromium, so run `npm run capture:install` first.

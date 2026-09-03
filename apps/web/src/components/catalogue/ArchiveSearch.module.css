@@ -108,6 +108,14 @@
     gap: var(--rv-space-3);
   }
 
+  /*
+   * The column axis is now vertical, so the field's 22rem basis would be read
+   * as a height. The entry takes the height of its input again.
+   */
+  .entry {
+    flex: 0 0 auto;
+  }
+
   .actions {
     justify-content: flex-end;
   }

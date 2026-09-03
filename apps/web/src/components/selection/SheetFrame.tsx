@@ -79,6 +79,7 @@ export function NotEnoughSources({
     <SectionPanel
       eyebrow="Nothing to work from"
       title={`${what} needs at least ${minimum} references`}
+      level={1}
       marker
       lede="The address carries fewer than that. Mark plates in the catalogue with SELECT REFERENCES, then choose this action again."
       aside={
