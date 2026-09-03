@@ -106,6 +106,12 @@
   );
   --rv-paper-grain-size: 4px 4px;
 
+  /*
+   * The same ink, as channels, for the reactive grid canvas: it varies only
+   * alpha per line, which a hex token cannot express.
+   */
+  --rv-grid-ink: 23, 20, 15;
+
   --rv-z-modal: 100;
 }
 

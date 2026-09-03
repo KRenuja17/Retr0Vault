@@ -46,6 +46,17 @@ if (typeof Blob.prototype.text !== "function") {
   };
 }
 
+/*
+ * jsdom has no 2D canvas and logs a "not implemented" jsdomError the first time
+ * anything asks for a context, which would fire on every route render now that
+ * the environment layer is part of the shell. A quiet null is the honest answer
+ * — the layer treats it as "no canvas here" and draws nothing. The reactive
+ * grid suite installs a recording stub over this to exercise the real path.
+ */
+HTMLCanvasElement.prototype.getContext = function getContext(): null {
+  return null;
+} as typeof HTMLCanvasElement.prototype.getContext;
+
 afterEach(() => {
   cleanup();
 });

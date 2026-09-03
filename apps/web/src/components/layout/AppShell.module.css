@@ -1,4 +1,7 @@
 .shell {
+  /* Sits above the reactive grid canvas, which is fixed at z-index 0. */
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
