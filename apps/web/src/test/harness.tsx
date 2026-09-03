@@ -136,8 +136,12 @@ export function renderIngest(ui: ReactElement) {
  * truth for the address, so a test can assert what a search or a closed sheet
  * did to the URL rather than inferring it from the page.
  */
-export function renderRoute(path: string) {
-  const router = createMemoryRouter([...routes], { initialEntries: [path] });
+export function renderRoute(path: string, history: readonly string[] = []) {
+  const router = createMemoryRouter([...routes], {
+    // A history behind the entry, so Back and CLOSE have somewhere to return to.
+    initialEntries: [...history, path],
+    initialIndex: history.length,
+  });
 
   return {
     ...render(
@@ -224,4 +228,72 @@ export function makeImportReport(
   overrides: Partial<AnalysisImportReport> = {},
 ): AnalysisImportReport {
   return { imported: 0, failed: 0, results: [], ...overrides };
+}
+
+/* --- downloads ---------------------------------------------------------- */
+
+export interface CapturedDownload {
+  readonly name: string;
+  readonly blob: Blob;
+}
+
+export interface CapturedDownloads {
+  readonly files: readonly CapturedDownload[];
+  /** The Markdown a download actually carried. */
+  readonly text: (index?: number) => Promise<string>;
+}
+
+/**
+ * Intercepts the object-URL dance `saveMarkdown` performs. jsdom implements
+ * neither `URL.createObjectURL` nor anchor navigation, so both are replaced —
+ * which also lets a test read the document the backend actually sent.
+ */
+export function captureDownloads(): CapturedDownloads {
+  const files: CapturedDownload[] = [];
+  let pending: Blob | undefined;
+
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: (blob: Blob) => {
+      pending = blob;
+      return "blob:retr0vault/test";
+    },
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => undefined,
+  });
+
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+    function click(this: HTMLAnchorElement) {
+      if (pending !== undefined) {
+        files.push({ name: this.download, blob: pending });
+        pending = undefined;
+      }
+    },
+  );
+
+  return {
+    files,
+    text: async (index = 0) => {
+      const file = files[index];
+      if (file === undefined) {
+        throw new Error(`No download at index ${index}; ${files.length} captured.`);
+      }
+      return file.blob.text();
+    },
+  };
+}
+
+/** A Markdown attachment, as the export routes answer one. */
+export function markdown(body: string, filename: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
 }

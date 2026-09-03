@@ -26,6 +26,9 @@ import {
   useDesignTypes,
 } from "@/lib/catalogue/useCatalogue";
 import { cx } from "@/lib/cx";
+import { useSelection } from "@/lib/selection/SelectionProvider";
+
+import { SelectionBar } from "@/components/selection/SelectionBar";
 
 import { ArchiveSearch, QuotedQuery, SearchSuggestions } from "./ArchiveSearch";
 import { FilterRail } from "./FilterRail";
@@ -108,6 +111,7 @@ export function CatalogueView({
   intro,
 }: CatalogueViewProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const selection = useSelection();
   const designTypes = useDesignTypes();
   const designTypeIndex = useDesignTypeIndex(designTypes.data);
 
@@ -157,6 +161,14 @@ export function CatalogueView({
         label={label}
       />
       <PageRule weight="hairline" space="tight" />
+
+      {/*
+        * Marking sits above the plates and below the search, so a selection
+        * made inside one search survives being narrowed by the next.
+        */}
+      {missing || selection === null ? null : (
+        <SelectionBar selection={selection} origin={active} />
+      )}
 
       {missing ? null : intro}
 
@@ -219,6 +231,16 @@ export function CatalogueView({
                 }
                 eager={index < 3}
                 origin={active}
+                {...(selection === null || !selection.active
+                  ? {}
+                  : {
+                      marking: {
+                        marked: selection.isSelected(reference.id),
+                        blocked:
+                          selection.full && !selection.isSelected(reference.id),
+                        onToggle: () => selection.toggle(reference.id),
+                      },
+                    })}
               />
             ))}
           </CatalogueGrid>

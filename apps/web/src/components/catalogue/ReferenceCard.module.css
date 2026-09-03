@@ -61,3 +61,54 @@
 .unassigned {
   color: var(--rv-ink-faint);
 }
+
+/*
+ * Marking. A plate joins a selection the way a sheet is marked in a physical
+ * archive: a struck square in the corner and a rule down the binding edge.
+ * No fill, no outline colour on the plate itself, no checkbox.
+ */
+.marked {
+  border-left: var(--rv-rule-weight-heavy) solid var(--rv-accent);
+}
+
+.mark {
+  position: absolute;
+  top: var(--rv-space-2);
+  left: var(--rv-space-2);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  background-color: var(--rv-surface);
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  cursor: pointer;
+  transition:
+    border-color var(--rv-motion-fast) var(--rv-easing),
+    background-color var(--rv-motion-fast) var(--rv-easing);
+}
+
+.mark:hover {
+  border-color: var(--rv-accent);
+}
+
+.mark:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.markGlyph {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background-color: transparent;
+}
+
+.markOn {
+  border-color: var(--rv-accent-deep);
+  background-color: var(--rv-accent-wash);
+}
+
+.markOn .markGlyph {
+  background-color: var(--rv-accent);
+}

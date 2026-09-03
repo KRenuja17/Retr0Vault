@@ -3,6 +3,7 @@ import { Link, Outlet } from "react-router-dom";
 
 import { ReactiveGridBackground } from "@/components/environment/ReactiveGridBackground";
 import { ActionLink, MonoLabel, PageRule } from "@/components/primitives";
+import { SelectionProvider } from "@/lib/selection/SelectionProvider";
 
 import { ConnectionStatus } from "./ConnectionStatus";
 import styles from "./AppShell.module.css";
@@ -22,7 +23,7 @@ export interface AppShellProps {
  */
 export function AppShell({ navigation, children }: AppShellProps) {
   return (
-    <>
+    <SelectionProvider>
       <ReactiveGridBackground />
 
       <div className={styles.shell}>
@@ -103,6 +104,6 @@ export function AppShell({ navigation, children }: AppShellProps) {
           </div>
         </footer>
       </div>
-    </>
+    </SelectionProvider>
   );
 }

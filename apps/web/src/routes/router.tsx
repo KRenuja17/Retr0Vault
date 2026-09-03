@@ -3,6 +3,8 @@ import { Navigate, type RouteObject } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { AddReferenceView } from "@/components/ingest/AddReferenceView";
 import { CollectionIndex } from "@/components/collections/CollectionIndex";
+import { CompareRoute } from "@/components/compare/CompareRoute";
+import { DirectionRoute } from "@/components/direction/DirectionRoute";
 
 import {
   AllRoute,
@@ -29,6 +31,13 @@ export const routes: readonly RouteObject[] = [
       { path: "collections", element: <CollectionIndex /> },
       { path: "collection/:slug", element: <CollectionRoute /> },
       { path: "reference/:id", element: <ReferenceRoute /> },
+      /*
+       * The multi-reference sheets are full pages, not layers over the
+       * catalogue: their selection lives in `?refs=`, so each one survives a
+       * refresh and can be linked.
+       */
+      { path: "compare", element: <CompareRoute /> },
+      { path: "direction", element: <DirectionRoute /> },
       { path: "add", element: <AddReferenceView /> },
       { path: "foundation", element: <FoundationRoute /> },
       { path: "*", element: <NotFoundRoute /> },

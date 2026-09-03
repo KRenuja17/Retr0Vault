@@ -1,0 +1,54 @@
+/*
+ * The frame both multi-reference sheets share. Full-bleed inside the shell
+ * container: neither of these is a dialog, so nothing here constrains the
+ * measure the way the reference modal does.
+ */
+
+.sheet {
+  display: block;
+  padding-top: var(--rv-space-6);
+}
+
+.masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--rv-space-6);
+  flex-wrap: wrap;
+  margin-bottom: var(--rv-space-4);
+}
+
+.mastheadText {
+  flex: 1 1 32rem;
+  min-width: 0;
+}
+
+.title {
+  margin-top: var(--rv-space-2);
+}
+
+.lede {
+  margin: var(--rv-space-3) 0 0;
+  max-width: 78ch;
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-lg);
+  line-height: var(--rv-leading-normal);
+  color: var(--rv-ink-soft);
+}
+
+.mastheadMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-4);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 759px) {
+  .masthead {
+    align-items: flex-start;
+  }
+
+  .lede {
+    font-size: var(--rv-text-md);
+  }
+}

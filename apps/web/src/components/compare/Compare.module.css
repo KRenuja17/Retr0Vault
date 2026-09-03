@@ -1,0 +1,160 @@
+/*
+ * The comparison sheet. Printed matter: hairline rules between the lines of
+ * the analysis, no cell borders, no zebra striping, no sort affordances. It is
+ * a sheet a curator reads down, not a grid they operate.
+ */
+
+.reading,
+.partial {
+  margin: var(--rv-space-6) 0 0;
+}
+
+/*
+ * Wide sheets scroll inside their own bounds rather than pushing the page
+ * sideways. Focusable so the region can be scrolled from the keyboard.
+ */
+.scroll {
+  margin-top: var(--rv-space-6);
+  overflow-x: auto;
+  border-bottom: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.scroll:focus-visible {
+  outline: var(--rv-focus-ring);
+  outline-offset: var(--rv-focus-offset);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* The dimension gutter stays put while the references scroll past it. */
+.corner,
+.rowLabel {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 11rem;
+  min-width: 11rem;
+  padding: var(--rv-space-4) var(--rv-space-4) var(--rv-space-4) 0;
+  text-align: left;
+  vertical-align: top;
+  background-color: var(--rv-paper);
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+  font-weight: 400;
+}
+
+.corner {
+  border-top: none;
+}
+
+.column {
+  width: 22rem;
+  min-width: 18rem;
+  padding: 0 var(--rv-space-5) var(--rv-space-4) 0;
+  text-align: left;
+  vertical-align: bottom;
+  font-weight: 400;
+}
+
+.columnIndex {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  margin-bottom: var(--rv-space-2);
+}
+
+.columnTitle {
+  display: block;
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-display-sm);
+  line-height: var(--rv-leading-tight);
+  letter-spacing: var(--rv-tracking-display);
+  color: var(--rv-ink);
+  text-decoration: none;
+}
+
+.columnTitle:hover,
+.columnTitle:focus-visible {
+  color: var(--rv-accent-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.cell {
+  padding: var(--rv-space-4) var(--rv-space-5) var(--rv-space-4) 0;
+  vertical-align: top;
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.prose {
+  margin: 0;
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-md);
+  line-height: var(--rv-leading-normal);
+  color: var(--rv-ink-soft);
+}
+
+.prose + .prose {
+  margin-top: var(--rv-space-3);
+}
+
+.observations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-sm);
+  line-height: var(--rv-leading-normal);
+  color: var(--rv-ink-soft);
+}
+
+.observations li {
+  padding-left: var(--rv-space-4);
+  text-indent: calc(var(--rv-space-4) * -1);
+}
+
+.observations li::before {
+  content: "— ";
+  color: var(--rv-ink-faint);
+}
+
+.observations li + li {
+  margin-top: var(--rv-space-2);
+}
+
+.absent {
+  display: inline-block;
+  color: var(--rv-ink-faint);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+}
+
+.exports {
+  margin-top: var(--rv-space-8);
+}
+
+@media (max-width: 759px) {
+  .corner,
+  .rowLabel {
+    width: 7.5rem;
+    min-width: 7.5rem;
+    padding-right: var(--rv-space-3);
+  }
+
+  .column {
+    width: 16rem;
+    min-width: 14rem;
+    padding-right: var(--rv-space-4);
+  }
+
+  .cell {
+    padding-right: var(--rv-space-4);
+  }
+
+  .columnTitle {
+    font-size: var(--rv-text-xl);
+  }
+}

@@ -42,6 +42,18 @@ export interface ReferenceCardProps {
   readonly eager?: boolean;
   /** The slice this plate was opened from, so the modal can return to it. */
   readonly origin: CatalogueFilter;
+  /**
+   * Marking, when the catalogue is in selection mode. Absent the whole time it
+   * is not, so an ordinary plate keeps its single tab stop.
+   */
+  readonly marking?: PlateMarking | undefined;
+}
+
+export interface PlateMarking {
+  readonly marked: boolean;
+  /** True when the selection is full and this plate is not part of it. */
+  readonly blocked: boolean;
+  readonly onToggle: () => void;
 }
 
 /**
@@ -58,6 +70,7 @@ export function ReferenceCard({
   designType,
   eager = false,
   origin,
+  marking,
 }: ReferenceCardProps) {
   const isPending = reference.analysisStatus === "pending";
   const visibleTags = reference.tags.slice(0, VISIBLE_TAGS);
@@ -74,8 +87,29 @@ export function ReferenceCard({
   }, [reference.id]);
 
   return (
-    <CatalogueCard interactive className={styles.plate}>
+    <CatalogueCard
+      interactive
+      className={cx(styles.plate, marking?.marked === true && styles.marked)}
+    >
       <CatalogueCardMedia>
+        {/*
+          * The marking tab, inset into the plate's own corner rather than laid
+          * over it. `role="checkbox"` is what it is to a screen reader; on
+          * paper it is a struck square in the margin.
+          */}
+        {marking === undefined ? null : (
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={marking.marked}
+            aria-label={`Mark ${reference.title}`}
+            disabled={marking.blocked}
+            className={cx(styles.mark, marking.marked && styles.markOn)}
+            onClick={marking.onToggle}
+          >
+            <span className={styles.markGlyph} aria-hidden="true" />
+          </button>
+        )}
         {/*
           * The media and the title point at the same reference. Only the title
           * takes a tab stop, so the plate is a single stop for keyboard users.

@@ -28,6 +28,8 @@ export interface ActionButtonProps
 export interface ActionLinkProps extends ActionButtonBaseProps {
   readonly to: string;
   readonly title?: string | undefined;
+  /** History state carried with the navigation, e.g. the originating slice. */
+  readonly state?: unknown;
 }
 
 const variantClass: Record<ActionButtonVariant, string | undefined> = {
@@ -90,11 +92,13 @@ export function ActionLink({
   children,
   to,
   title,
+  state,
 }: ActionLinkProps) {
   return (
     <Link
       to={to}
       title={title}
+      state={state}
       className={classesFor(variant, size, block, className)}
     >
       {children}

@@ -1,0 +1,107 @@
+/*
+ * The synthesis worksheet. Numbered stages down one measure, thin rules
+ * between them: a form on paper, not a wizard.
+ */
+
+.block {
+  padding: var(--rv-space-6) 0;
+}
+
+.blockTitle {
+  margin: 0 0 var(--rv-space-3);
+  font-weight: 400;
+}
+
+.note {
+  margin: 0 0 var(--rv-space-4);
+  max-width: 72ch;
+  font-family: var(--rv-font-body);
+  font-size: var(--rv-text-md);
+  line-height: var(--rv-leading-normal);
+  color: var(--rv-ink-soft);
+}
+
+.code {
+  margin: 0 0.35em;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  color: var(--rv-ink);
+}
+
+/* --- sources ------------------------------------------------------------ */
+.sources {
+  margin: 0 0 var(--rv-space-4);
+  padding: 0;
+  list-style: none;
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.source {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rv-space-4);
+  padding: var(--rv-space-3) 0;
+  border-bottom: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.sourceIndex {
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.sourceTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-xl);
+  line-height: var(--rv-leading-snug);
+  color: var(--rv-ink);
+  text-decoration: none;
+}
+
+.sourceTitle:hover,
+.sourceTitle:focus-visible {
+  color: var(--rv-accent-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* The manifest's asks read as a list, not a banner across the whole page. */
+.asks {
+  max-width: 72ch;
+}
+
+/* --- controls ----------------------------------------------------------- */
+.intent {
+  max-width: 72ch;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-3);
+  flex-wrap: wrap;
+  margin-top: var(--rv-space-4);
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--rv-space-4);
+}
+
+.file {
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-sm);
+  color: var(--rv-ink-soft);
+}
+
+.limitation {
+  margin-top: var(--rv-space-6);
+}
+
+.exports {
+  margin-top: var(--rv-space-8);
+}
