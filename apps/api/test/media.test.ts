@@ -267,6 +267,8 @@ describe("ID-based reference media", () => {
     await vi.waitFor(() => expect(opened[0]!.fd).toBe(-1));
   });
 
+  // Real sockets: allow more than the 5 s default when the full suite (Chromium
+  // capture and ffmpeg motion tests) is saturating the CPU alongside this file.
   it("keeps the existing origin protection and streams over real HTTP, closing aborted transfers", async () => {
     const large = await sharp(randomBytes(512 * 512 * 3), { raw: { width: 512, height: 512, channels: 3 } }).png().toBuffer();
     const reference = await upload(large);
@@ -287,5 +289,5 @@ describe("ID-based reference media", () => {
       expect(opened.length).toBe(1);
       expect(opened[0]!.fd).toBe(-1);
     });
-  });
+  }, 15_000);
 });

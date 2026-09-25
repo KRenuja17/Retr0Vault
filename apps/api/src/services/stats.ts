@@ -1,5 +1,6 @@
 import { statsResponseSchema, type StatsResponse } from "@retr0vault/shared";
 import type { DatabaseConnection } from "../database/connection.js";
+import { motionTriggerCounts } from "./motion.js";
 
 export function getStats(connection: DatabaseConnection): StatsResponse {
   // A single read snapshot prevents mixed counts during CLI imports in WAL mode.
@@ -21,6 +22,17 @@ export function getStats(connection: DatabaseConnection): StatsResponse {
       FROM collections c LEFT JOIN collection_references cr ON cr.collection_id = c.id
       GROUP BY c.id ORDER BY c.sort_order, c.id
     `).all();
-    return statsResponseSchema.parse({ ...totals, countsByDesignType, countsByCollection });
+    const motionStudies = connection.sqlite.prepare(`
+      SELECT count(*) AS total,
+        count(CASE WHEN motion_status = 'pending' THEN 1 END) AS pending,
+        count(CASE WHEN motion_status = 'analyzed' THEN 1 END) AS analyzed,
+        count(CASE WHEN motion_status = 'manual' THEN 1 END) AS manual,
+        count(CASE WHEN motion_status = 'failed' THEN 1 END) AS failed
+      FROM motion_studies
+    `).get() as Record<string, number>;
+    return statsResponseSchema.parse({
+      ...totals, countsByDesignType, countsByCollection, motionStudies,
+      countsByTrigger: motionTriggerCounts(connection),
+    });
   })();
 }

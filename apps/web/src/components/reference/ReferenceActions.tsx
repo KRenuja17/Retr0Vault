@@ -3,6 +3,7 @@ import type { ReferenceResponse } from "@retr0vault/shared";
 
 import {
   ActionButton,
+  ActionLink,
   CopyActionButton,
   MonoLabel,
 } from "@/components/primitives";
@@ -183,6 +184,15 @@ export function ReferenceActions({
                 : "No image recipe filed for this reference"
             }
           />
+          {reference.motion === null ? null : (
+            <ActionLink
+              variant="outline"
+              to={`/motion/${reference.id}`}
+              title="Open the recordings and motion analysis for this reference"
+            >
+              Motion study →
+            </ActionLink>
+          )}
           <ActionButton
             variant="remove"
             title="Permanently remove this reference from the archive"

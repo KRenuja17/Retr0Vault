@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -277,9 +278,103 @@ export const referenceFrames = sqliteTable("reference_frames", {
   check("reference_frames_path_nonempty", sql`length(trim(${table.imagePath})) > 0`),
 ]);
 
+
+// Motion studies: recordings attached to a reference, analysed for motion.
+// Evidence and analysis JSON validity is guarded by CHECK constraints here, so
+// the tables never need a rebuild-and-copy migration.
+export const motionStudies = sqliteTable("motion_studies", {
+  id: text("id").primaryKey(),
+  referenceId: text("reference_id").notNull().references(() => references.id, { onDelete: "cascade" }),
+  motionStatus: text("motion_status", { enum: ["pending", "analyzed", "manual", "failed"] }).notNull().default("pending"),
+  motionDNA: text("motion_dna"),
+  motionThesis: text("motion_thesis"),
+  motionBrief: text("motion_brief"),
+  motionAnalysisJson: text("motion_analysis_json"),
+  beatsJson: text("beats_json"),
+  implementationJson: text("implementation_json"),
+  inspectionNotes: text("inspection_notes"),
+  verifiedTechJson: text("verified_tech_json").notNull().default("[]"),
+  protectedFields: text("protected_fields").notNull().default("[]"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [
+  uniqueIndex("motion_studies_reference_unique").on(table.referenceId),
+  index("motion_studies_status_index").on(table.motionStatus),
+  check("motion_studies_status_check", sql`${table.motionStatus} in ('pending', 'analyzed', 'manual', 'failed')`),
+  check("motion_studies_analysis_json_check", sql`${table.motionAnalysisJson} is null or (json_valid(${table.motionAnalysisJson}) and json_type(${table.motionAnalysisJson}) = 'object')`),
+  check("motion_studies_beats_json_check", sql`${table.beatsJson} is null or (json_valid(${table.beatsJson}) and json_type(${table.beatsJson}) = 'array')`),
+  check("motion_studies_implementation_json_check", sql`${table.implementationJson} is null or (json_valid(${table.implementationJson}) and json_type(${table.implementationJson}) = 'array')`),
+  check("motion_studies_verified_tech_check", sql`json_valid(${table.verifiedTechJson}) and json_type(${table.verifiedTechJson}) = 'array'`),
+  check("motion_studies_protected_fields_check", sql`json_valid(${table.protectedFields}) and json_type(${table.protectedFields}) = 'array'`),
+]);
+
+export const motionClips = sqliteTable("motion_clips", {
+  id: text("id").primaryKey(),
+  motionStudyId: text("motion_study_id").notNull().references(() => motionStudies.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+  processingStatus: text("processing_status", { enum: ["queued", "processing", "ready", "failed"] }).notNull().default("queued"),
+  processingError: text("processing_error"),
+  sourceFormat: text("source_format"),
+  posterMs: integer("poster_ms").notNull().default(1000),
+  durationMs: integer("duration_ms"),
+  width: integer("width"),
+  height: integer("height"),
+  fps: real("fps"),
+  bytes: integer("bytes"),
+  evidenceJson: text("evidence_json"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (table) => [
+  uniqueIndex("motion_clips_order_unique").on(table.motionStudyId, table.sortOrder),
+  index("motion_clips_status_index").on(table.processingStatus),
+  check("motion_clips_status_check", sql`${table.processingStatus} in ('queued', 'processing', 'ready', 'failed')`),
+  check("motion_clips_label_check", sql`length(trim(${table.label})) between 1 and 60`),
+  check("motion_clips_order_check", sql`${table.sortOrder} >= 0`),
+  check("motion_clips_poster_check", sql`${table.posterMs} >= 0`),
+  check("motion_clips_evidence_json_check", sql`${table.evidenceJson} is null or (json_valid(${table.evidenceJson}) and json_type(${table.evidenceJson}) = 'object')`),
+  check("motion_clips_ready_check", sql`${table.processingStatus} <> 'ready' or (${table.durationMs} > 0 and ${table.width} > 0 and ${table.height} > 0 and ${table.evidenceJson} is not null)`),
+]);
+
+export const motionKeyframes = sqliteTable("motion_keyframes", {
+  id: text("id").primaryKey(),
+  motionClipId: text("motion_clip_id").notNull().references(() => motionClips.id, { onDelete: "cascade" }),
+  timeMs: integer("time_ms").notNull(),
+  reason: text("reason", { enum: ["start", "onset", "peak", "settle", "cut", "fill", "end"] }).notNull(),
+  imagePath: text("image_path").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+}, (table) => [
+  uniqueIndex("motion_keyframes_order_unique").on(table.motionClipId, table.sortOrder),
+  uniqueIndex("motion_keyframes_path_unique").on(table.imagePath),
+  check("motion_keyframes_reason_check", sql`${table.reason} in ('start', 'onset', 'peak', 'settle', 'cut', 'fill', 'end')`),
+  check("motion_keyframes_time_check", sql`${table.timeMs} >= 0`),
+  check("motion_keyframes_order_check", sql`${table.sortOrder} >= 0`),
+]);
+
+// Motion tags are kept apart from reference tags: reference edits garbage-
+// collect unused rows in `tags`, which would silently drop motion-only terms.
+export const motionStudyTags = sqliteTable("motion_study_tags", {
+  motionStudyId: text("motion_study_id").notNull().references(() => motionStudies.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  value: text("value").notNull(),
+  normalizedValue: text("normalized_value").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.motionStudyId, table.type, table.normalizedValue] }),
+  uniqueIndex("motion_study_tags_order_unique").on(table.motionStudyId, table.sortOrder),
+  index("motion_study_tags_value_index").on(table.type, table.normalizedValue),
+  check("motion_study_tags_type_check", sql`${table.type} in ('trigger', 'technique', 'transition', 'easing', 'pacing', 'camera', 'interaction', 'type-motion', 'rendering')`),
+  check("motion_study_tags_value_check", sql`length(trim(${table.value})) > 0 and length(trim(${table.normalizedValue})) > 0`),
+  check("motion_study_tags_order_check", sql`${table.sortOrder} >= 0`),
+]);
+
 export const databaseSchema = {
   appMetadata,
   collectionReferences,
+  motionClips,
+  motionKeyframes,
+  motionStudies,
+  motionStudyTags,
   collections,
   designTypeRules,
   designTypeVocabulary,

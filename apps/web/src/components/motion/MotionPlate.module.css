@@ -1,0 +1,59 @@
+/*
+ * The plate that moves. Same frame as a still plate: the image area of the
+ * catalogue card, cover-cropped from the top. Nothing about the card changes;
+ * the only new element is that the picture plays.
+ */
+.frame {
+  position: absolute;
+  inset: 0;
+}
+
+.media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+  background-color: var(--rv-surface-sunken);
+}
+
+/* Queued, processing, failed and empty all resolve to the same paper ground. */
+.state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rv-space-2);
+  background-color: var(--rv-surface-sunken);
+  background-image: var(--rv-paper-grain);
+  background-size: var(--rv-paper-grain-size);
+  text-align: center;
+  padding: var(--rv-space-4);
+}
+
+.stateFailed {
+  background-color: var(--rv-paper-deep);
+}
+
+/* Mono marginalia printed onto the plate, lower right, on a paper chip. */
+.timecode {
+  position: absolute;
+  right: var(--rv-space-2);
+  bottom: var(--rv-space-2);
+  padding: 0.125rem var(--rv-space-2);
+  background-color: var(--rv-surface);
+  border: var(--rv-border) solid var(--rv-rule);
+  color: var(--rv-ink-muted);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-2xs);
+  letter-spacing: var(--rv-tracking-mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.timecodeLive {
+  color: var(--rv-ink);
+  border-left: var(--rv-rule-weight-heavy) solid var(--rv-accent);
+}

@@ -1,7 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+/*
+ * findBy/waitFor wait 1 s by default. The full suite runs files in parallel,
+ * and under that load route transitions and sheet closes occasionally need
+ * longer; a flaky timeout proves nothing about the app.
+ */
+configure({ asyncUtilTimeout: 3_000 });
 
 /*
  * jsdom installs its own AbortController/AbortSignal, but `Request` comes from

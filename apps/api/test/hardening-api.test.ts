@@ -22,7 +22,9 @@ describe("backend hardening and statistics", () => {
     const result = await context.app.inject("/api/v1/stats");
     expect(result.statusCode).toBe(200);
     expect(statsResponseSchema.parse(result.json())).toEqual({ totalReferences: 0, pendingReferences: 0, analyzedReferences: 0,
-      unassignedReferences: 0, countsByDesignType: [], countsByCollection: [] });
+      unassignedReferences: 0, countsByDesignType: [], countsByCollection: [],
+      motionStudies: { total: 0, pending: 0, analyzed: 0, manual: 0, failed: 0 },
+      countsByTrigger: ["load", "time", "scroll", "wheel", "cursor", "hover", "click", "pinned", "unknown"].map((trigger) => ({ trigger, count: 0 })) });
     expect((await context.app.inject("/api/v1/stats?status=pending")).statusCode).toBe(400);
   });
 

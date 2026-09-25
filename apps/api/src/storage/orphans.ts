@@ -3,6 +3,7 @@ import { lstatSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import type { DatabaseConnection } from "../database/connection.js";
+import { motionFileNamePattern } from "./motion-storage.js";
 
 export const orphanGracePeriodMs = 24 * 60 * 60 * 1_000;
 
@@ -53,12 +54,16 @@ export function maintainOrphanFiles(
     if (!statIfPresent(root)) return report;
     safeDirectory(root, root);
     const cutoff = Date.now() - orphanGracePeriodMs;
-    const inspect = (path: string, id: string | undefined, known: boolean) => {
+    const motionClipKeys = new Set((connection.sqlite.prepare(
+      "SELECT s.reference_id AS referenceId, c.id AS clipId FROM motion_clips c JOIN motion_studies s ON s.id = c.motion_study_id",
+    ).all() as Array<{ referenceId: string; clipId: string }>).map((row) => `${row.referenceId}/${row.clipId}`.toLowerCase()));
+    // `owned` overrides the reference-ID rule for motion files, which belong to a clip.
+    const inspect = (path: string, id: string | undefined, known: boolean, owned?: boolean) => {
       const absolute = resolve(root, path);
       const entry = lstatSync(absolute);
       const reason = entry.isSymbolicLink() || !entry.isFile() ? "not a regular file" :
         !known || !z.uuid().safeParse(id).success ? "unrecognized filename" :
-        liveIds.has(id!.toLowerCase()) || livePaths.has(absolute.toLowerCase()) ? "owned by a database reference" :
+        (owned ?? (liveIds.has(id!.toLowerCase()) || livePaths.has(absolute.toLowerCase()))) ? "owned by a database reference" :
         entry.mtimeMs > cutoff ? "less than 24 hours old" : undefined;
       if (reason) { report.skipped.push({ path, reason }); return; }
       report.candidates.push(path);
@@ -94,6 +99,31 @@ export function maintainOrphanFiles(
         } else {
           const match = /^(.*)\.(jpg|png|webp)$/u.exec(entry.name);
           inspect(`${kind}/${entry.name}`, match?.[1], kind === "originals" ? !!match : kind === "thumbnails" && match?.[2] === "webp");
+        }
+      }
+    }
+    // Motion clips: motion/<reference-id>/<clip-id>/<managed file>.
+    const motionRoot = resolve(root, "motion");
+    if (statIfPresent(motionRoot)) {
+      safeDirectory(root, motionRoot);
+      for (const study of readdirSync(motionRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
+        if (!study.isDirectory() || study.isSymbolicLink() || !z.uuid().safeParse(study.name).success) {
+          if (study.name !== ".gitkeep") report.skipped.push({ path: `motion/${study.name}`, reason: "unrecognized filename" });
+          continue;
+        }
+        const studyDirectory = resolve(motionRoot, study.name);
+        safeDirectory(root, studyDirectory);
+        for (const clip of readdirSync(studyDirectory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
+          if (!clip.isDirectory() || clip.isSymbolicLink() || !z.uuid().safeParse(clip.name).success) {
+            report.skipped.push({ path: `motion/${study.name}/${clip.name}`, reason: "unrecognized filename" });
+            continue;
+          }
+          const clipDirectory = resolve(studyDirectory, clip.name);
+          safeDirectory(root, clipDirectory);
+          const owned = motionClipKeys.has(`${study.name}/${clip.name}`.toLowerCase());
+          for (const file of readdirSync(clipDirectory).sort()) {
+            inspect(`motion/${study.name}/${clip.name}/${file}`, clip.name, motionFileNamePattern.test(file), owned);
+          }
         }
       }
     }

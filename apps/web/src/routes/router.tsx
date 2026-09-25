@@ -13,6 +13,7 @@ import {
   NotFoundRoute,
   ReferenceRoute,
 } from "./CatalogueRoute";
+import { MotionRoute, MotionStudyRoute } from "./MotionRoute";
 
 /**
  * Route shell for Retr0Vault. `/reference/:id` is a sibling of the catalogue
@@ -30,6 +31,13 @@ export const routes: readonly RouteObject[] = [
       { path: "collections", element: <CollectionIndex /> },
       { path: "collection/:slug", element: <CollectionRoute /> },
       { path: "reference/:id", element: <ReferenceRoute /> },
+      /*
+       * The Motion section: recordings of references that are also in the
+       * catalogue, studied for how the site moves. The sheet is layered over
+       * the Motion grid exactly as a reference sheet is over the catalogue.
+       */
+      { path: "motion", element: <MotionRoute /> },
+      { path: "motion/:referenceId", element: <MotionStudyRoute /> },
       /*
        * The multi-reference sheets are full pages, not layers over the
        * catalogue: their selection lives in `?refs=`, so each one survives a

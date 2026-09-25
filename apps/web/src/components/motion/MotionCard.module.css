@@ -1,0 +1,77 @@
+/* The catalogue plate's own proportions; see ReferenceCard.module.css. */
+.plate {
+  height: 100%;
+}
+
+/* Sits over the moving picture so the plate opens the sheet like any other. */
+.mediaLink {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+.mediaLink:hover {
+  text-decoration: none;
+}
+
+.titleLink {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.titleLink:hover {
+  text-decoration: none;
+}
+
+.titleLink:hover .title {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  text-decoration-thickness: 1px;
+}
+
+.title {
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.dna {
+  color: var(--rv-ink-muted);
+}
+
+.pending {
+  color: var(--rv-signal-pending);
+}
+
+.tags {
+  row-gap: var(--rv-space-2);
+}
+
+.triggers {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Reduced motion: an explicit play control, lower left, outside the plate's link. */
+.play {
+  position: absolute;
+  left: var(--rv-space-2);
+  bottom: var(--rv-space-2);
+  z-index: 1;
+  padding: 0.125rem var(--rv-space-2);
+  background-color: var(--rv-surface);
+  border: var(--rv-border) solid var(--rv-rule);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-2xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.play:hover,
+.play:focus-visible {
+  border-color: var(--rv-accent);
+  color: var(--rv-accent-deep);
+}

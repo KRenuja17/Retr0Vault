@@ -14,7 +14,7 @@ import type { ReferenceStorage } from "../storage/reference-storage.js";
 const guidePath = fileURLToPath(new URL("../../../../docs/analysis-schema.md", import.meta.url));
 export const maximumAnalysisFileBytes = 2 * 1_024 * 1_024;
 
-async function writeGeneratedFile(directory: string, name: string, contents: string) {
+export async function writeGeneratedFile(directory: string, name: string, contents: string) {
   const temporaryPath = join(directory, `.${name}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporaryPath, contents, { encoding: "utf8", flag: "wx" });
@@ -41,7 +41,7 @@ export async function exportPendingAnalysis(
   return { manifestPath: join(inbox, "manifest.json"), exported: manifest.references.length, unavailable: manifest.unavailable };
 }
 
-async function readBoundedJson(path: string): Promise<unknown> {
+export async function readBoundedJson(path: string): Promise<unknown> {
   const entry = await lstat(path);
   if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Result must be a regular JSON file, not a link");
   const handle = await open(path, "r");

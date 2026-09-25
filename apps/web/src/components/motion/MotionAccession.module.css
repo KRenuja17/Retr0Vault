@@ -1,0 +1,91 @@
+/* The chosen reference, printed like a ledger entry above the mount. */
+.chosen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rv-space-1);
+  padding: var(--rv-space-3) var(--rv-space-4);
+  border: var(--rv-border) solid var(--rv-rule);
+  border-left: var(--rv-rule-weight-heavy) solid var(--rv-accent);
+  background-color: var(--rv-surface);
+}
+
+.chosenTitle {
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-xl);
+  color: var(--rv-ink);
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-3);
+}
+
+.pickerSearch {
+  display: flex;
+  gap: var(--rv-space-2);
+  align-items: stretch;
+}
+
+.pickerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.pickerItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--rv-space-3);
+  width: 100%;
+  padding: var(--rv-space-2) var(--rv-space-1);
+  border: 0;
+  border-bottom: var(--rv-border) solid var(--rv-rule-hairline);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.pickerItem:hover .pickerTitle,
+.pickerItem:focus-visible .pickerTitle {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.pickerTitle {
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-lg);
+  color: var(--rv-ink);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+  margin: 0;
+  width: 100%;
+}
+
+.previewVideo {
+  display: block;
+  width: 100%;
+  max-height: 18rem;
+  object-fit: contain;
+  background-color: var(--rv-surface-inverse);
+  border: var(--rv-border) solid var(--rv-rule);
+}
+
+.posterField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.posterRange {
+  width: 100%;
+  accent-color: var(--rv-accent);
+}

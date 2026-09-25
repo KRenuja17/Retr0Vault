@@ -112,3 +112,20 @@
 .markOn .markGlyph {
   background-color: var(--rv-accent);
 }
+
+/* A reference that also has a motion study: a small paper tab, upper right. */
+.motionMark {
+  position: absolute;
+  top: var(--rv-space-2);
+  right: var(--rv-space-2);
+  z-index: 1;
+  padding: 0.125rem var(--rv-space-2);
+  background-color: var(--rv-surface);
+  border: var(--rv-border) solid var(--rv-rule);
+  color: var(--rv-ink);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-2xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  pointer-events: none;
+}

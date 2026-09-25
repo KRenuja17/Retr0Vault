@@ -9,6 +9,8 @@ import type { CreateDesignTypeInput } from "@retr0vault/shared";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import type { CaptureService } from "../src/capture/service.js";
+import type { MotionTools } from "../src/motion/ffmpeg.js";
+import type { ClipProcessor } from "../src/motion/queue.js";
 
 export interface TestAppContext {
   readonly app: FastifyInstance;
@@ -19,9 +21,17 @@ export interface TestAppContext {
 
 export async function createTestApp(
   label: string,
-  options: { readonly maxUploadBytes?: number; readonly captureService?: CaptureService } = {},
+  options: {
+    readonly maxUploadBytes?: number;
+    readonly captureService?: CaptureService;
+    readonly motionTools?: MotionTools | null;
+    readonly motionProcessor?: ClipProcessor;
+    readonly maxMotionUploadBytes?: number;
+    /** Reuse an existing test directory (to restart an app on the same data). */
+    readonly directory?: string;
+  } = {},
 ): Promise<TestAppContext> {
-  const directory = mkdtempSync(join(tmpdir(), `retr0vault-${label}-`));
+  const directory = options.directory ?? mkdtempSync(join(tmpdir(), `retr0vault-${label}-`));
   const databasePath = join(directory, "test.db");
   const storageRoot = join(directory, "storage");
   const app = await buildApp({
@@ -30,6 +40,9 @@ export async function createTestApp(
     storageRoot,
     logger: false,
     ...(options.captureService === undefined ? {} : { captureService: options.captureService }),
+    ...(options.motionTools === undefined ? {} : { motionTools: options.motionTools }),
+    ...(options.motionProcessor === undefined ? {} : { motionProcessor: options.motionProcessor }),
+    ...(options.maxMotionUploadBytes === undefined ? {} : { maxMotionUploadBytes: options.maxMotionUploadBytes }),
     ...(options.maxUploadBytes === undefined
       ? {}
       : { maxUploadBytes: options.maxUploadBytes }),

@@ -25,6 +25,7 @@ import type { ReferenceStorage } from "../storage/reference-storage.js";
 import type { CaptureService } from "../capture/service.js";
 import { validateCaptureUrl } from "../capture/url-policy.js";
 import { getDesignTypeById } from "../services/design-types.js";
+import type { MotionStorage } from "../storage/motion-storage.js";
 
 const idParametersSchema = z.object({ id: z.uuid() }).strict();
 
@@ -99,6 +100,7 @@ export async function registerReferenceRoutes(
   connection: DatabaseConnection,
   storage: ReferenceStorage,
   captureService: CaptureService,
+  motionStorage: MotionStorage,
 ): Promise<void> {
   app.post("/api/v1/references/url", async (request, reply) => {
     const input = parseRequest(createWebsiteReferenceSchema, request.body);
@@ -173,9 +175,12 @@ export async function registerReferenceRoutes(
       deleted.thumbnailPath,
       deleted.framePaths,
     );
-    if (cleanup.warnings.length > 0) {
+    // Motion rows cascade with the reference; its recordings and evidence go too.
+    const motionWarnings = await motionStorage.removeStudy(deleted.id);
+    const warnings = [...cleanup.warnings, ...motionWarnings];
+    if (warnings.length > 0) {
       request.log.warn(
-        { referenceId: id, warnings: cleanup.warnings },
+        { referenceId: id, warnings },
         "Reference database row deleted with file cleanup warnings",
       );
     }

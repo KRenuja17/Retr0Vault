@@ -7,6 +7,7 @@ export * from "./analysis.js";
 export * from "./exports.js";
 export * from "./capture.js";
 export * from "./stats.js";
+export * from "./motion.js";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),

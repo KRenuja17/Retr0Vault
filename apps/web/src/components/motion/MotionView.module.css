@@ -1,0 +1,10 @@
+/* The scrub toggle sits at the rail's far end, like the collections register. */
+.scrub {
+  margin-left: auto;
+}
+
+@media (max-width: 40rem) {
+  .scrub {
+    margin-left: 0;
+  }
+}

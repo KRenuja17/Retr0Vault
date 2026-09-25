@@ -1,6 +1,9 @@
 import { ManifestList, SectionPanel } from "@/components/layout/SectionPanel";
 import { MonoLabel, PageRule } from "@/components/primitives";
 
+import { MotionAccession } from "@/components/motion/MotionAccession";
+import { MotionDesk } from "@/components/motion/MotionDesk";
+
 import { AnalysisDesk } from "./AnalysisDesk";
 import { ImageAccession } from "./ImageAccession";
 import { WebsiteAccession } from "./WebsiteAccession";
@@ -46,9 +49,20 @@ export function AddReferenceView() {
         <WebsiteAccession />
       </div>
 
+      {/*
+        * Recordings attach to a reference already in the archive, so the
+        * motion lane follows the two that create references.
+        */}
+      <PageRule weight="hairline" />
+      <MotionAccession />
+
       <PageRule weight="heavy" />
 
       <AnalysisDesk />
+
+      <PageRule weight="heavy" />
+
+      <MotionDesk />
     </div>
   );
 }

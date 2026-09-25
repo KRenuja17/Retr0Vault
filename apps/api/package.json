@@ -21,15 +21,19 @@
     "seed:clear": "tsx src/database/seed-cli.ts --clear",
     "storage:orphans": "tsx --tsconfig ../../tsconfig.typecheck.json src/storage/orphans-cli.ts",
     "analysis:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts export",
-    "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import"
+    "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import",
+    "motion:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/motion/cli.ts export",
+    "motion:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/motion/cli.ts import"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
     "@fastify/multipart": "^10.1.1",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@retr0vault/shared": "*",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.6.1",
+    "ffmpeg-static": "^5.3.0",
     "ipaddr.js": "2.5.0",
     "playwright": "1.62.1",
     "sharp": "^0.35.4",

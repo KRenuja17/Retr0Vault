@@ -22,6 +22,15 @@ const environmentSchema = z.object({
     .min(1_024)
     .max(200 * 1_024 * 1_024)
     .default(25 * 1_024 * 1_024),
+  MAX_MOTION_UPLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1_024 * 1_024)
+    .max(1_024 * 1_024 * 1_024)
+    .default(300 * 1_024 * 1_024),
+  MOTION_PROCESS_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(300_000),
+  FFMPEG_PATH: z.string().trim().min(1).optional(),
+  FFPROBE_PATH: z.string().trim().min(1).optional(),
 });
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -43,6 +52,11 @@ export interface AppConfig {
   readonly maxUploadBytes: number;
   readonly analysisDataDirectory: string;
   readonly captureTimeoutMs: number;
+  readonly maxMotionUploadBytes: number;
+  readonly motionProcessTimeoutMs: number;
+  /** Explicit binary overrides; the bundled npm binaries are used when absent. */
+  readonly ffmpegPath: string | undefined;
+  readonly ffprobePath: string | undefined;
 }
 
 export function loadConfig(
@@ -75,5 +89,9 @@ export function loadConfig(
     maxUploadBytes: result.data.MAX_UPLOAD_BYTES,
     analysisDataDirectory: resolve(repositoryRoot, result.data.ANALYSIS_DATA_DIR ?? "data"),
     captureTimeoutMs: result.data.CAPTURE_TIMEOUT_MS,
+    maxMotionUploadBytes: result.data.MAX_MOTION_UPLOAD_BYTES,
+    motionProcessTimeoutMs: result.data.MOTION_PROCESS_TIMEOUT_MS,
+    ffmpegPath: result.data.FFMPEG_PATH === undefined ? undefined : resolve(result.data.FFMPEG_PATH),
+    ffprobePath: result.data.FFPROBE_PATH === undefined ? undefined : resolve(result.data.FFPROBE_PATH),
   };
 }

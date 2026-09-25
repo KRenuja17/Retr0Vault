@@ -361,6 +361,66 @@ Responses use `Content-Disposition: attachment` with `retr0vault-<export-kind>-<
 
 Requests are capped at 2 MiB and generated files at 8 MiB (413 if exceeded; select fewer items). Downloads use `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. No database migration is needed for exports.
 
+## Motion studies
+
+A reference can carry a **motion study**: up to four screen recordings of the site, analysed for how it moves (triggers, choreography, pacing, easing, camera, type in motion) rather than how it looks. The design analysis stays on the reference and appears in the catalogue as before; the recordings and their motion analysis appear in the Motion section at `/motion`, and a catalogue plate with a study carries a `◉ Motion` tab. Recording guidance is in [docs/motion-recording.md](docs/motion-recording.md).
+
+### ffmpeg
+
+Recordings are processed by ffmpeg and ffprobe bundled through npm (`ffmpeg-static`, `@ffprobe-installer/ffprobe`); nothing is installed system-wide. npm 11 may hold back `ffmpeg-static`'s download script on a fresh install:
+
+```powershell
+npm approve-scripts ffmpeg-static
+npm rebuild ffmpeg-static
+```
+
+Alternatively set `FFMPEG_PATH` and `FFPROBE_PATH` to your own binaries. Without working binaries, recording uploads answer 503 `MOTION_TOOLS_UNAVAILABLE`; everything else keeps working. Encoders use half the machine's cores so background processing never takes the whole computer.
+
+### Recording API and processing
+
+```text
+POST   /api/v1/references/:id/motion/clips     multipart: file, label?, posterMs?  → 202
+GET    /api/v1/references/:id/motion           the study, its clips, evidence and analysis
+PATCH  /api/v1/references/:id/motion           analysis fields, inspectionNotes, verifiedTech
+DELETE /api/v1/references/:id/motion           the study and its files; the reference stays
+PATCH  /api/v1/motion/clips/:clipId            label, sortOrder
+DELETE /api/v1/motion/clips/:clipId
+POST   /api/v1/motion/clips/:clipId/retry      a failed clip, from its kept upload
+GET    /api/v1/motion/clips/:clipId/energy     the motion-energy curve, for the scrubber
+GET    /api/v1/motion                          Motion section: q, trigger, technique, status, sort, page, limit
+```
+
+Uploads stream to disk and return 202 at once; any container ffprobe reads (MP4, MOV, WebM, MKV) up to 60 s, 3840 × 2160 and `MAX_MOTION_UPLOAD_BYTES` (default 300 MiB) is accepted. A single-worker queue in the API then:
+
+1. normalizes the clip to `clip.mp4` (H.264, faststart; H.264 MP4s are remuxed, everything else transcoded) and a 640 px `preview.mp4` for plates;
+2. samples it at 10 fps in greyscale and measures a **motion-energy** curve and an **8 × 6 region map** per sample;
+3. detects **events** (onset, peak, settle, spread, locality, still-band hint) and **hard cuts**;
+4. extracts **smart keyframes** (start, cut, onset, peak, sub-peaks inside long events, settle, fill, end; at most 24), **burst strips** of 8 frames across the strongest events, an energy timeline, a region sheet and a contact sheet.
+
+`MOTION_PROCESS_TIMEOUT_MS` (default 300 000) bounds one clip. Clips interrupted by a shutdown are resumed on the next start. Files live under `storage/motion/<reference-id>/<clip-id>/` and are removed with their clip, study or reference; `storage:orphans` reports unowned motion files.
+
+Motion media is served by clip ID; `clip` and `preview` support HTTP byte ranges for seeking:
+
+```text
+GET|HEAD /api/v1/media/motion/:clipId/{clip,preview,poster,energy,regions,contact-sheet}
+GET|HEAD /api/v1/media/motion/:clipId/keyframes/:index
+GET|HEAD /api/v1/media/motion/:clipId/bursts/:index
+```
+
+### Motion analysis
+
+The curator loop mirrors design analysis and never touches it:
+
+```powershell
+npm run motion:export-pending   # data/motion-inbox/manifest.json + instructions.md
+npm run motion:import           # data/motion-results/<referenceId>.json
+npm run motion:import -- --overwrite-protected
+```
+
+The manifest lists every piece of evidence by absolute path, plus the user's inspection notes and numbered verified tech. An analysis may mark an implementation claim `verified` only by citing a `verifiedTech` entry; inspection notes and verified tech are never importable. API equivalents: `GET /api/v1/motion/pending`, `POST /api/v1/motion/import`, `POST /api/v1/motion/:referenceId/reset`. The contract and curator instructions are in [docs/motion-analysis.md](docs/motion-analysis.md).
+
+Reference responses carry an additive `motion` summary (null without a study); `/api/v1/stats` adds `motionStudies` and `countsByTrigger`. Reference Markdown exports include a Motion Study section, and combination manifests include each reference's `motionStudy`.
+
 ## Workspace layout
 
 ```text
@@ -369,9 +429,9 @@ apps/
   web/       React catalogue frontend (Vite)
 packages/
   shared/    Shared Zod schemas and inferred TypeScript types
-data/        Local SQLite and analysis runtime data (ignored)
-storage/     Local reference files (ignored)
-docs/        Analysis schema and external-curator instructions
+data/        Local SQLite, analysis and motion-analysis runtime data (ignored)
+storage/     Local reference files, captures and motion recordings (ignored)
+docs/        Analysis and motion-analysis contracts, curator and recording guides
 ```
 
 ## Verifying a change
