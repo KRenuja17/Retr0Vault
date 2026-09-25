@@ -166,6 +166,7 @@ export async function buildApp(
   await registerMotionRoutes(app, {
     connection, storage: motionStorage, queue: motionQueue, tools: motionTools,
     maxUploadBytes: options.maxMotionUploadBytes ?? config.maxMotionUploadBytes,
+    dataDirectory: config.analysisDataDirectory,
   });
   // Start after routes exist and migrations ran; stop (killing ffmpeg) before the database closes.
   app.addHook("onReady", async () => motionQueue.start());

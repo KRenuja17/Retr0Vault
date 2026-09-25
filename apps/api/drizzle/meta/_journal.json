@@ -57,6 +57,13 @@
       "when": 1790339073134,
       "tag": "0007_motion_studies",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790340334830,
+      "tag": "0008_motion_search",
+      "breakpoints": true
     }
   ]
 }

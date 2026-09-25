@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -7,7 +8,10 @@ import { z } from "zod";
 import {
   clipEnergySchema,
   createMotionClipFieldsSchema,
+  motionImportRequestSchema,
+  motionListQuerySchema,
   updateMotionClipSchema,
+  updateMotionStudySchema,
 } from "@retr0vault/shared";
 
 import type { DatabaseConnection } from "../database/connection.js";
@@ -27,6 +31,13 @@ import {
   requeueClip,
   updateClip,
 } from "../services/motion.js";
+import {
+  getPendingMotion,
+  importMotionAnalyses,
+  listMotion,
+  resetMotionAnalysis,
+  updateMotionStudy,
+} from "../services/motion-analysis.js";
 import type { MotionMediaKind, MotionStorage, OpenMotionFile } from "../storage/motion-storage.js";
 
 const referenceParameters = z.object({ id: z.uuid() }).strict();
@@ -39,6 +50,8 @@ export interface MotionRouteOptions {
   readonly queue: MotionQueue;
   readonly tools: MotionTools | undefined;
   readonly maxUploadBytes: number;
+  /** Base data directory; the curator workflow uses its motion-results folder. */
+  readonly dataDirectory: string;
 }
 
 function matchesEtag(header: string | undefined, etag: string): boolean {
@@ -180,6 +193,33 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
     const warnings = await storage.removeStudy(id);
     if (warnings.length > 0) request.log.warn({ referenceId: id, warnings }, "Motion study deleted with file cleanup warnings");
     return reply.status(204).send();
+  });
+
+  app.patch("/api/v1/references/:id/motion", async (request) => {
+    const { id } = parseRequest(referenceParameters, request.params);
+    const input = parseRequest(updateMotionStudySchema, request.body);
+    return updateMotionStudy(connection, id, input);
+  });
+
+  app.get("/api/v1/motion", async (request) => {
+    const query = parseRequest(motionListQuerySchema, request.query);
+    return listMotion(connection, query);
+  });
+
+  app.get("/api/v1/motion/pending", async (request) => {
+    parseRequest(emptyQuery, request.query);
+    return getPendingMotion(connection, storage, join(options.dataDirectory, "motion-results"));
+  });
+
+  app.post("/api/v1/motion/import", { bodyLimit: 2 * 1_024 * 1_024 }, async (request) => {
+    const input = parseRequest(motionImportRequestSchema, request.body);
+    return importMotionAnalyses(connection, input.analyses.map((value, index) => ({ source: String(index), value })), input.overwriteProtected);
+  });
+
+  app.post("/api/v1/motion/:referenceId/reset", async (request) => {
+    const { referenceId } = parseRequest(z.object({ referenceId: z.uuid() }).strict(), request.params);
+    parseRequest(emptyQuery, request.body ?? {});
+    return resetMotionAnalysis(connection, referenceId);
   });
 
   app.patch("/api/v1/motion/clips/:clipId", async (request) => {

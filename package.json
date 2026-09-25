@@ -33,7 +33,9 @@
     "seed:clear": "npm run seed:clear --workspace @retr0vault/api",
     "storage:orphans": "npm run storage:orphans --workspace @retr0vault/api --",
     "analysis:export-pending": "npm run analysis:export-pending --workspace @retr0vault/api --",
-    "analysis:import": "npm run analysis:import --workspace @retr0vault/api --"
+    "analysis:import": "npm run analysis:import --workspace @retr0vault/api --",
+    "motion:export-pending": "npm run motion:export-pending --workspace @retr0vault/api --",
+    "motion:import": "npm run motion:import --workspace @retr0vault/api --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

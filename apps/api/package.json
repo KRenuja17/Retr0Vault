@@ -21,7 +21,9 @@
     "seed:clear": "tsx src/database/seed-cli.ts --clear",
     "storage:orphans": "tsx --tsconfig ../../tsconfig.typecheck.json src/storage/orphans-cli.ts",
     "analysis:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts export",
-    "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import"
+    "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import",
+    "motion:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/motion/cli.ts export",
+    "motion:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/motion/cli.ts import"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
