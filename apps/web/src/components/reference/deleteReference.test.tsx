@@ -258,7 +258,8 @@ describe("after a reference is removed", () => {
     await confirmDelete();
 
     await waitFor(() => expect(location().pathname).toBe("/all"));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The route changes a render before the sheet unmounts; wait for the commit.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("returns to the design type the plate was opened from", async () => {
@@ -293,13 +294,16 @@ describe("after a reference is removed", () => {
     await waitFor(() =>
       expect(screen.queryByRole("link", { name: "Stillpage" })).not.toBeInTheDocument(),
     );
-    // The rest of the archive is untouched.
-    expect(screen.getByRole("link", { name: "Spade" })).toBeInTheDocument();
+    // The rest of the archive is untouched. Found rather than got: the query
+    // above also passes while the closing sheet still hides the page.
+    expect(await screen.findByRole("link", { name: "Spade" })).toBeInTheDocument();
   });
 
   it("brings the archive's counts down with it", async () => {
     await openSheetFrom("/all");
     await confirmDelete();
+    // While the sheet is still unmounting, the page behind it is hidden from role queries.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     // The catalogue's own marginalia; counts are padded to two digits.
     await waitFor(() =>
