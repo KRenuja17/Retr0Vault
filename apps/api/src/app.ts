@@ -39,6 +39,8 @@ export interface BuildAppOptions {
   readonly motionTools?: MotionTools | null;
   readonly motionProcessor?: ClipProcessor;
   readonly maxMotionUploadBytes?: number;
+  /** When the motion queue recovers and starts work: after listening (default), or on ready for inject-only apps. */
+  readonly motionQueueStart?: "listen" | "ready";
 }
 
 function errorPayload(
@@ -168,8 +170,13 @@ export async function buildApp(
     maxUploadBytes: options.maxMotionUploadBytes ?? config.maxMotionUploadBytes,
     dataDirectory: config.analysisDataDirectory,
   });
-  // Start after routes exist and migrations ran; stop (killing ffmpeg) before the database closes.
-  app.addHook("onReady", async () => motionQueue.start());
+  /*
+   * Claim queued work only once this process owns the port. A second API
+   * started by mistake reaches "ready" before its listen fails, and recovering
+   * the queue then would reset and re-run clips the live server is processing.
+   * In-process test apps never listen, so they opt into starting on ready.
+   */
+  app.addHook(options.motionQueueStart === "ready" ? "onReady" : "onListen", async () => motionQueue.start());
   app.addHook("preClose", async () => motionQueue.close());
   app.decorate("motionQueue", motionQueue);
 

@@ -14,6 +14,8 @@ import {
   type ClipEvidence,
 } from "@retr0vault/shared";
 
+import { buildApp } from "../src/app.js";
+import { loadConfig } from "../src/config.js";
 import { createDatabaseConnection } from "../src/database/connection.js";
 import { probeMedia, resolveMotionTools } from "../src/motion/ffmpeg.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
@@ -306,6 +308,44 @@ describe("motion clip management", () => {
     await context.app.ready();
     await context.app.motionQueue.idle();
     expect((await getStudy(context, referenceId)).clips[0]!.processingStatus).toBe("ready");
+  });
+
+  it("leaves queued work alone in an API that never gets its port", async () => {
+    const hanging: ClipProcessor = (input) => new Promise((_, reject) => {
+      input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    });
+    context = await createTestApp("motion-listen", { motionProcessor: hanging });
+    const referenceId = await createReference(context);
+    await uploadClip(context, referenceId, clip("moving.mp4"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await context.app.close();
+
+    // A second server started by mistake: it reaches "ready", but never listens.
+    const processed: string[] = [];
+    const second = await buildApp({
+      config: loadConfig({ ...process.env, ANALYSIS_DATA_DIR: join(context.directory, "data") }),
+      databasePath: context.databasePath, storageRoot: context.storageRoot, logger: false,
+      motionProcessor: async (input) => { processed.push(input.clipId); return instantProcessor(input); },
+    });
+    try {
+      await second.ready();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(processed).toEqual([]);
+      const connection = createDatabaseConnection(context.databasePath);
+      try {
+        expect(connection.sqlite.prepare("SELECT processing_status AS status FROM motion_clips").get()).toEqual({ status: "processing" });
+      } finally {
+        connection.sqlite.close();
+      }
+      // Once it owns a port it recovers the interrupted clip.
+      await second.listen({ host: "127.0.0.1", port: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await second.motionQueue.idle();
+      expect(processed).toHaveLength(1);
+    } finally {
+      await second.close();
+    }
+    context = await createTestApp("motion-listen", { directory: context.directory, motionProcessor: instantProcessor });
   });
 
   it("reports orphaned motion files but never a live clip's", async () => {
