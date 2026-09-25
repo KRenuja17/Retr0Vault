@@ -22,6 +22,10 @@ import { registerLocalAccess } from "./http/local-access.js";
 import { ApiError, sqliteErrorCode } from "./errors.js";
 import { ReferenceStorage } from "./storage/reference-storage.js";
 import { ChromiumCaptureService, type CaptureService } from "./capture/service.js";
+import { resolveMotionTools, type MotionTools } from "./motion/ffmpeg.js";
+import { MotionQueue, type ClipProcessor } from "./motion/queue.js";
+import { registerMotionRoutes } from "./routes/motion.js";
+import { MotionStorage } from "./storage/motion-storage.js";
 
 export interface BuildAppOptions {
   readonly config?: AppConfig;
@@ -31,6 +35,10 @@ export interface BuildAppOptions {
   readonly storageRoot?: string;
   readonly maxUploadBytes?: number;
   readonly captureService?: CaptureService;
+  /** `null` simulates missing ffmpeg/ffprobe; undefined resolves them from config. */
+  readonly motionTools?: MotionTools | null;
+  readonly motionProcessor?: ClipProcessor;
+  readonly maxMotionUploadBytes?: number;
 }
 
 function errorPayload(
@@ -72,6 +80,14 @@ export async function buildApp(
   );
   const captureService = options.captureService ?? new ChromiumCaptureService({ timeoutMs: config.captureTimeoutMs });
   app.addHook("preClose", async () => captureService.close());
+  const motionStorage = new MotionStorage(options.storageRoot ?? config.storageRoot);
+  const motionTools = options.motionTools === null ? undefined :
+    options.motionTools ?? resolveMotionTools({ ffmpegPath: config.ffmpegPath, ffprobePath: config.ffprobePath });
+  const motionQueue = new MotionQueue({
+    connection, storage: motionStorage, tools: motionTools,
+    timeoutMs: config.motionProcessTimeoutMs, logger: app.log,
+    ...(options.motionProcessor === undefined ? {} : { processor: options.motionProcessor }),
+  });
 
   try {
     applyMigrations(
@@ -143,10 +159,18 @@ export async function buildApp(
   await registerStatsRoute(app, connection);
   await registerDesignTypeRoutes(app, connection);
   await registerCollectionRoutes(app, connection);
-  await registerReferenceRoutes(app, connection, storage, captureService);
+  await registerReferenceRoutes(app, connection, storage, captureService, motionStorage);
   await registerMediaRoutes(app, connection, storage);
   await registerAnalysisRoutes(app, connection, storage, config.analysisDataDirectory);
   await registerExportRoutes(app, connection);
+  await registerMotionRoutes(app, {
+    connection, storage: motionStorage, queue: motionQueue, tools: motionTools,
+    maxUploadBytes: options.maxMotionUploadBytes ?? config.maxMotionUploadBytes,
+  });
+  // Start after routes exist and migrations ran; stop (killing ffmpeg) before the database closes.
+  app.addHook("onReady", async () => motionQueue.start());
+  app.addHook("preClose", async () => motionQueue.close());
+  app.decorate("motionQueue", motionQueue);
 
   return app;
 }

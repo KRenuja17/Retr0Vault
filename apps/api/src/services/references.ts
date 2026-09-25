@@ -41,6 +41,7 @@ import { ApiError, sqliteErrorCode } from "../errors.js";
 import type { StoredReferenceImage, StoredWebsiteCapture } from "../storage/reference-storage.js";
 import type { CreateWebsiteReferenceInput } from "@retr0vault/shared";
 import { referenceSearchExpression, referenceSearchRank } from "./reference-search.js";
+import { motionSummaries } from "./motion.js";
 
 type ReferenceRow = typeof references.$inferSelect;
 
@@ -205,6 +206,7 @@ function hydrateReferences(
     .orderBy(asc(collections.sortOrder), asc(collections.name))
     .all();
 
+  const motionByReference = motionSummaries(connection, referenceIds);
   const tagsByReference = new Map<string, typeof tagRows>();
   for (const row of tagRows) {
     const entries = tagsByReference.get(row.referenceId) ?? [];
@@ -250,6 +252,7 @@ function hydrateReferences(
       })),
       collectionIds: collectionsByReference.get(row.id) ?? [],
       frames: frameRows.filter((frame) => frame.referenceId === row.id),
+      motion: motionByReference.get(row.id) ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }),

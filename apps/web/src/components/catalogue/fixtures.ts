@@ -64,6 +64,7 @@ export function makeReference(
     tags: [],
     collectionIds: [],
     frames: [],
+    motion: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -88,6 +89,8 @@ export function makeStats(overrides: Partial<StatsResponse> = {}): StatsResponse
     unassignedReferences: 0,
     countsByDesignType: [],
     countsByCollection: [],
+    motionStudies: { total: 0, pending: 0, analyzed: 0, manual: 0, failed: 0 },
+    countsByTrigger: [],
     ...overrides,
   };
 }

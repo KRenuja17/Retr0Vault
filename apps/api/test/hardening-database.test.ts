@@ -97,7 +97,8 @@ describe("database hardening and additive upgrades", () => {
       // An operator can repair the specific record after backing up, then retry.
       legacy.sqlite.prepare('UPDATE "references" SET protected_fields = ? WHERE id = ?').run("[]", record.id);
       applyMigrations(legacy);
-      expect(legacy.sqlite.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: 7 });
+      const committed = JSON.parse(readFileSync(join(defaultMigrationsFolder, "meta/_journal.json"), "utf8")) as { entries: unknown[] };
+      expect(legacy.sqlite.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get()).toEqual({ count: committed.entries.length });
     } finally { legacy.sqlite.close(); }
   });
 

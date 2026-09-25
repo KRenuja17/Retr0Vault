@@ -123,6 +123,17 @@ export const updateReferenceSchema = z
 
 export type UpdateReferenceInput = z.infer<typeof updateReferenceSchema>;
 
+/** Additive motion-study summary carried on reference responses (null when there is no study). */
+export const referenceMotionSummarySchema = z.object({
+  studyId: z.uuid(),
+  status: analysisStatusSchema,
+  clipCount: z.number().int().nonnegative(),
+  readyClipCount: z.number().int().nonnegative(),
+  primaryClipId: z.uuid().nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+}).strict();
+export type ReferenceMotionSummary = z.infer<typeof referenceMotionSummarySchema>;
+
 export const referenceResponseSchema = z
   .object({
     id: z.uuid(),
@@ -149,6 +160,7 @@ export const referenceResponseSchema = z
     tags: z.array(referenceTagResponseSchema),
     collectionIds: z.array(z.uuid()),
     frames: z.array(referenceFrameSchema).default([]),
+    motion: referenceMotionSummarySchema.nullable().default(null),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })

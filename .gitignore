@@ -24,6 +24,10 @@ data/analysis-inbox/*
 !data/analysis-inbox/.gitkeep
 data/analysis-results/*
 !data/analysis-results/.gitkeep
+data/motion-inbox/*
+!data/motion-inbox/.gitkeep
+data/motion-results/*
+!data/motion-results/.gitkeep
 
 # Runtime reference storage
 storage/originals/*
@@ -32,6 +36,8 @@ storage/thumbnails/*
 !storage/thumbnails/.gitkeep
 storage/captures/*
 !storage/captures/.gitkeep
+storage/motion/*
+!storage/motion/.gitkeep
 storage/quarantine/
 
 # Upload staging directories
