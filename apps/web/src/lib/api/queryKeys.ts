@@ -1,4 +1,4 @@
-import type { ReferenceListParams } from "./endpoints";
+import type { MotionListParams, ReferenceListParams } from "./endpoints";
 
 /** One place to derive every TanStack Query key, so invalidation stays sane. */
 export const queryKeys = {
@@ -21,7 +21,16 @@ export const queryKeys = {
   accessionLedger: (limit: number) => ["references", "ledger", limit] as const,
   /** `total` for one analysis status; the stats route counts only two of them. */
   statusCount: (status: string) => ["references", "status-count", status] as const,
+  /** Paged Motion section for one trigger filter and search. */
+  motionList: (trigger: string | null, query: string) => ["motion", "list", trigger, query] as const,
+  motionStudy: (referenceId: string) => ["motion", "study", referenceId] as const,
+  clipEnergy: (clipId: string) => ["motion", "energy", clipId] as const,
+  /** A one-off list read (the analysis desk's pending count). */
+  motionListParams: (params: MotionListParams) => ["motion", "params", params] as const,
 } as const;
+
+/** Everything derived from motion studies; any motion write invalidates it. */
+export const MOTION_KEY_PREFIX = ["motion"] as const;
 
 /**
  * Everything derived from the reference table. Ingesting, importing, resetting

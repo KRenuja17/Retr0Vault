@@ -58,6 +58,9 @@ export function AppShell({ navigation, children }: AppShellProps) {
                   Local · single user
                 </MonoLabel>
                 <ConnectionStatus />
+                <ActionLink variant="outline" size="small" to="/motion">
+                  Motion
+                </ActionLink>
                 <ActionLink variant="outline" size="small" to="/add">
                   Add reference
                 </ActionLink>

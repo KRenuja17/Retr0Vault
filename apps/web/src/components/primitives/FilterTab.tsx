@@ -18,6 +18,12 @@ export interface FilterTabProps {
   readonly onSelect?: () => void;
   readonly className?: string | undefined;
   readonly title?: string | undefined;
+  /**
+   * Whether the router's own path match also marks the tab active. Off for
+   * tabs that differ only by query string (the Motion rail's `?trigger=`),
+   * which a path match cannot tell apart; `active` then decides alone.
+   */
+  readonly matchRoute?: boolean;
 }
 
 /**
@@ -34,6 +40,7 @@ export function FilterTab({
   onSelect,
   className,
   title,
+  matchRoute = true,
 }: FilterTabProps) {
   const content = (
     <>
@@ -57,7 +64,7 @@ export function FilterTab({
         title={title}
         onClick={onSelect}
         className={({ isActive }) =>
-          cx(styles.tab, (active || isActive) && styles.active, className) ?? ""
+          cx(styles.tab, (active || (matchRoute && isActive)) && styles.active, className) ?? ""
         }
       >
         {content}

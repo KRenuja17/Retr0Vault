@@ -117,7 +117,7 @@ export function WebsiteAccession() {
   }));
 
   return (
-    <section className={styles.lane} aria-labelledby={headingId}>
+    <section id="website" className={styles.lane} aria-labelledby={headingId}>
       <header className={styles.laneHead}>
         <MonoLabel size="small" uppercase marker="square">
           Website capture

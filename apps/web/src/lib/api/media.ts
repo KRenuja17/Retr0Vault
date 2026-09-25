@@ -22,3 +22,22 @@ export function referenceThumbnailUrl(referenceId: string): string {
 export function referenceOriginalUrl(referenceId: string): string {
   return `${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/original`;
 }
+
+export type MotionMediaKind = "clip" | "preview" | "poster" | "energy" | "regions" | "contact-sheet";
+
+/**
+ * Motion media is addressed by clip ID. `clip` and `preview` are served with
+ * byte ranges, so a <video> can seek and scrub without downloading the file.
+ * Catalogue plates play `preview` only; the full `clip` is for the detail sheet.
+ */
+export function motionMediaUrl(clipId: string, kind: MotionMediaKind): string {
+  return `${API_BASE_URL}/media/motion/${encodeURIComponent(clipId)}/${kind}`;
+}
+
+export function motionKeyframeUrl(clipId: string, index: number): string {
+  return `${API_BASE_URL}/media/motion/${encodeURIComponent(clipId)}/keyframes/${index}`;
+}
+
+export function motionBurstUrl(clipId: string, index: number): string {
+  return `${API_BASE_URL}/media/motion/${encodeURIComponent(clipId)}/bursts/${index}`;
+}

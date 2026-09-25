@@ -1,5 +1,12 @@
 import type {
   AnalysisImportReport,
+  ClipEnergy,
+  MotionImportReport,
+  MotionListResponse,
+  MotionStudy,
+  PendingMotionManifest,
+  UpdateMotionClipInput,
+  UpdateMotionStudyInput,
   CollectionResponse,
   CreateCollectionInput,
   DesignTypeResponse,
@@ -246,4 +253,129 @@ export function resetAnalysis(referenceId: string): Promise<ReferenceResponse> {
     // An explicit empty object: the route validates the body strictly.
     { method: "POST", body: {} },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Motion studies
+// ---------------------------------------------------------------------------
+
+export interface MotionListParams {
+  readonly q?: string | undefined;
+  readonly trigger?: string | undefined;
+  readonly technique?: string | undefined;
+  readonly status?: string | undefined;
+  readonly page?: number | undefined;
+  readonly limit?: number | undefined;
+  readonly sort?: string | undefined;
+  readonly includeCatalogueIndex?: boolean | undefined;
+}
+
+export function fetchMotionList(
+  params: MotionListParams = {},
+  signal?: AbortSignal,
+): Promise<MotionListResponse> {
+  return apiRequest<MotionListResponse>("/motion", {
+    signal: signal ?? null,
+    searchParams: {
+      ...params,
+      includeCatalogueIndex:
+        params.includeCatalogueIndex === undefined
+          ? undefined
+          : String(params.includeCatalogueIndex),
+    },
+  });
+}
+
+export function fetchMotionStudy(
+  referenceId: string,
+  signal?: AbortSignal,
+): Promise<MotionStudy> {
+  return apiRequest<MotionStudy>(
+    `/references/${encodeURIComponent(referenceId)}/motion`,
+    { signal: signal ?? null },
+  );
+}
+
+export interface UploadMotionClipInput {
+  readonly referenceId: string;
+  readonly file: File;
+  readonly label?: string | undefined;
+  readonly posterMs?: number | undefined;
+}
+
+/**
+ * Multipart recording upload. The API answers 202 as soon as the file is on
+ * disk; processing continues in the background and is read back by polling.
+ */
+export function uploadMotionClip(input: UploadMotionClipInput): Promise<MotionStudy> {
+  const form = new FormData();
+  if (input.label !== undefined && input.label.length > 0) form.append("label", input.label);
+  if (input.posterMs !== undefined) form.append("posterMs", String(Math.round(input.posterMs)));
+  // Appended last so the fields are parsed before the file is streamed.
+  form.append("file", input.file, input.file.name);
+  return apiRequest<MotionStudy>(
+    `/references/${encodeURIComponent(input.referenceId)}/motion/clips`,
+    { method: "POST", body: form },
+  );
+}
+
+export function patchMotionStudy(
+  referenceId: string,
+  patch: UpdateMotionStudyInput,
+): Promise<MotionStudy> {
+  return apiRequest<MotionStudy>(
+    `/references/${encodeURIComponent(referenceId)}/motion`,
+    { method: "PATCH", body: patch },
+  );
+}
+
+/** Removes the study and its recordings; the reference itself stays. */
+export function deleteMotionStudy(referenceId: string): Promise<void> {
+  return apiRequest<void>(
+    `/references/${encodeURIComponent(referenceId)}/motion`,
+    { method: "DELETE" },
+  );
+}
+
+export function patchMotionClip(
+  clipId: string,
+  patch: UpdateMotionClipInput,
+): Promise<MotionStudy> {
+  return apiRequest<MotionStudy>(`/motion/clips/${encodeURIComponent(clipId)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+}
+
+export function deleteMotionClip(clipId: string): Promise<void> {
+  return apiRequest<void>(`/motion/clips/${encodeURIComponent(clipId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function retryMotionClip(clipId: string): Promise<MotionStudy> {
+  return apiRequest<MotionStudy>(
+    `/motion/clips/${encodeURIComponent(clipId)}/retry`,
+    { method: "POST", body: {} },
+  );
+}
+
+export function fetchClipEnergy(clipId: string, signal?: AbortSignal): Promise<ClipEnergy> {
+  return apiRequest<ClipEnergy>(`/motion/clips/${encodeURIComponent(clipId)}/energy`, {
+    signal: signal ?? null,
+  });
+}
+
+export function fetchPendingMotion(signal?: AbortSignal): Promise<PendingMotionManifest> {
+  return apiRequest<PendingMotionManifest>("/motion/pending", { signal: signal ?? null });
+}
+
+export function importMotionAnalyses(
+  analyses: readonly unknown[],
+  overwriteProtected: boolean,
+): Promise<MotionImportReport> {
+  return apiRequest<MotionImportReport>("/motion/import", {
+    method: "POST",
+    body: { analyses, overwriteProtected },
+  });
 }

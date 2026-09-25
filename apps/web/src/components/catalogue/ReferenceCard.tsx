@@ -127,6 +127,15 @@ export function ReferenceCard({
             eager={eager}
           />
         </Link>
+        {/*
+          * Marginalia for a reference that also has recordings. It names the
+          * fact only; the recordings themselves live in the Motion section.
+          */}
+        {reference.motion === null ? null : (
+          <span className={styles.motionMark} title="This reference has a motion study">
+            ◉ Motion
+          </span>
+        )}
       </CatalogueCardMedia>
 
       <CatalogueCardBody>

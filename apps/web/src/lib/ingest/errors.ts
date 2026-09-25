@@ -17,7 +17,8 @@ export type IngestSubject =
   | "import"
   | "update"
   | "reset"
-  | "read";
+  | "read"
+  | "recording";
 
 const HEADLINES: Record<IngestSubject, string> = {
   upload: "That plate was not filed",
@@ -26,6 +27,7 @@ const HEADLINES: Record<IngestSubject, string> = {
   update: "Those edits were not saved",
   reset: "That reference was not reset",
   read: "The archive could not be read",
+  recording: "That recording was not filed",
 };
 
 /** Subjects that change the archive, and can therefore leave nothing behind. */
@@ -35,6 +37,7 @@ const WRITES: ReadonlySet<IngestSubject> = new Set<IngestSubject>([
   "import",
   "update",
   "reset",
+  "recording",
 ]);
 
 /*
@@ -55,6 +58,14 @@ const HINTS: Record<string, string> = {
   DESIGN_TYPE_NOT_FOUND:
     "The design type has been removed since this page loaded. Reload and pick another.",
   DATABASE_BUSY: "Another Retr0Vault process is writing. Try again in a moment.",
+  MOTION_TOOLS_UNAVAILABLE:
+    "Run npm approve-scripts ffmpeg-static and npm rebuild ffmpeg-static, or set FFMPEG_PATH and FFPROBE_PATH, then restart the API.",
+  MOTION_CLIP_LIMIT:
+    "A motion study holds four recordings. Remove one from the motion sheet before adding another.",
+  UNSUPPORTED_MEDIA:
+    "Nothing was stored. Export the recording as MP4 (H.264) from your screen recorder and try again.",
+  MOTION_OUT_OF_LIMITS:
+    "Nothing was stored. Trim the recording to 60 seconds or less, at most 3840 × 2160.",
 };
 
 export function describeIngestFailure(
