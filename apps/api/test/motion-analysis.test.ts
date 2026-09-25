@@ -280,7 +280,10 @@ describe("motion curator export", () => {
       })));
       writeFileSync(join(results, "broken.json"), "{");
       const report = await importMotionFiles(connection, results);
-      expect(report.results.map((result) => result.status)).toEqual(["imported", "failed"]);
+      // Files are read in name order, and the result's name is a random UUID, so compare per file.
+      expect(Object.fromEntries(report.results.map((result) => [result.source, result.status]))).toEqual({
+        [`${referenceId}.json`]: "imported", "broken.json": "failed",
+      });
     } finally {
       connection.sqlite.close();
     }

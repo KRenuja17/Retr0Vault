@@ -118,6 +118,33 @@ export function adaptiveThreshold(activity: readonly number[], floor = 0.012): n
 export interface DetectedEvent extends MotionEvent {
   /** Mean per-cell change across the event; used to draw region panels, not stored. */
   readonly regionMeans: number[];
+  /**
+   * Local maxima inside a long event (strongest first, ≥ 700 ms apart and away
+   * from the main peak): the reveals inside a continuous scroll. Not stored.
+   */
+  readonly subPeaksMs: number[];
+}
+
+/** Local maxima of `activity` within [start, end], strongest first, well separated. */
+export function subPeaks(activity: readonly number[], start: number, end: number, peakIndex: number, threshold: number, sampleFps: number): number[] {
+  const minimumSeparation = Math.max(3, Math.round(0.7 * sampleFps));
+  // A reveal stands out from the event's own typical level, not just from silence;
+  // a plateau of steady scrolling is not a peak.
+  const typical = median(activity.slice(start, end + 1));
+  const floor = Math.max(threshold * 1.5, typical * 1.2);
+  const candidates: number[] = [];
+  for (let index = start + 1; index < end; index += 1) {
+    const value = activity[index]!;
+    const before = activity[index - 1]!;
+    const after = activity[index + 1]!;
+    if (value >= floor && value >= before && value >= after && (value > before || value > after)) candidates.push(index);
+  }
+  const chosen: number[] = [];
+  for (const index of candidates.sort((a, b) => activity[b]! - activity[a]!)) {
+    if (chosen.length >= 6) break;
+    if ([peakIndex, ...chosen].every((other) => Math.abs(other - index) >= minimumSeparation)) chosen.push(index);
+  }
+  return chosen.map((index) => Math.round((index * 1_000) / sampleFps));
 }
 
 export interface EvidenceResult {
@@ -212,6 +239,7 @@ export function analyzeSamples(samples: readonly MotionSample[], sampleFps: numb
       locality: localityOf(spread),
       stillBand: spread >= 0.25 ? stillBandOf(regionMeans) : null,
       regionMeans: regionMeans.map((value) => round(value)),
+      subPeaksMs: end - start >= Math.round(2 * sampleFps) ? subPeaks(activity, start, end, peakIndex, threshold, sampleFps) : [],
     };
   });
 
@@ -240,7 +268,7 @@ export function analyzeSamples(samples: readonly MotionSample[], sampleFps: numb
       gridRows,
       threshold: round(threshold),
       meanEnergy: round(Math.min(1, meanEnergy)),
-      events: events.map(({ regionMeans: _regionMeans, ...event }) => event),
+      events: events.map(({ regionMeans: _regionMeans, subPeaksMs: _subPeaks, ...event }) => event),
       cutsMs: cutsMs.slice(0, 200),
       regionTotals: totals.map((value) => (totalPeak > 0 ? round(value / totalPeak) : 0)),
     },
@@ -264,7 +292,7 @@ const reasonPriority: Record<KeyframeReason, number> = {
 export function selectKeyframes(
   durationMs: number,
   frameIntervalMs: number,
-  events: readonly MotionEvent[],
+  events: ReadonlyArray<MotionEvent & { readonly subPeaksMs?: readonly number[] }>,
   cutsMs: readonly number[],
   maximum = maximumKeyframes,
 ): KeyframeChoice[] {
@@ -290,11 +318,19 @@ export function selectKeyframes(
   for (const cut of cutsMs.slice(0, 6)) add(cut + frameIntervalMs, "cut");
   // Reserve room for coverage frames before spending the budget on events.
   const eventBudget = Math.max(2, maximum - 5);
-  for (const event of [...events].sort((a, b) => b.integral - a.integral)) {
+  const strongest = [...events].sort((a, b) => b.integral - a.integral);
+  for (const event of strongest) {
     if (chosen.length + 3 > eventBudget) break;
     add(event.peakMs, "peak");
     add(event.onsetMs, "onset");
     add(event.settleMs, "settle");
+  }
+  // Then the reveals inside long events, strongest event first.
+  for (const event of strongest) {
+    for (const peakMs of event.subPeaksMs ?? []) {
+      if (chosen.length >= eventBudget) break;
+      add(peakMs, "peak");
+    }
   }
   const maximumGap = Math.max(minimumGap * 2, durationMs / 8);
   while (chosen.length < maximum) {

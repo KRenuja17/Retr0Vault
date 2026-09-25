@@ -167,6 +167,31 @@ describe("smart keyframes", () => {
   });
 });
 
+describe("sub-peaks inside long events", () => {
+  it("adds keyframes at the reveals inside a continuous scroll", () => {
+    // Three still seconds, then three seconds of steady scrolling with reveals at 3.8 s and 4.9 s.
+    const scroll = Array.from({ length: 30 }, (_, index) => (index === 8 ? 0.4 : index === 19 ? 0.35 : 0.12));
+    const values = [...Array(30).fill(0), ...scroll, 0, 0];
+    const result = analyzeSamples(series(values), fps, 6_200);
+    expect(result.evidence.events).toHaveLength(1);
+    expect(result.events[0]!.peakMs).toBe(3_800);
+    expect(result.events[0]!.subPeaksMs).toEqual([4_900]);
+    const keyframes = selectKeyframes(6_200, 33, result.events, []);
+    expect(keyframes.filter((keyframe) => keyframe.reason === "peak").map((keyframe) => keyframe.timeMs)).toEqual([3_800, 4_900]);
+  });
+
+  it("keeps sub-peaks apart and out of the stored evidence", () => {
+    const values = [...Array(40).fill(0), ...Array.from({ length: 40 }, (_, index) => 0.1 + (index % 4 === 0 ? 0.2 : 0)), 0];
+    const result = analyzeSamples(series(values), fps, 8_200);
+    const peaks = result.events[0]!.subPeaksMs;
+    expect(peaks.length).toBeLessThanOrEqual(6);
+    for (const [index, peak] of peaks.entries()) {
+      for (const other of peaks.slice(index + 1)) expect(Math.abs(peak - other)).toBeGreaterThanOrEqual(700);
+    }
+    expect(result.evidence.events[0]).not.toHaveProperty("subPeaksMs");
+  });
+});
+
 describe("burst selection", () => {
   it("spans the strongest events with up to eight distinct frames", () => {
     const events = [

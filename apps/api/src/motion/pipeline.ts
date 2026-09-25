@@ -151,7 +151,7 @@ export async function processClip(input: ProcessClipInput): Promise<ProcessedCli
   // 4. Measure, then choose what the curator should look at.
   const analysis = analyzeSamples(sampler.samples, sampleFps, probe.durationMs);
   const frameIntervalMs = 1_000 / probe.fps;
-  const keyframeChoices = selectKeyframes(probe.durationMs, frameIntervalMs, analysis.evidence.events, analysis.evidence.cutsMs);
+  const keyframeChoices = selectKeyframes(probe.durationMs, frameIntervalMs, analysis.events, analysis.evidence.cutsMs);
   const bursts = selectBursts(analysis.evidence.events, probe.durationMs, frameIntervalMs, 1_000 / sampleFps);
   const lastMs = Math.max(0, Math.floor(probe.durationMs - frameIntervalMs));
 
