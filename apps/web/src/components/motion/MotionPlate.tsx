@@ -25,8 +25,8 @@ export interface MotionPlateProps {
   readonly explicitPlay?: boolean;
 }
 
-/** How far outside the viewport a plate attaches its video source. */
-const NEAR_VIEWPORT_MARGIN = "100% 0px";
+/** How far outside the viewport a plate attaches its video source: half a screen each way keeps a 3-column grid to about a dozen sources. */
+const NEAR_VIEWPORT_MARGIN = "50% 0px";
 
 function useNearViewport<T extends Element>(): [React.RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);

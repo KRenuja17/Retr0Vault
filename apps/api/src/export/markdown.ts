@@ -6,6 +6,7 @@ import {
   type AuthoredDirection,
   type DesignTypeResponse,
   type DirectionDimension,
+  type MotionStudy,
   type ReferenceResponse,
 } from "@retr0vault/shared";
 
@@ -14,6 +15,8 @@ import { ApiError } from "../errors.js";
 export interface ExportReference {
   readonly reference: ReferenceResponse;
   readonly designType: DesignTypeResponse | null;
+  /** The reference's motion study, when it has one. */
+  readonly motion?: MotionStudy | null;
 }
 
 export interface MarkdownFile {
@@ -91,7 +94,7 @@ export function markdownFile(
   return { filename: `retr0vault-${kind}-${digest}.md`, content };
 }
 
-export function renderReference({ reference, designType }: ExportReference, heading = 2): string {
+export function renderReference({ reference, designType, motion }: ExportReference, heading = 2): string {
   const level = heading + 1;
   const blocks = [
     `${"#".repeat(heading)} ${inline(reference.title)}`,
@@ -119,7 +122,51 @@ export function renderReference({ reference, designType }: ExportReference, head
     section("Motion Brief", prose(reference.motionBrief), level),
     section("Asset Brief", prose(reference.assetBrief), level),
   );
+  if (motion !== undefined && motion !== null) blocks.push(renderMotionStudy(motion, level));
   return blocks.join("\n\n");
+}
+
+function timecode(ms: number): string {
+  const total = Math.max(0, Math.round(ms));
+  return `${String(Math.floor(total / 60_000)).padStart(2, "0")}:${((total % 60_000) / 1_000).toFixed(2).padStart(5, "0")}`;
+}
+
+const motionAnalysisLabels: Record<string, string> = {
+  triggers: "Triggers", choreography: "Choreography", pacing: "Pacing", easing: "Easing",
+  cameraAndSpace: "Camera and Space", typographyMotion: "Type in Motion", imageTreatment: "Image Treatment",
+  interaction: "Interaction", performance: "Performance", avoid: "Motion Anti-patterns",
+};
+
+/** The motion study, written from its recordings: separate from the design analysis above. */
+export function renderMotionStudy(study: MotionStudy, level: number): string {
+  const sub = level + 1;
+  const clipLabel = new Map(study.clips.map((clip) => [clip.id, clip.label]));
+  const beats = study.beats.map((beat) =>
+    `${timecode(beat.startMs)}${beat.endMs === null ? "" : `–${timecode(beat.endMs)}`} ${beat.trigger.toUpperCase()} ${beat.label} (${clipLabel.get(beat.clipId) ?? "removed clip"}): ${beat.description}`);
+  const implementation = study.implementation.map((claim) => {
+    const source = claim.verifiedTechIndex === null ? undefined : study.verifiedTech[claim.verifiedTechIndex];
+    return claim.evidence === "verified" && source !== undefined
+      ? `Verified: ${claim.claim} — ${source.claim} (${source.source})`
+      : `Inferred: ${claim.claim}`;
+  });
+  const detail = study.analysis === null ? [] : Object.entries(study.analysis)
+    .filter(([, values]) => values.length > 0)
+    .map(([key, values]) => section(motionAnalysisLabels[key] ?? key, bullets(values), sub));
+  return [
+    `${"#".repeat(level)} Motion Study`,
+    [
+      `- Motion status: ${study.motionStatus}`,
+      `- Recordings: ${study.clips.length === 0 ? "None." : study.clips.map((clip) =>
+        `${inline(clip.label)} (${clip.processingStatus === "ready" ? timecode(clip.durationMs ?? 0) : clip.processingStatus})`).join("; ")}`,
+    ].join("\n"),
+    section("Motion DNA", prose(study.motionDNA), sub),
+    section("Motion Thesis", prose(study.motionThesis), sub),
+    section("Techniques", bullets(study.techniques.map((technique) => `${technique.type}: ${technique.value}`)), sub),
+    section("Beats", bullets(beats), sub),
+    ...detail,
+    section("Implementation", bullets(implementation), sub),
+    section("Study Motion Brief", study.motionBrief?.trim() ? fencedText(study.motionBrief) : undefined, sub),
+  ].join("\n\n");
 }
 
 export function renderReferenceExport(references: ExportReference[]): MarkdownFile {
@@ -193,7 +240,7 @@ export function renderAuthoredDirection(references: ExportReference[], direction
 }
 
 export function renderCombinationManifest(references: ExportReference[], intent?: string): MarkdownFile {
-  const snapshot = references.map(({ reference, designType }) => ({
+  const snapshot = references.map(({ reference, designType, motion }) => ({
     referenceId: reference.id,
     title: reference.title,
     sourceType: reference.sourceType,
@@ -216,6 +263,20 @@ export function renderCombinationManifest(references: ExportReference[], intent?
     motionBrief: reference.motionBrief,
     assetBrief: reference.assetBrief,
     analysis: reference.analysisJson,
+    // Motion evidence stays with the study; only its written analysis travels here.
+    motionStudy: motion === undefined || motion === null ? null : {
+      motionStatus: motion.motionStatus,
+      motionDNA: motion.motionDNA,
+      motionThesis: motion.motionThesis,
+      techniques: motion.techniques.map(({ type, value }) => ({ type, value })),
+      beats: motion.beats.map((beat) => ({ ...beat, clipLabel: motion.clips.find((clip) => clip.id === beat.clipId)?.label ?? null })),
+      implementation: motion.implementation.map((claim) => ({
+        ...claim, source: claim.verifiedTechIndex === null ? null : motion.verifiedTech[claim.verifiedTechIndex] ?? null,
+      })),
+      motionBrief: motion.motionBrief,
+      analysis: motion.analysis,
+      recordings: motion.clips.map((clip) => ({ label: clip.label, durationMs: clip.durationMs, processingStatus: clip.processingStatus })),
+    },
   }));
   return markdownFile("pending-combination", [
     "# Retr0Vault Pending Combination Manifest",
@@ -226,7 +287,7 @@ export function renderCombinationManifest(references: ExportReference[], intent?
       "1. Compare design DNA, vocabulary, typography, palette, layout, image treatment, motion, and anti-patterns across all selected references.",
       "2. Identify what to borrow from each reference, with a specific rationale. The first selected reference is the primary starting point, not automatic authority for every dimension.",
       "3. Identify conflicts and resolve contradictions explicitly. If there are no conflicts, return an empty conflicts array; do not invent any.",
-      "4. Assign authority by design dimension: typography, layout, colour, textureImagery, uiTreatment, and motion. Choose one selected reference per dimension and explain the decision, including intentional restraint or no motion.",
+      "4. Assign authority by design dimension: typography, layout, colour, textureImagery, uiTreatment, and motion. Choose one selected reference per dimension and explain the decision, including intentional restraint or no motion. For motion, prefer a reference whose motionStudy is analyzed and cite its beats; its implementation claims are verified only where marked so.",
       "5. Generate one coherent direction and a reusable final design brief. Avoid simply averaging references or mixing every visible motif.",
       "6. Create anti-patterns describing what would undermine the direction. Borrow principles, not literal source layouts or brand assets.",
       "7. Write provider-neutral image recipes using [SUBJECT], or an empty imageRecipes array when no generated image is needed. No runtime AI integration is involved.",

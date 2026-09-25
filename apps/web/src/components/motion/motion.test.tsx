@@ -257,3 +257,26 @@ describe("the motion recording lane", () => {
     expect(screen.getByRole("link", { name: "Open the motion sheet" })).toHaveAttribute("href", `/motion/${REFERENCE_ID}`);
   });
 });
+
+describe("the comparison sheet", () => {
+  it("adds a motion study row in words, without playing anything", async () => {
+    const studied = makeReference({
+      id: REFERENCE_ID, title: "Lando Norris",
+      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000 },
+    });
+    const still = makeReference({ id: "aaaaaaaa-0000-4000-8000-000000000009", title: "Still only" });
+    stubApi([
+      { path: new RegExp(`^/references/${REFERENCE_ID}$`, "u"), handler: () => studied },
+      { path: /^\/references\/aaaaaaaa-0000-4000-8000-000000000009$/u, handler: () => still },
+      { path: new RegExp(`^/references/${REFERENCE_ID}/motion$`, "u"), handler: () => makeStudy() },
+    ]);
+    renderRoute(`/compare?refs=${REFERENCE_ID},${still.id}`);
+    const row = (await screen.findByRole("rowheader", { name: "Motion study" })).closest("tr")!;
+    expect(await within(row).findByText("cursor-painted livery × block-wipe scroll")).toBeInTheDocument();
+    expect(within(row).getByText("Cursor · Scroll")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "2 recordings · open motion study" })).toHaveAttribute("href", `/motion/${REFERENCE_ID}`);
+    expect(within(row).getByText("Not recorded")).toBeInTheDocument();
+    expect(document.querySelector("video")).toBeNull();
+  });
+});
+

@@ -62,6 +62,14 @@
   overflow: hidden;
 }
 
+/* On a phone the recording decides the screen's shape, not half the viewport. */
+@media (max-width: 48rem) {
+  .screen {
+    height: auto;
+    aspect-ratio: 16 / 10;
+  }
+}
+
 .video {
   width: 100%;
   height: 100%;

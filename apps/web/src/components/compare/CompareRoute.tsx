@@ -23,6 +23,8 @@ import {
   REFS_PARAM,
 } from "@/lib/selection/selection";
 import { useSelectedReferences } from "@/lib/selection/useSelectedReferences";
+import { TRIGGER_LABELS } from "@/lib/motion/format";
+import { useMotionStudy } from "@/lib/motion/useMotion";
 
 import styles from "./Compare.module.css";
 
@@ -146,8 +148,38 @@ const ROWS: readonly CompareRow[] = [
       );
     },
   },
+  {
+    key: "motionStudy",
+    label: "Motion study",
+    render: (reference) => (reference.motion === null ? <Absent /> : <MotionStudyCell referenceId={reference.id} />),
+  },
   analysisRow("avoid", "Anti-patterns", ["avoid"]),
 ];
+
+/**
+ * The reference's motion study, in words only: its motion DNA and the triggers
+ * its beats use. No recording plays on the comparison sheet.
+ */
+function MotionStudyCell({ referenceId }: { readonly referenceId: string }) {
+  const study = useMotionStudy(referenceId);
+  if (study.data === undefined) return <Absent />;
+  const triggers = [...new Set(study.data.beats.map((beat) => beat.trigger))].map((trigger) => TRIGGER_LABELS[trigger]);
+  return (
+    <>
+      {study.data.motionDNA ? <p className={styles.prose}>{study.data.motionDNA}</p> : (
+        <MonoLabel size="small" tone="muted" uppercase marker="hollow">Awaiting motion analysis</MonoLabel>
+      )}
+      {triggers.length > 0 ? (
+        <MonoLabel size="small" tone="soft" marker="solid">{triggers.join(" · ")}</MonoLabel>
+      ) : null}
+      <p>
+        <Link to={`/motion/${referenceId}`}>
+          {`${study.data.clips.length} recording${study.data.clips.length === 1 ? "" : "s"} · open motion study`}
+        </Link>
+      </p>
+    </>
+  );
+}
 
 /**
  * `/compare?refs=...` &mdash; the curator's comparison sheet.

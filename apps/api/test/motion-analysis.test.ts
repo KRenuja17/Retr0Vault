@@ -289,3 +289,47 @@ describe("motion curator export", () => {
     }
   }, 60_000);
 });
+
+describe("motion in exports", () => {
+  let context: TestAppContext;
+  afterEach(async () => disposeTestApp(context));
+
+  it("adds the motion study to reference exports and the combination manifest", async () => {
+    context = await createTestApp("motion-export-markdown", { motionProcessor: instant });
+    const { referenceId, clipId } = await withClip(context, "Exported motion");
+    const still = await createReference(context, "Still only");
+    await context.app.inject({ method: "PATCH", url: `/api/v1/references/${referenceId}/motion`, payload: {
+      verifiedTech: [{ claim: "html.lenis class present", source: "DevTools" }],
+    } });
+    await context.app.inject({ method: "POST", url: "/api/v1/motion/import", payload: { analyses: [analysis(referenceId, clipId, {
+      implementation: [
+        { claim: "Smooth scrolling via Lenis", evidence: "verified", verifiedTechIndex: 0 },
+        { claim: "Wipes use clip-path", evidence: "inferred", verifiedTechIndex: null },
+      ],
+    })] } });
+
+    const markdown = await context.app.inject({ method: "POST", url: "/api/v1/export/references",
+      payload: { mode: "references", referenceIds: [referenceId, still] } });
+    expect(markdown.statusCode, markdown.body).toBe(200);
+    expect(markdown.body).toContain("### Motion Study");
+    expect(markdown.body).toContain("- Recordings: Primary (00:02.50)");
+    expect(markdown.body).toContain("00:00.90–00:02.40 WHEEL Camera push (Primary): The camera travels forward.");
+    expect(markdown.body).toContain("Verified: Smooth scrolling via Lenis — html.lenis class present (DevTools)");
+    expect(markdown.body).toContain("Inferred: Wipes use clip-path");
+    // A reference without recordings exports exactly as before.
+    expect(markdown.body.split("## Still only")[1]).not.toContain("Motion Study");
+
+    const manifest = await context.app.inject({ method: "POST", url: "/api/v1/export/design-direction",
+      payload: { mode: "pending-combination", referenceIds: [referenceId, still] } });
+    expect(manifest.statusCode, manifest.body).toBe(200);
+    expect(manifest.body).toContain("prefer a reference whose motionStudy is analyzed");
+    const snapshot = JSON.parse(/```json\n([\s\S]*?)\n```/u.exec(manifest.body)![1]!) as {
+      references: Array<{ motionStudy: null | { motionStatus: string; beats: Array<{ clipLabel: string }>; implementation: Array<{ source: unknown }> } }>;
+    };
+    expect(snapshot.references[0]!.motionStudy).toMatchObject({ motionStatus: "analyzed" });
+    expect(snapshot.references[0]!.motionStudy!.beats[0]!.clipLabel).toBe("Primary");
+    expect(snapshot.references[0]!.motionStudy!.implementation[0]!.source).toEqual({ claim: "html.lenis class present", source: "DevTools" });
+    expect(snapshot.references[1]!.motionStudy).toBeNull();
+  });
+});
+

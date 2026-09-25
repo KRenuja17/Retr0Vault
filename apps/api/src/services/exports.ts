@@ -6,6 +6,7 @@ import {
   renderReferenceExport, renderVocabularyExport, type ExportReference, type MarkdownFile,
 } from "../export/markdown.js";
 import { getDesignTypeById } from "./design-types.js";
+import { getMotionStudy } from "./motion.js";
 import { getReference } from "./references.js";
 
 function selectedReferences(connection: DatabaseConnection, ids: string[]): ExportReference[] {
@@ -14,7 +15,11 @@ function selectedReferences(connection: DatabaseConnection, ids: string[]): Expo
     const reference = getReference(connection, id);
     const typeId = reference.designTypeId;
     if (typeId !== null && !types.has(typeId)) types.set(typeId, getDesignTypeById(connection, typeId));
-    return { reference, designType: typeId === null ? null : types.get(typeId)! };
+    return {
+      reference,
+      designType: typeId === null ? null : types.get(typeId)!,
+      motion: reference.motion === null ? null : getMotionStudy(connection, id),
+    };
   });
 }
 
