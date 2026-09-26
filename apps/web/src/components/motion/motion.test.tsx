@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { makeReference } from "@/components/catalogue/fixtures";
@@ -322,6 +322,34 @@ describe("catalogue plates with motion", () => {
     fireEvent(lando!.querySelector("video")!, new Event("error"));
     expect(lando!.querySelector("video")).toBeNull();
     expect(lando!.querySelector("img")).not.toBeNull();
+  });
+
+  it("hides a remounted clip behind the screenshot until it plays again", async () => {
+    // A viewport the test scrolls by hand: every observer sees the same answer.
+    const observers = new Set<IntersectionObserverCallback>();
+    vi.stubGlobal("IntersectionObserver", class {
+      readonly #callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+      observe() { observers.add(this.#callback); }
+      disconnect() { observers.delete(this.#callback); }
+    });
+    const scroll = (isIntersecting: boolean) => act(() => {
+      for (const callback of [...observers]) callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+
+    catalogue();
+    const [lando] = await screen.findAllByRole("article");
+    scroll(true);
+    fireEvent(lando!.querySelector("video")!, new Event("playing"));
+    expect(lando!.querySelector("video")!.className).toMatch(/clipPlaying/u);
+
+    scroll(false);
+    expect(lando!.querySelector("video")).toBeNull();
+    scroll(true);
+    const remounted = lando!.querySelector("video")!;
+    expect(remounted.className).not.toMatch(/clipPlaying/u);
+    fireEvent(remounted, new Event("playing"));
+    expect(remounted.className).toMatch(/clipPlaying/u);
   });
 
   it("shows only the screenshot under reduced motion", async () => {

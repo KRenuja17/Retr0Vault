@@ -45,6 +45,9 @@ function LoopingClip({ clipId, title }: { readonly clipId: string; readonly titl
 
   useEffect(() => {
     const element = video.current;
+    // Scrolled away, the video is removed; the next one it mounts must stay
+    // hidden behind the screenshot until it is playing too.
+    if (!near) setPlaying(false);
     if (element === null || !near) return;
     if (visible) safePlay(element);
     else element.pause();
