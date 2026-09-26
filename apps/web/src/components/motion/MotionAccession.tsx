@@ -218,6 +218,7 @@ export function MotionAccession() {
               readyClipCount: study.clips.filter((clip) => clip.processingStatus === "ready").length,
               primaryClipId: study.clips[0]?.id ?? null,
               durationMs: study.clips[0]?.durationMs ?? null,
+              previewClipId: study.clips.find((clip) => clip.processingStatus === "ready")?.id ?? null,
             },
           });
           if (added !== undefined) setFiled({ referenceId, clipId: added.id });

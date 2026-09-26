@@ -131,6 +131,11 @@ export const referenceMotionSummarySchema = z.object({
   readyClipCount: z.number().int().nonnegative(),
   primaryClipId: z.uuid().nullable(),
   durationMs: z.number().int().nonnegative().nullable(),
+  /**
+   * The first processed clip in study order: what the catalogue plate loops.
+   * Null until a clip is ready, and the plate shows the screenshot until then.
+   */
+  previewClipId: z.uuid().nullable(),
 }).strict();
 export type ReferenceMotionSummary = z.infer<typeof referenceMotionSummarySchema>;
 

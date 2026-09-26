@@ -157,7 +157,7 @@ describe("motion studies with the bundled ffmpeg", () => {
 
     // The catalogue sees the study through the additive reference summary and stats.
     const reference = referenceResponseSchema.parse((await context.app.inject({ method: "GET", url: `/api/v1/references/${referenceId}` })).json());
-    expect(reference.motion).toMatchObject({ studyId: study.id, status: "pending", clipCount: 1, readyClipCount: 1, primaryClipId: ready.id });
+    expect(reference.motion).toMatchObject({ studyId: study.id, status: "pending", clipCount: 1, readyClipCount: 1, primaryClipId: ready.id, previewClipId: ready.id });
     const stats = statsResponseSchema.parse((await context.app.inject({ method: "GET", url: "/api/v1/stats" })).json());
     expect(stats.motionStudies).toEqual({ total: 1, pending: 1, analyzed: 0, manual: 0, failed: 0 });
   }, 60_000);
@@ -255,6 +255,9 @@ describe("motion clip management", () => {
     expect(failed!.processingStatus).toBe("failed");
     expect(failed!.processingError).toBe("The recording could not be processed");
     expect(existsSync(join(context.storageRoot, "motion", referenceId, failed!.id, "source.bin"))).toBe(true);
+    // Nothing processed yet: the catalogue keeps showing the screenshot.
+    const before = referenceResponseSchema.parse((await context.app.inject({ url: `/api/v1/references/${referenceId}` })).json());
+    expect(before.motion).toMatchObject({ primaryClipId: failed!.id, previewClipId: null });
 
     // Without the original upload there is nothing to retry from.
     const source = join(context.storageRoot, "motion", referenceId, failed!.id, "source.bin");
@@ -267,6 +270,8 @@ describe("motion clip management", () => {
     expect(retried.statusCode, retried.body).toBe(202);
     await context.app.motionQueue.idle();
     expect((await getStudy(context, referenceId)).clips[0]!.processingStatus).toBe("ready");
+    const after = referenceResponseSchema.parse((await context.app.inject({ url: `/api/v1/references/${referenceId}` })).json());
+    expect(after.motion!.previewClipId).toBe(failed!.id);
     expectError(await context.app.inject({ method: "POST", url: `/api/v1/motion/clips/${failed!.id}/retry`, payload: {} }), 409, "MOTION_CLIP_NOT_FAILED");
   });
 
