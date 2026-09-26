@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { makeReference } from "@/components/catalogue/fixtures";
@@ -129,7 +129,7 @@ describe("catalogue cross-links", () => {
   it("marks references with a motion study and links their sheet to it", async () => {
     const withMotion = makeReference({
       id: REFERENCE_ID, title: "Lando Norris", catalogueIndex: 1,
-      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000 },
+      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000, previewClipId: HERO_CLIP },
     });
     const without = makeReference({ id: "aaaaaaaa-0000-4000-8000-000000000009", title: "Still only", catalogueIndex: 2 });
     stubApi([
@@ -262,7 +262,7 @@ describe("the comparison sheet", () => {
   it("adds a motion study row in words, without playing anything", async () => {
     const studied = makeReference({
       id: REFERENCE_ID, title: "Lando Norris",
-      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000 },
+      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000, previewClipId: HERO_CLIP },
     });
     const still = makeReference({ id: "aaaaaaaa-0000-4000-8000-000000000009", title: "Still only" });
     stubApi([
@@ -277,6 +277,87 @@ describe("the comparison sheet", () => {
     expect(within(row).getByRole("link", { name: "2 recordings · open motion study" })).toHaveAttribute("href", `/motion/${REFERENCE_ID}`);
     expect(within(row).getByText("Not recorded")).toBeInTheDocument();
     expect(document.querySelector("video")).toBeNull();
+  });
+});
+
+describe("catalogue plates with motion", () => {
+  const withClip = makeReference({
+    id: REFERENCE_ID, title: "Lando Norris", catalogueIndex: 1,
+    motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000, previewClipId: SCROLL_CLIP },
+  });
+  const processing = makeReference({
+    id: "aaaaaaaa-0000-4000-8000-000000000010", title: "Still processing", catalogueIndex: 2,
+    motion: { studyId: "dddddddd-0000-4000-8000-000000000002", status: "pending", clipCount: 1, readyClipCount: 0, primaryClipId: HERO_CLIP, durationMs: null, previewClipId: null },
+  });
+  const still = makeReference({ id: "aaaaaaaa-0000-4000-8000-000000000009", title: "Still only", catalogueIndex: 3 });
+
+  function catalogue() {
+    stubApi([{ path: /^\/references$/u, handler: () => referencePage([withClip, processing, still]) }]);
+    renderRoute("/all");
+  }
+
+  it("loops the ready clip over the screenshot, and keeps the screenshot everywhere else", async () => {
+    catalogue();
+    const [lando, waiting, plain] = await screen.findAllByRole("article");
+    const video = lando!.querySelector("video")!;
+    expect(video).toHaveAttribute("src", `/api/v1/media/motion/${SCROLL_CLIP}/preview`);
+    expect(video.loop).toBe(true);
+    expect(video.muted).toBe(true);
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    // The screenshot stays underneath until the clip is really playing.
+    expect(lando!.querySelector("img")).toHaveAttribute("src", `/api/v1/media/${REFERENCE_ID}/thumbnail?v=${encodeURIComponent(withClip.updatedAt)}`);
+    expect(video.className).not.toMatch(/clipPlaying/u);
+    fireEvent(video, new Event("playing"));
+    expect(video.className).toMatch(/clipPlaying/u);
+
+    for (const card of [waiting!, plain!]) {
+      expect(card.querySelector("video")).toBeNull();
+      expect(card.querySelector("img")).not.toBeNull();
+    }
+  });
+
+  it("falls back to the screenshot when the clip cannot play", async () => {
+    catalogue();
+    const [lando] = await screen.findAllByRole("article");
+    fireEvent(lando!.querySelector("video")!, new Event("error"));
+    expect(lando!.querySelector("video")).toBeNull();
+    expect(lando!.querySelector("img")).not.toBeNull();
+  });
+
+  it("hides a remounted clip behind the screenshot until it plays again", async () => {
+    // A viewport the test scrolls by hand: every observer sees the same answer.
+    const observers = new Set<IntersectionObserverCallback>();
+    vi.stubGlobal("IntersectionObserver", class {
+      readonly #callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.#callback = callback; }
+      observe() { observers.add(this.#callback); }
+      disconnect() { observers.delete(this.#callback); }
+    });
+    const scroll = (isIntersecting: boolean) => act(() => {
+      for (const callback of [...observers]) callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+
+    catalogue();
+    const [lando] = await screen.findAllByRole("article");
+    scroll(true);
+    fireEvent(lando!.querySelector("video")!, new Event("playing"));
+    expect(lando!.querySelector("video")!.className).toMatch(/clipPlaying/u);
+
+    scroll(false);
+    expect(lando!.querySelector("video")).toBeNull();
+    scroll(true);
+    const remounted = lando!.querySelector("video")!;
+    expect(remounted.className).not.toMatch(/clipPlaying/u);
+    fireEvent(remounted, new Event("playing"));
+    expect(remounted.className).toMatch(/clipPlaying/u);
+  });
+
+  it("shows only the screenshot under reduced motion", async () => {
+    reducedMotion(true);
+    catalogue();
+    const [lando] = await screen.findAllByRole("article");
+    expect(lando!.querySelector("video")).toBeNull();
+    expect(play).not.toHaveBeenCalled();
   });
 });
 

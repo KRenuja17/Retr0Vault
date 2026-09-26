@@ -174,10 +174,23 @@ POST   /api/v1/references/url
 GET    /api/v1/references
 GET    /api/v1/references/:id
 PATCH  /api/v1/references/:id
+PUT    /api/v1/references/:id/image
 DELETE /api/v1/references/:id
 ```
 
 The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
+
+### Replacing a reference's picture
+
+`PUT /api/v1/references/:id/image` takes one JPEG, PNG or WebP as multipart field `file` (the same size limit as uploads) and an optional `resetAnalysis` field, `true` or `false`. Only the picture changes: title, analysis, tags, collections and any motion study stay. An image reference keeps the uploaded bytes and its original follows the new format, so a PNG replaced by a JPEG moves from `originals/<id>.png` to `originals/<id>.jpg`. A website reference takes the picture as its primary viewport frame, re-encoded as `captures/<id>/viewport.png`, and keeps its other frames. The thumbnail is regenerated either way. With `resetAnalysis=true` the reference is filed back as `pending` so the next manifest carries the new picture; its analysis fields stay until a new analysis is imported.
+
+The new files are written beside the old ones, the old ones are moved aside, and they are only removed once the database row points at the new picture. A failure at any step leaves the previous picture in place. A second replacement of the same reference while one is running returns 409 `REFERENCE_IMAGE_BUSY`. If the API is killed mid-replacement, a `<file>.incoming` or `<file>.previous` can be left beside the picture. `storage:orphans` does not recognise those names; the next replacement of that reference removes them, or delete them by hand with the API stopped. In the app this is the **Replace a reference's picture** lane on `/add` (`/add#replace`). Catalogue plates are 16:9 and crop from the top, so a full-screen 1920 × 1080 screenshot fits a plate exactly.
+
+```powershell
+curl.exe -X PUT http://127.0.0.1:4611/api/v1/references/<reference-id>/image `
+  -F "resetAnalysis=true" `
+  -F "file=@C:\path\to\new-screenshot.png"
+```
 
 ### Reference media for the frontend
 
@@ -192,7 +205,7 @@ With the existing F1 Vite `/api` proxy, use the same-origin image `src` `/api/v1
 
 Both routes return raw image bytes (not JSON) with `Content-Length` and `X-Content-Type-Options: nosniff`. Thumbnails are `image/webp`; originals are `image/jpeg`, `image/png`, or `image/webp`. For website captures, original means the primary `viewport.png`, not the full-page or other frames. HEAD returns the same headers without an image body.
 
-The ID must be a UUID (case-insensitive); no query parameters or filesystem paths are accepted. Missing references return 404 `REFERENCE_NOT_FOUND`; missing, unreadable or unsafe media returns 404 `MEDIA_NOT_FOUND`. Invalid IDs/query parameters return 400 `VALIDATION_ERROR`. Errors use the existing JSON envelope and `Cache-Control: no-store`. Existing reference response fields and storage layout are unchanged; `storage/` is not exposed as a static directory.
+The ID must be a UUID (case-insensitive); no filesystem paths are accepted, and the only query parameter is an optional `v` (at most 64 characters). The web app sends the reference's `updatedAt` there, so a replaced picture gets a new URL instead of the browser reusing the old image it already decoded. Missing references return 404 `REFERENCE_NOT_FOUND`; missing, unreadable or unsafe media returns 404 `MEDIA_NOT_FOUND`. Invalid IDs/query parameters return 400 `VALIDATION_ERROR`. Errors use the existing JSON envelope and `Cache-Control: no-store`. Existing reference response fields and storage layout are unchanged; `storage/` is not exposed as a static directory.
 
 Successful responses use `Cache-Control: private, max-age=0, must-revalidate` and a weak ETag. Browsers can cache bytes and revalidate with `If-None-Match`; a matching validator returns an empty 304 only after the reference and safe file are checked again. Deleted/missing media returns 404 even with a previously valid ETag. Normal image loading handles this automatically; the existing localhost/Origin/CORS policy still applies. Byte-range requests are not supported (GET returns the complete image).
 

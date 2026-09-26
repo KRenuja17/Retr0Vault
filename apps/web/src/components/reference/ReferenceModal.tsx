@@ -63,7 +63,7 @@ function Capture({ reference }: { readonly reference: ReferenceResponse }) {
     <figure className={styles.frame}>
       <img
         className={cx(styles.capture, state === "ready" && styles.captureReady)}
-        src={referenceOriginalUrl(reference.id)}
+        src={referenceOriginalUrl(reference.id, reference.updatedAt)}
         alt={`${reference.title} reference capture`}
         decoding="async"
         draggable={false}

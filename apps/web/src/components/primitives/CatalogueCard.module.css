@@ -102,7 +102,13 @@
 .media {
   position: relative;
   display: block;
-  aspect-ratio: 8 / 5;
+  /*
+   * 16:9, the shape of a full-screen screenshot and of a 1920 x 1080
+   * recording. Media is cropped from the top, so a taller 1440 x 900 capture
+   * only loses a strip at the bottom; at 8:5 a 16:9 picture lost both sides,
+   * logo and headline edges included.
+   */
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   background-color: var(--rv-surface-sunken);
   border-bottom: var(--rv-border) solid var(--rv-rule);

@@ -1,0 +1,35 @@
+/* The current picture and its replacement, mounted side by side. */
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rv-space-5);
+  align-items: start;
+}
+
+.pairImage {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  object-position: top center;
+  background-color: var(--rv-paper-deep);
+  border: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.pairEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rv-space-2);
+  aspect-ratio: 4 / 3;
+  border: var(--rv-border) dashed var(--rv-rule-soft);
+  text-align: center;
+  padding: var(--rv-space-4);
+}
+
+@media (max-width: 759px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

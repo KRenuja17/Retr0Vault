@@ -231,7 +231,7 @@ describe("catalogue plates", () => {
     renderView(<CatalogueView filter={{ kind: "all" }} label="Complete archive" />);
 
     const image = await screen.findByAltText("Stillpage reference capture");
-    expect(image).toHaveAttribute("src", `/api/v1/media/${STILLPAGE.id}/thumbnail`);
+    expect(image).toHaveAttribute("src", `/api/v1/media/${STILLPAGE.id}/thumbnail?v=${encodeURIComponent(STILLPAGE.updatedAt)}`);
     expect(image.getAttribute("src")).not.toContain("/original");
     expect(image.getAttribute("src")).not.toContain("thumbnails/");
   });

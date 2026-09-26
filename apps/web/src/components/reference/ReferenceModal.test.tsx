@@ -194,7 +194,7 @@ describe("reference modal", () => {
 
     const sheet = await screen.findByRole("dialog");
     const image = await within(sheet).findByAltText("Stillpage reference capture");
-    expect(image).toHaveAttribute("src", `/api/v1/media/${STILLPAGE.id}/original`);
+    expect(image).toHaveAttribute("src", `/api/v1/media/${STILLPAGE.id}/original?v=${encodeURIComponent(STILLPAGE.updatedAt)}`);
     expect(image.getAttribute("src")).not.toContain("/thumbnail");
   });
 

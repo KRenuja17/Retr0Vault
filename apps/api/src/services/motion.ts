@@ -158,6 +158,7 @@ export function motionSummaries(connection: DatabaseConnection, referenceIds: st
       readyClipCount: own.filter((clip) => clip.status === "ready").length,
       primaryClipId: primary?.id ?? null,
       durationMs: primary?.durationMs ?? null,
+      previewClipId: own.find((clip) => clip.status === "ready")?.id ?? null,
     }));
   }
   return summaries;

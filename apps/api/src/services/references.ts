@@ -300,11 +300,36 @@ export function getReference(
 export function getReferenceMediaPaths(
   connection: DatabaseConnection,
   id: string,
-): Pick<ReferenceRow, "id" | "originalPath" | "thumbnailPath"> {
-  const row = connection.database.select({ id: references.id, originalPath: references.originalPath, thumbnailPath: references.thumbnailPath })
+): Pick<ReferenceRow, "id" | "sourceType" | "originalPath" | "thumbnailPath"> {
+  const row = connection.database.select({ id: references.id, sourceType: references.sourceType, originalPath: references.originalPath, thumbnailPath: references.thumbnailPath })
     .from(references).where(eq(references.id, id)).get();
   if (row === undefined) throw new ApiError(404, "REFERENCE_NOT_FOUND", "Reference not found");
   return row;
+}
+
+/**
+ * Point a reference at the picture that replaced its old one. Everything else
+ * on the record stands; with `resetAnalysis` the reference is also filed back
+ * as pending, the same as the analysis desk's reset, so the next exported
+ * manifest carries the new picture.
+ */
+export function replaceReferenceImageRecord(
+  connection: DatabaseConnection,
+  id: string,
+  image: StoredReferenceImage,
+  resetAnalysis: boolean,
+): ReferenceResponse {
+  findReferenceRow(connection, id);
+  connection.database.update(references).set({
+    originalPath: image.originalPath,
+    thumbnailPath: image.thumbnailPath,
+    imageWidth: image.width,
+    imageHeight: image.height,
+    imageFormat: image.format,
+    ...(resetAnalysis ? { analysisStatus: "pending" as const } : {}),
+    updatedAt: new Date(),
+  }).where(eq(references.id, id)).run();
+  return getReference(connection, id);
 }
 
 export function createWebsiteReferenceRecord(

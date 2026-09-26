@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rmdir, unlink, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, realpath, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 
 import sharp, { type Metadata } from "sharp";
@@ -36,6 +36,19 @@ export interface FileCleanupResult {
   readonly warnings: string[];
 }
 
+/**
+ * A replacement image already in place on disk, with the files it displaced
+ * kept aside until the database agrees. `commit` discards the displaced files;
+ * `rollback` puts them back. Exactly one of the two must be called.
+ */
+export interface StagedImageReplacement {
+  readonly image: StoredReferenceImage;
+  commit(): Promise<FileCleanupResult>;
+  rollback(): Promise<FileCleanupResult>;
+}
+
+type ManagedKind = "original" | "thumbnail" | "capture";
+
 export interface OpenReferenceImage {
   readonly file: FileHandle;
   readonly contentType: string;
@@ -64,6 +77,8 @@ async function unlinkIfPresent(path: string): Promise<void> {
 
 export class ReferenceStorage {
   readonly #root: string;
+  /** References whose image is being swapped; a second swap waits its turn. */
+  readonly #replacing = new Set<string>();
 
   public constructor(root: string) {
     this.#root = resolve(root);
@@ -223,24 +238,7 @@ export class ReferenceStorage {
     );
 
     // Decode before creating files: header-valid but truncated images are 400s.
-    let thumbnail: Buffer;
-    try {
-      thumbnail = await sharp(buffer, {
-        failOn: "error",
-        limitInputPixels: 100_000_000,
-      })
-        .rotate()
-        .resize({
-          width: 640,
-          height: 480,
-          fit: "inside",
-          withoutEnlargement: true,
-        })
-        .webp({ quality: 82 })
-        .toBuffer();
-    } catch {
-      throw new ApiError(400, "INVALID_IMAGE", "The uploaded file is not a valid readable image");
-    }
+    const thumbnail = await this.#decodeThumbnail(buffer);
 
     const written: string[] = [];
     try {
@@ -257,6 +255,122 @@ export class ReferenceStorage {
     }
 
     return { ...metadata, originalPath, thumbnailPath };
+  }
+
+  /**
+   * Put a new picture in place of a reference's current one. An image
+   * reference keeps the uploaded bytes untouched (its extension follows the
+   * new format); a website reference takes it as its primary viewport frame,
+   * stored as PNG like every capture frame, and keeps its other frames.
+   *
+   * The new files are written beside the old ones first, the old ones are
+   * moved aside, and only then are the new ones renamed into place, so a
+   * failure at any point leaves the reference showing its previous picture.
+   */
+  public async replaceImage(
+    referenceId: string,
+    current: { readonly sourceType: "image" | "website"; readonly originalPath: string; readonly thumbnailPath: string },
+    buffer: Buffer,
+  ): Promise<StagedImageReplacement> {
+    z.uuid().parse(referenceId);
+    if (this.#replacing.has(referenceId)) {
+      throw new ApiError(409, "REFERENCE_IMAGE_BUSY", "This reference's image is already being replaced");
+    }
+    this.#replacing.add(referenceId);
+    const release = () => this.#replacing.delete(referenceId);
+
+    const staged: string[] = [];
+    const displaced: Array<{ path: string; aside: string }> = [];
+    const placed: string[] = [];
+
+    const restore = async (): Promise<FileCleanupResult> => {
+      const warnings: string[] = [];
+      for (const path of [...placed, ...staged]) {
+        await unlinkIfPresent(path).catch(() => warnings.push("replacement: a new file could not be removed"));
+      }
+      for (const { path, aside } of displaced) {
+        await rename(aside, path).catch(() => warnings.push("replacement: a previous file could not be restored"));
+      }
+      return { warnings };
+    };
+
+    try {
+      const metadata = await this.inspectImage(buffer);
+      const thumbnail = await this.#decodeThumbnail(buffer);
+      const website = current.sourceType === "website";
+      const original = website
+        ? await sharp(buffer, { failOn: "error", limitInputPixels: 100_000_000 }).rotate().png().toBuffer()
+        : buffer;
+      const image: StoredReferenceImage = {
+        width: metadata.width,
+        height: metadata.height,
+        format: website ? "png" : metadata.format,
+        originalPath: website
+          ? `captures/${referenceId}/viewport.png`
+          : `originals/${referenceId}.${originalExtensions[metadata.format]}`,
+        thumbnailPath: `thumbnails/${referenceId}.webp`,
+      };
+
+      const incoming: Array<[ManagedKind, string, Buffer]> = [
+        ["original", image.originalPath, original],
+        ["thumbnail", image.thumbnailPath, thumbnail],
+      ];
+      const targets: string[] = [];
+      for (const [kind, storedPath, bytes] of incoming) {
+        const target = this.#resolveManagedPath(referenceId, storedPath, kind);
+        await this.#safeDirectory(dirname(target), true);
+        const staging = `${target}.incoming`;
+        // A crash mid-replacement can leave one behind; it was never in use.
+        await unlinkIfPresent(staging);
+        await this.#writeExclusive(staging, bytes, () => staged.push(staging));
+        targets.push(target);
+      }
+
+      const outgoing: Array<[ManagedKind, string]> = [
+        ["original", current.originalPath],
+        ["thumbnail", current.thumbnailPath],
+      ];
+      for (const [kind, storedPath] of outgoing) {
+        const path = this.#resolveManagedPath(referenceId, storedPath, kind);
+        await this.#safeDirectory(dirname(path), false);
+        const aside = `${path}.previous`;
+        await unlinkIfPresent(aside);
+        try {
+          await rename(path, aside);
+          displaced.push({ path, aside });
+        } catch (error) {
+          // A picture that is already missing is exactly what is being replaced.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+
+      for (const [index, target] of targets.entries()) {
+        await rename(staged[index]!, target);
+        placed.push(target);
+      }
+      staged.length = 0;
+
+      return {
+        image,
+        commit: async () => {
+          const warnings: string[] = [];
+          for (const { aside } of displaced) {
+            await unlinkIfPresent(aside).catch(() => warnings.push("replacement: a previous file could not be removed"));
+          }
+          release();
+          return { warnings };
+        },
+        rollback: async () => {
+          const result = await restore();
+          release();
+          return result;
+        },
+      };
+    } catch (error) {
+      await restore();
+      release();
+      throw error;
+    }
   }
 
   public async deleteReferenceFiles(
@@ -304,10 +418,30 @@ export class ReferenceStorage {
     );
   }
 
+  async #decodeThumbnail(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await sharp(buffer, {
+        failOn: "error",
+        limitInputPixels: 100_000_000,
+      })
+        .rotate()
+        .resize({
+          width: 640,
+          height: 480,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      throw new ApiError(400, "INVALID_IMAGE", "The uploaded file is not a valid readable image");
+    }
+  }
+
   #resolveManagedPath(
     referenceId: string,
     storedPath: string,
-    kind: "original" | "thumbnail" | "capture",
+    kind: ManagedKind,
   ): string {
     z.uuid().parse(referenceId);
     if (isAbsolute(storedPath) || storedPath.includes("\\")) {

@@ -39,6 +39,8 @@ export async function createTestApp(
     databasePath,
     storageRoot,
     logger: false,
+    // Tests talk to the app in process and never listen.
+    motionQueueStart: "ready",
     ...(options.captureService === undefined ? {} : { captureService: options.captureService }),
     ...(options.motionTools === undefined ? {} : { motionTools: options.motionTools }),
     ...(options.motionProcessor === undefined ? {} : { motionProcessor: options.motionProcessor }),

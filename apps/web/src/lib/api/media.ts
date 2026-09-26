@@ -10,17 +10,26 @@ import { API_BASE_URL } from "./client";
  * `crossOrigin` on the element.
  */
 
+/**
+ * `version` is the reference's `updatedAt`. The URL stays the same when a
+ * picture is replaced, so without it a browser would keep painting the old
+ * image it already decoded; with it, a new picture is a new URL.
+ */
+function versioned(url: string, version: string | undefined): string {
+  return version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`;
+}
+
 /** WebP thumbnail. The only image the catalogue grid is allowed to request. */
-export function referenceThumbnailUrl(referenceId: string): string {
-  return `${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/thumbnail`;
+export function referenceThumbnailUrl(referenceId: string, version?: string): string {
+  return versioned(`${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/thumbnail`, version);
 }
 
 /**
  * Full-size original (JPEG/PNG/WebP); for website captures this is the primary
  * viewport frame. Detail views only — never the catalogue grid.
  */
-export function referenceOriginalUrl(referenceId: string): string {
-  return `${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/original`;
+export function referenceOriginalUrl(referenceId: string, version?: string): string {
+  return versioned(`${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/original`, version);
 }
 
 export type MotionMediaKind = "clip" | "preview" | "poster" | "energy" | "regions" | "contact-sheet";

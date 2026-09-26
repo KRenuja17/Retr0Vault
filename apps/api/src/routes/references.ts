@@ -7,6 +7,7 @@ import {
   createImageReferenceFieldsSchema,
   createWebsiteReferenceSchema,
   referenceListQuerySchema,
+  replaceReferenceImageFieldsSchema,
   updateReferenceSchema,
 } from "@retr0vault/shared";
 
@@ -18,7 +19,9 @@ import {
   createWebsiteReferenceRecord,
   deleteReferenceRecord,
   getReference,
+  getReferenceMediaPaths,
   listReferences,
+  replaceReferenceImageRecord,
   updateReference,
 } from "../services/references.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
@@ -148,6 +151,33 @@ export async function registerReferenceRoutes(
       }
       throw error;
     }
+  });
+
+  // A new picture for a reference already filed: the record, its analysis and
+  // its motion study stay; only the image and its thumbnail change.
+  app.put("/api/v1/references/:id/image", async (request) => {
+    const { id } = parseRequest(idParametersSchema, request.params);
+    parseRequest(z.object({}).strict(), request.query);
+    const current = getReferenceMediaPaths(connection, id);
+    const { fields, buffer } = await readImageMultipart(request);
+    const input = parseRequest(replaceReferenceImageFieldsSchema, fields);
+    const replacement = await storage.replaceImage(id, current, buffer);
+
+    let reference;
+    try {
+      reference = replaceReferenceImageRecord(connection, id, replacement.image, input.resetAnalysis);
+    } catch (error) {
+      const restored = await replacement.rollback();
+      if (restored.warnings.length > 0) {
+        request.log.warn({ referenceId: id, warnings: restored.warnings }, "Image replacement rolled back with warnings");
+      }
+      throw error;
+    }
+    const cleanup = await replacement.commit();
+    if (cleanup.warnings.length > 0) {
+      request.log.warn({ referenceId: id, warnings: cleanup.warnings }, "Image replaced with file cleanup warnings");
+    }
+    return reference;
   });
 
   app.get("/api/v1/references", async (request) => {

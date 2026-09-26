@@ -13,8 +13,10 @@ import {
   fetchReferences,
   importAnalyses,
   patchReference,
+  replaceReferenceImage,
   resetAnalysis,
   type CreateImageReferenceInput,
+  type ReplaceReferenceImageInput,
   type CreateWebsiteReferenceRequest,
 } from "@/lib/api/endpoints";
 import { queryKeys, REFERENCES_KEY_PREFIX } from "@/lib/api/queryKeys";
@@ -78,6 +80,15 @@ export function useWebsiteAccession() {
 
   return useMutation<ReferenceResponse, unknown, CreateWebsiteReferenceRequest>({
     mutationFn: (input) => createWebsiteReference(input),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useImageReplacement() {
+  const invalidate = useArchiveInvalidation();
+
+  return useMutation<ReferenceResponse, unknown, ReplaceReferenceImageInput>({
+    mutationFn: (input) => replaceReferenceImage(input),
     onSuccess: () => invalidate(),
   });
 }

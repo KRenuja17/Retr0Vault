@@ -185,6 +185,26 @@ export function createImageReference(
   });
 }
 
+export interface ReplaceReferenceImageInput {
+  readonly referenceId: string;
+  readonly file: File;
+  /** File the reference back as pending, so its analysis is redone. */
+  readonly resetAnalysis: boolean;
+}
+
+/** A new picture for a reference already filed; nothing else on it changes. */
+export function replaceReferenceImage(
+  input: ReplaceReferenceImageInput,
+): Promise<ReferenceResponse> {
+  const form = new FormData();
+  form.append("resetAnalysis", String(input.resetAnalysis));
+  form.append("file", input.file, input.file.name);
+  return apiRequest<ReferenceResponse>(
+    `/references/${encodeURIComponent(input.referenceId)}/image`,
+    { method: "PUT", body: form },
+  );
+}
+
 export interface CreateWebsiteReferenceRequest {
   readonly url: string;
   readonly title?: string | undefined;

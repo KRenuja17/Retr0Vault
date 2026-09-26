@@ -7,6 +7,7 @@ import { cx } from "@/lib/cx";
 import { timecode } from "@/lib/motion/format";
 import { playback, safePlay } from "@/lib/motion/playback";
 import { useReducedMotion, useScrubMode } from "@/lib/motion/preferences";
+import { NEAR_VIEWPORT_MARGIN, useInView } from "@/lib/motion/viewport";
 
 import styles from "./MotionPlate.module.css";
 
@@ -25,24 +26,6 @@ export interface MotionPlateProps {
   readonly explicitPlay?: boolean;
 }
 
-/** How far outside the viewport a plate attaches its video source: half a screen each way keeps a 3-column grid to about a dozen sources. */
-const NEAR_VIEWPORT_MARGIN = "50% 0px";
-
-function useNearViewport<T extends Element>(): [React.RefObject<T | null>, boolean] {
-  const ref = useRef<T>(null);
-  const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null || typeof IntersectionObserver === "undefined") return undefined;
-    const observer = new IntersectionObserver(
-      (entries) => setNear(entries.some((entry) => entry.isIntersecting)),
-      { rootMargin: NEAR_VIEWPORT_MARGIN },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, near];
-}
 
 /**
  * A catalogue plate that moves. At rest it is the poster; hovered or focused it
@@ -55,7 +38,7 @@ function useNearViewport<T extends Element>(): [React.RefObject<T | null>, boole
  * holds more than a handful of decoders.
  */
 export function MotionPlate({ clipId, status, durationMs, keyframeCount, title, active, explicitPlay = false }: MotionPlateProps) {
-  const [frameRef, near] = useNearViewport<HTMLDivElement>();
+  const [frameRef, near] = useInView<HTMLDivElement>({ rootMargin: NEAR_VIEWPORT_MARGIN });
   const video = useRef<HTMLVideoElement>(null);
   const reduced = useReducedMotion();
   const [scrub] = useScrubMode();

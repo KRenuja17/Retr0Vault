@@ -21,7 +21,7 @@ import type { CatalogueFilter } from "@/lib/catalogue/filters";
 import { consumePlateFocus } from "@/lib/catalogue/plateFocus";
 import { cx } from "@/lib/cx";
 
-import { ReferenceThumbnail } from "./ReferenceThumbnail";
+import { ReferencePreview } from "./ReferencePreview";
 import styles from "./ReferenceCard.module.css";
 
 /** How many vocabulary terms a plate prints before the `+N` tail. */
@@ -121,11 +121,7 @@ export function ReferenceCard({
           tabIndex={-1}
           aria-hidden="true"
         >
-          <ReferenceThumbnail
-            referenceId={reference.id}
-            title={reference.title}
-            eager={eager}
-          />
+          <ReferencePreview reference={reference} eager={eager} />
         </Link>
         {/*
           * Marginalia for a reference that also has recordings. It names the
