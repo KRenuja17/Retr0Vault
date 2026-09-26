@@ -14,7 +14,7 @@ Limits: 60 seconds, 3840 × 2160, 300 MB per recording, 4 recordings per referen
 
 ## Before you record
 
-1. Browser window at **1440 × 900** or **1920 × 1080**, zoom **100%**.
+1. Browser window at **1440 × 900** or **1920 × 1080**, zoom **100%**. Catalogue and motion plates are 16:9, so a 1920 × 1080 recording fills them exactly; a 1440 × 900 one is cropped from the top and loses a strip at the bottom, never its sides.
 2. Hide the bookmarks bar and disable extensions that draw on the page.
 3. **Dismiss cookie and consent banners first.** They sit in every frame otherwise.
 4. Load the page once and let it settle, then reload for the take if you want the intro.
