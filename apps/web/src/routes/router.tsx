@@ -25,7 +25,11 @@ export const routes: readonly RouteObject[] = [
     path: "/",
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/all" replace /> },
+      /*
+       * The front door. `/` lands on the catalogue with the vault shut over
+       * it; `/all` and every other link go straight in.
+       */
+      { index: true, element: <Navigate to="/all" replace state={{ vault: true }} /> },
       { path: "all", element: <AllRoute /> },
       { path: "type/:slug", element: <DesignTypeRoute /> },
       { path: "collections", element: <CollectionIndex /> },

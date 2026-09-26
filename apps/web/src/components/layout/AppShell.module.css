@@ -83,6 +83,21 @@
   flex-wrap: wrap;
 }
 
+.footerEnd {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--rv-space-5);
+}
+
+.frontDoor {
+  border-bottom: var(--rv-border) solid var(--rv-rule-soft);
+}
+
+.frontDoor:hover {
+  text-decoration: none;
+  border-bottom-color: var(--rv-ink);
+}
+
 /* --- connection status ------------------------------------------------- */
 .status {
   display: inline-flex;

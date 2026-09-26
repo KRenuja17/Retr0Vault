@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
-import { Link, Outlet } from "react-router-dom";
+import { useCallback, type ReactNode } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { ReactiveGridBackground } from "@/components/environment/ReactiveGridBackground";
 import { ActionLink, MonoLabel, PageRule } from "@/components/primitives";
 import { SelectionProvider } from "@/lib/selection/SelectionProvider";
+import { VaultLanding } from "@/components/vault/VaultLanding";
 
 import { ConnectionStatus } from "./ConnectionStatus";
 import styles from "./AppShell.module.css";
@@ -22,11 +23,25 @@ export interface AppShellProps {
  * layer survives navigation and is never rebuilt mid-session.
  */
 export function AppShell({ navigation, children }: AppShellProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  /*
+   * The front door: arriving at `/` lands on the catalogue with the vault shut
+   * over it. The catalogue renders underneath all along, so opening the doors
+   * reveals the real plates; until then it is inert.
+   */
+  const sealed = (location.state as { vault?: unknown } | null)?.vault === true;
+  const openVault = useCallback(() => {
+    void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, navigate]);
+
   return (
     <SelectionProvider>
       <ReactiveGridBackground />
 
-      <div className={styles.shell}>
+      {sealed ? <VaultLanding onDone={openVault} /> : null}
+
+      <div className={styles.shell} inert={sealed}>
         <a className="rv-skip-link" href="#catalogue">
           Skip to catalogue
         </a>
@@ -93,9 +108,16 @@ export function AppShell({ navigation, children }: AppShellProps) {
               <MonoLabel size="micro" tone="muted" uppercase>
                 Retr0Vault V1 · web 4610 · api 4611
               </MonoLabel>
-              <MonoLabel size="micro" tone="muted" uppercase>
-                No cloud · no AI keys
-              </MonoLabel>
+              <span className={styles.footerEnd}>
+                <MonoLabel size="micro" tone="muted" uppercase>
+                  No cloud · no AI keys
+                </MonoLabel>
+                <Link to="/" className={styles.frontDoor}>
+                  <MonoLabel size="micro" tone="muted" uppercase>
+                    Front door
+                  </MonoLabel>
+                </Link>
+              </span>
             </div>
           </div>
         </footer>
