@@ -26,7 +26,8 @@
 }
 
 .ghostMedia {
-  aspect-ratio: 8 / 5;
+  /* Matches CatalogueCard's media, so the grid does not jump as plates load. */
+  aspect-ratio: 16 / 9;
   border-bottom: var(--rv-border) solid var(--rv-rule-soft);
   background-color: var(--rv-surface-sunken);
   background-image: var(--rv-paper-grain);
