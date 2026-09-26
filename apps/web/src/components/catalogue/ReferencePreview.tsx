@@ -28,7 +28,7 @@ export function ReferencePreview({ reference, eager = false }: ReferencePreviewP
 
   return (
     <>
-      <ReferenceThumbnail referenceId={reference.id} title={reference.title} eager={eager} />
+      <ReferenceThumbnail referenceId={reference.id} title={reference.title} eager={eager} version={reference.updatedAt} />
       {clipId === null || reduced ? null : <LoopingClip clipId={clipId} title={reference.title} />}
     </>
   );

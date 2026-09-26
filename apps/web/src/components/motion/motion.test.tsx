@@ -305,7 +305,7 @@ describe("catalogue plates with motion", () => {
     expect(video.muted).toBe(true);
     await waitFor(() => expect(play).toHaveBeenCalled());
     // The screenshot stays underneath until the clip is really playing.
-    expect(lando!.querySelector("img")).toHaveAttribute("src", `/api/v1/media/${REFERENCE_ID}/thumbnail`);
+    expect(lando!.querySelector("img")).toHaveAttribute("src", `/api/v1/media/${REFERENCE_ID}/thumbnail?v=${encodeURIComponent(withClip.updatedAt)}`);
     expect(video.className).not.toMatch(/clipPlaying/u);
     fireEvent(video, new Event("playing"));
     expect(video.className).toMatch(/clipPlaying/u);

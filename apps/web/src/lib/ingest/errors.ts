@@ -18,7 +18,8 @@ export type IngestSubject =
   | "update"
   | "reset"
   | "read"
-  | "recording";
+  | "recording"
+  | "replace";
 
 const HEADLINES: Record<IngestSubject, string> = {
   upload: "That plate was not filed",
@@ -28,6 +29,7 @@ const HEADLINES: Record<IngestSubject, string> = {
   reset: "That reference was not reset",
   read: "The archive could not be read",
   recording: "That recording was not filed",
+  replace: "That picture was not replaced",
 };
 
 /** Subjects that change the archive, and can therefore leave nothing behind. */
@@ -38,6 +40,7 @@ const WRITES: ReadonlySet<IngestSubject> = new Set<IngestSubject>([
   "update",
   "reset",
   "recording",
+  "replace",
 ]);
 
 /*
@@ -58,6 +61,8 @@ const HINTS: Record<string, string> = {
   DESIGN_TYPE_NOT_FOUND:
     "The design type has been removed since this page loaded. Reload and pick another.",
   DATABASE_BUSY: "Another Retr0Vault process is writing. Try again in a moment.",
+  REFERENCE_IMAGE_BUSY:
+    "This reference's picture is already being replaced. Wait for that to finish and try again.",
   MOTION_TOOLS_UNAVAILABLE:
     "Run npm approve-scripts ffmpeg-static and npm rebuild ffmpeg-static, or set FFMPEG_PATH and FFPROBE_PATH, then restart the API.",
   MOTION_CLIP_LIMIT:

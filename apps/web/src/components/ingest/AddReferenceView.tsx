@@ -6,6 +6,7 @@ import { MotionDesk } from "@/components/motion/MotionDesk";
 
 import { AnalysisDesk } from "./AnalysisDesk";
 import { ImageAccession } from "./ImageAccession";
+import { ImageReplacement } from "./ImageReplacement";
 import { WebsiteAccession } from "./WebsiteAccession";
 import styles from "./Ingest.module.css";
 
@@ -50,9 +51,12 @@ export function AddReferenceView() {
       </div>
 
       {/*
-        * Recordings attach to a reference already in the archive, so the
-        * motion lane follows the two that create references.
+        * Replacements and recordings both work on a reference already in the
+        * archive, so they follow the two lanes that create references.
         */}
+      <PageRule weight="hairline" />
+      <ImageReplacement />
+
       <PageRule weight="hairline" />
       <MotionAccession />
 

@@ -8,7 +8,9 @@ import { getReferenceMediaPaths } from "../services/references.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
 
 const parametersSchema = z.object({ referenceId: z.uuid().toLowerCase() }).strict();
-const querySchema = z.object({}).strict();
+// `v` is the reference's updatedAt, sent by the web app so a replaced picture is
+// fetched afresh rather than reused from the browser's in-memory image cache.
+const querySchema = z.object({ v: z.string().max(64).optional() }).strict();
 
 function matchesEtag(header: string | undefined, etag: string): boolean {
   if (header === undefined) return false;

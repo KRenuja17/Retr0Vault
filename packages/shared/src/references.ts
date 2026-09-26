@@ -51,6 +51,24 @@ export type CreateImageReferenceFields = z.infer<
   typeof createImageReferenceFieldsSchema
 >;
 
+/**
+ * Multipart fields sent beside a replacement image. The design analysis was
+ * written about the old picture, so the curator may file the reference back
+ * into the pending manifest in the same step; left out, the analysis stands.
+ */
+export const replaceReferenceImageFieldsSchema = z
+  .object({
+    resetAnalysis: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((value) => value === "true"),
+  })
+  .strict();
+
+export type ReplaceReferenceImageFields = z.infer<
+  typeof replaceReferenceImageFieldsSchema
+>;
+
 export const referenceTagInputSchema = z
   .object({
     type: z.string().trim().min(1).max(50),

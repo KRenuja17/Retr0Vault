@@ -10,6 +10,8 @@ export interface ReferenceThumbnailProps {
   readonly referenceId: string;
   readonly title: string;
   readonly eager?: boolean;
+  /** The reference's `updatedAt`: a replaced picture gets a fresh URL. */
+  readonly version?: string;
 }
 
 type ThumbnailState = "loading" | "ready" | "failed";
@@ -26,6 +28,7 @@ export function ReferenceThumbnail({
   referenceId,
   title,
   eager = false,
+  version,
 }: ReferenceThumbnailProps) {
   const [state, setState] = useState<ThumbnailState>("loading");
 
@@ -33,7 +36,7 @@ export function ReferenceThumbnail({
     <div className={styles.frame}>
       <img
         className={cx(styles.image, state === "ready" && styles.imageReady)}
-        src={referenceThumbnailUrl(referenceId)}
+        src={referenceThumbnailUrl(referenceId, version)}
         alt={`${title} reference capture`}
         loading={eager ? "eager" : "lazy"}
         decoding="async"

@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import type { ReferenceResponse } from "@retr0vault/shared";
 
 import { ActionButton, ActionLink, EditorialHeading, MonoLabel } from "@/components/primitives";
-import { fetchReference, fetchReferences } from "@/lib/api/endpoints";
+import { fetchReference } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
 import { describeIngestFailure } from "@/lib/ingest/errors";
@@ -13,6 +13,7 @@ import { timecode } from "@/lib/motion/format";
 import { useMotionStudy, useMotionStudyUpdate, useMotionUpload } from "@/lib/motion/useMotion";
 
 import { TextAreaField, TextField } from "@/components/ingest/Field";
+import { ReferencePicker } from "@/components/ingest/ReferencePicker";
 import ingest from "@/components/ingest/Ingest.module.css";
 import styles from "./MotionAccession.module.css";
 
@@ -26,77 +27,6 @@ export function validateRecordingFile(file: File): string | null {
   if (file.size > MAX_RECORDING_BYTES) return `Recordings are limited to ${formatBytes(MAX_RECORDING_BYTES)}; that file is ${formatBytes(file.size)}.`;
   const looksLikeVideo = file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|m4v)$/iu.test(file.name);
   return looksLikeVideo ? null : "Choose a screen recording: MP4, MOV, WebM or MKV.";
-}
-
-function ReferencePicker({ selected, onSelect }: {
-  readonly selected: ReferenceResponse | null;
-  readonly onSelect: (reference: ReferenceResponse | null) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [submitted, setSubmitted] = useState("");
-  const inputId = useId();
-  const results = useQuery({
-    queryKey: ["references", "motion-picker", submitted],
-    queryFn: ({ signal }) => fetchReferences({ limit: 8, sort: submitted ? "relevance" : "newest", ...(submitted ? { q: submitted } : {}) }, signal),
-    enabled: selected === null,
-  });
-
-  if (selected !== null) {
-    return (
-      <div className={styles.chosen}>
-        <MonoLabel size="micro" tone="muted" uppercase>Recording for</MonoLabel>
-        <p className={styles.chosenTitle}>{selected.title}</p>
-        <MonoLabel size="micro" tone="muted">
-          {[selected.sourceUrl, selected.motion ? `${selected.motion.clipCount} of 4 recordings` : "no recordings yet"].filter(Boolean).join(" · ")}
-        </MonoLabel>
-        <ActionButton variant="quiet" size="small" onClick={() => onSelect(null)}>Choose another reference</ActionButton>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.picker}>
-      <div className={styles.pickerSearch}>
-        <label htmlFor={inputId} className="rv-visually-hidden">Find the reference to attach the recording to</label>
-        <input
-          id={inputId}
-          className={cx(ingest.control, ingest.controlMono)}
-          type="search"
-          value={query}
-          placeholder="Find a reference: title, DNA, source…"
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              setSubmitted(query.trim());
-            }
-          }}
-        />
-        <ActionButton variant="outline" size="small" onClick={() => setSubmitted(query.trim())}>Find</ActionButton>
-      </div>
-      {results.isPending ? (
-        <MonoLabel size="micro" tone="muted" uppercase>Reading the archive</MonoLabel>
-      ) : results.isError ? (
-        <MonoLabel size="small" className={ingest.fieldError}>{describeIngestFailure(results.error, "read").detail}</MonoLabel>
-      ) : results.data.items.length === 0 ? (
-        <MonoLabel size="small" tone="muted">No reference matches. Capture the site first, then attach its recording.</MonoLabel>
-      ) : (
-        <ul className={styles.pickerList} aria-label="References">
-          {results.data.items.map((reference) => (
-            <li key={reference.id}>
-              <button type="button" className={styles.pickerItem} onClick={() => onSelect(reference)}>
-                <span className={styles.pickerTitle}>{reference.title}</span>
-                <MonoLabel size="micro" tone="muted">
-                  {reference.motion ? `◉ ${reference.motion.clipCount} recording${reference.motion.clipCount === 1 ? "" : "s"}` : reference.sourceUrl ?? reference.sourceType}
-                </MonoLabel>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <ActionLink variant="quiet" size="small" to="/add#website">Capture website first</ActionLink>
-    </div>
-  );
 }
 
 /** Live processing status of the recording that was just filed. */
@@ -250,7 +180,17 @@ export function MotionAccession() {
       </header>
 
       <form className={ingest.form} onSubmit={onSubmit} noValidate>
-        <ReferencePicker selected={reference} onSelect={(next) => { setReference(next); setFiled(null); }} />
+        <ReferencePicker
+          lane="motion"
+          selected={reference}
+          onSelect={(next) => { setReference(next); setFiled(null); }}
+          chosenLabel="Recording for"
+          searchLabel="Find the reference to attach the recording to"
+          describeChosen={(chosen) => [chosen.sourceUrl, chosen.motion ? `${chosen.motion.clipCount} of 4 recordings` : "no recordings yet"].filter(Boolean).join(" · ")}
+          describeItem={(item) => item.motion ? `◉ ${item.motion.clipCount} recording${item.motion.clipCount === 1 ? "" : "s"}` : item.sourceUrl ?? item.sourceType}
+          empty="No reference matches. Capture the site first, then attach its recording."
+          footer={<ActionLink variant="quiet" size="small" to="/add#website">Capture website first</ActionLink>}
+        />
 
         <div role="group" aria-label="Recording" className={ingest.specimen}>
           {file === null ? (
