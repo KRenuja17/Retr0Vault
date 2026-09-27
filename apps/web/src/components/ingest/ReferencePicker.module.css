@@ -61,3 +61,17 @@
   font-size: var(--rv-text-lg);
   color: var(--rv-ink);
 }
+
+/* Every reference at once: the list scrolls rather than lengthening the lane. */
+.pickerListAll {
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.pickerCount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rv-space-3);
+  flex-wrap: wrap;
+}

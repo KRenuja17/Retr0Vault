@@ -27,10 +27,15 @@ export interface ReferencePickerProps {
   readonly footer?: ReactNode;
 }
 
+/** The first look is short; "Show all" asks for the most one page can hold. */
+const PREVIEW_LIMIT = 8;
+const ALL_LIMIT = 100;
+
 /**
  * Choose a reference already in the archive: the newest eight until a search
- * is run, then the best matches. Once one is chosen it is printed like a
- * ledger entry, with a way to choose again.
+ * is run, then the best matches, with a count of how many there are and a way
+ * to list them all. Once one is chosen it is printed like a ledger entry, with
+ * a way to choose again.
  */
 export function ReferencePicker({
   selected,
@@ -45,12 +50,19 @@ export function ReferencePicker({
 }: ReferencePickerProps) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const inputId = useId();
+  const limit = showAll ? ALL_LIMIT : PREVIEW_LIMIT;
   const results = useQuery({
-    queryKey: ["references", `${lane}-picker`, submitted],
-    queryFn: ({ signal }) => fetchReferences({ limit: 8, sort: submitted ? "relevance" : "newest", ...(submitted ? { q: submitted } : {}) }, signal),
+    queryKey: ["references", `${lane}-picker`, submitted, limit],
+    queryFn: ({ signal }) => fetchReferences({ limit, sort: submitted ? "relevance" : "newest", ...(submitted ? { q: submitted } : {}) }, signal),
     enabled: selected === null,
   });
+
+  function search() {
+    setSubmitted(query.trim());
+    setShowAll(false);
+  }
 
   if (selected !== null) {
     return (
@@ -77,11 +89,11 @@ export function ReferencePicker({
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              setSubmitted(query.trim());
+              search();
             }
           }}
         />
-        <ActionButton variant="outline" size="small" onClick={() => setSubmitted(query.trim())}>Find</ActionButton>
+        <ActionButton variant="outline" size="small" onClick={search}>Find</ActionButton>
       </div>
       {results.isPending ? (
         <MonoLabel size="micro" tone="muted" uppercase>Reading the archive</MonoLabel>
@@ -90,7 +102,7 @@ export function ReferencePicker({
       ) : results.data.items.length === 0 ? (
         <MonoLabel size="small" tone="muted">{empty}</MonoLabel>
       ) : (
-        <ul className={styles.pickerList} aria-label="References">
+        <ul className={cx(styles.pickerList, showAll && styles.pickerListAll)} aria-label="References">
           {results.data.items.map((reference) => (
             <li key={reference.id}>
               <button type="button" className={styles.pickerItem} onClick={() => onSelect(reference)}>
@@ -101,7 +113,27 @@ export function ReferencePicker({
           ))}
         </ul>
       )}
+      {results.data !== undefined && results.data.items.length > 0 ? (
+        <div className={styles.pickerCount}>
+          <MonoLabel size="micro" tone="muted" uppercase role="status">
+            {countLine(results.data.items.length, results.data.total, submitted !== "")}
+          </MonoLabel>
+          {results.data.total > results.data.items.length && !showAll ? (
+            <ActionButton variant="quiet" size="small" onClick={() => setShowAll(true)}>
+              {submitted ? "Show all matches" : "Show all"}
+            </ActionButton>
+          ) : showAll && results.data.total > PREVIEW_LIMIT ? (
+            <ActionButton variant="quiet" size="small" onClick={() => setShowAll(false)}>Show fewer</ActionButton>
+          ) : null}
+        </div>
+      ) : null}
       {footer}
     </div>
   );
+}
+
+/** What the list holds, so a short list is never mistaken for the whole archive. */
+function countLine(shown: number, total: number, searching: boolean): string {
+  if (shown >= total) return searching ? `${total} ${total === 1 ? "match" : "matches"}` : `Showing all ${total}`;
+  return searching ? `Showing ${shown} of ${total} matches` : `Showing the ${shown} newest of ${total}`;
 }

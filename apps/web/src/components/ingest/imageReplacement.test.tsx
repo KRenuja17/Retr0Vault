@@ -135,3 +135,51 @@ describe("replacing a reference's picture", () => {
     expect(alert).toHaveTextContent("INVALID_IMAGE");
   });
 });
+
+describe("finding a reference in a larger archive", () => {
+  // Eleven plates: the picker's first look holds the eight newest.
+  const archive = Array.from({ length: 11 }, (_, index) => makeStoredReference({
+    id: `bbbbbbbb-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    title: `Plate ${index + 1}`,
+  }));
+
+  function stubArchive() {
+    return stubApi([{
+      path: /^\/references$/u,
+      handler: (request) => {
+        const q = request.search.get("q");
+        const matching = q ? archive.filter((reference) => reference.title.includes(q)) : archive;
+        const limit = Number(request.search.get("limit"));
+        return referencePage(matching.slice(0, limit), { total: matching.length, limit });
+      },
+    }]);
+  }
+
+  it("says the first list is partial, and shows every reference on request", async () => {
+    const api = stubArchive();
+    renderIngest(<ImageReplacement />);
+
+    expect(await screen.findByText("Showing the 8 newest of 11")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Plate \d+/u })).toHaveLength(8);
+    expect(screen.queryByRole("button", { name: /^Plate 11/u })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(await screen.findByText("Showing all 11")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Plate 11/u })).toBeInTheDocument();
+    expect(api.requests.some((request) => request.search.get("limit") === "100")).toBe(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(await screen.findByText("Showing the 8 newest of 11")).toBeInTheDocument();
+  });
+
+  it("counts search matches, and says nothing is hidden when the list is complete", async () => {
+    stubArchive();
+    renderIngest(<ImageReplacement />);
+    await screen.findByText("Showing the 8 newest of 11");
+
+    await userEvent.type(screen.getByRole("searchbox"), "Plate 1{Enter}");
+    // Plate 1, 10 and 11.
+    expect(await screen.findByText("3 matches")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
+  });
+});
