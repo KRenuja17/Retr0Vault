@@ -1,0 +1,144 @@
+/*
+ * The front door's dial, small: the accent ring with its one notch, and the
+ * index that appears above it when it can be turned.
+ */
+
+.sleep {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sleep:disabled {
+  cursor: default;
+}
+
+.sleep:focus-visible {
+  outline: var(--rv-focus-ring);
+  outline-offset: 3px;
+}
+
+.dial {
+  display: inline-block;
+  flex: none;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.face {
+  transform-origin: 100px 100px;
+  transform-box: view-box;
+  transition: transform 420ms cubic-bezier(0.2, 0, 0.1, 1);
+}
+
+.ring {
+  fill: none;
+  stroke: var(--rv-accent);
+  stroke-width: 22;
+}
+
+.notch {
+  fill: var(--rv-paper);
+}
+
+.index {
+  fill: var(--rv-ink);
+  opacity: 0;
+  transform: translateY(-14px);
+  transition:
+    opacity 180ms linear,
+    transform 220ms var(--rv-easing-out);
+}
+
+/* Turned back to zero: the doors follow. */
+.turning .face {
+  animation: sleep-spin 560ms cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.turning .index,
+.sleep:not(:disabled):hover .index,
+.sleep:focus-visible .index {
+  opacity: 1;
+  transform: none;
+}
+
+.sleep:not(:disabled):hover .face,
+.sleep:focus-visible .face {
+  transform: rotate(-24deg);
+}
+
+/* --- the accent 0 of a wordmark --------------------------------------------- */
+.mark .dial {
+  width: 0.86em;
+  height: 0.86em;
+  /* The ring's foot, not the box's, sits on the baseline, like the 0 it replaces. */
+  margin: 0 0.01em -0.12em;
+}
+
+.caption {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  font-family: var(--rv-font-mono);
+  font-size: 0.625rem;
+  letter-spacing: var(--rv-tracking-mono-wide);
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--rv-ink-muted);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -3px);
+  transition:
+    opacity 180ms linear,
+    transform 220ms var(--rv-easing-out);
+}
+
+.sleep:not(:disabled):hover .caption,
+.sleep:focus-visible .caption,
+.turning .caption {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* --- leading a label, in the marginalia ------------------------------------- */
+.link {
+  gap: 0.6em;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  color: var(--rv-ink-muted);
+}
+
+.link .dial {
+  width: 1.7em;
+  height: 1.7em;
+}
+
+.link .label {
+  border-bottom: var(--rv-border) solid currentColor;
+}
+
+.link:not(:disabled):hover,
+.link:focus-visible,
+.link.turning {
+  color: var(--rv-ink);
+}
+
+@keyframes sleep-spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}

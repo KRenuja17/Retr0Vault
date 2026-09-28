@@ -5,10 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ReactiveGridBackground } from "@/components/environment/ReactiveGridBackground";
 import { ActionButton, ActionLink, MonoLabel, PageRule } from "@/components/primitives";
 import { LoginScene, lockedLoginView } from "@/components/vault/LoginScene";
+import { SleepDial } from "@/components/vault/SleepDial";
 import { useDoors } from "@/components/vault/VaultDoors";
 import { signOut } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
-import { useSession } from "@/lib/auth/session";
+import { forgetAccountQueries, useSession } from "@/lib/auth/session";
 import { SelectionProvider } from "@/lib/selection/SelectionProvider";
 
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -46,7 +47,7 @@ function useLockVault() {
     // One update: the session is forgotten as the strong room takes the page.
     client.setQueryData(queryKeys.session(), null);
     void navigate("/login", { replace: true, state: { arrived: "doors" } });
-    client.removeQueries({ predicate: (query) => !["session", "showcase", "health"].includes(String(query.queryKey[0])) });
+    forgetAccountQueries(client);
     await new Promise((resolve) => setTimeout(resolve, 120));
     doors.dismiss();
   }
@@ -70,14 +71,18 @@ export function AppShell({ navigation, children }: AppShellProps) {
         <header className={styles.masthead}>
           <div className={styles.container}>
             <div className={styles.mastheadInner}>
-              <Link to="/all" className={styles.wordmark}>
-                {/*
-                  * The accent `0` is a separate element, which otherwise makes
-                  * the accessible name read "Retr 0 Vault". aria-label restores
-                  * it.
-                  */}
-                <span className={styles.wordmarkText} aria-label="Retr0Vault">
-                  Retr<span className={styles.wordmarkMark}>0</span>Vault
+              {/*
+                * The accent `0` is the front door's dial, small, and turning it
+                * puts the vault to sleep, so it sits between the two halves of
+                * the link rather than inside it. The first half carries the
+                * whole name for assistive technology; the second is the same
+                * link again, for the pointer only.
+                */}
+              <span className={styles.wordmark}>
+                <span className={styles.wordmarkText}>
+                  <Link to="/all" className={styles.wordmarkLink} aria-label="Retr0Vault">Retr</Link>
+                  <SleepDial variant="mark" />
+                  <Link to="/all" className={styles.wordmarkLink} tabIndex={-1} aria-hidden="true">Vault</Link>
                 </span>
                 <MonoLabel
                   size="small"
@@ -87,7 +92,7 @@ export function AppShell({ navigation, children }: AppShellProps) {
                 >
                   Visual archive
                 </MonoLabel>
-              </Link>
+              </span>
 
               <div className={styles.mastheadMeta}>
                 <MonoLabel size="small" tone="muted" uppercase>
@@ -142,11 +147,7 @@ export function AppShell({ navigation, children }: AppShellProps) {
                 <MonoLabel size="micro" tone="muted" uppercase>
                   No cloud · no AI keys
                 </MonoLabel>
-                <Link to="/" className={styles.frontDoor}>
-                  <MonoLabel size="micro" tone="muted" uppercase>
-                    Front door
-                  </MonoLabel>
-                </Link>
+                <SleepDial variant="link" label="Front door" className={styles.frontDoor} />
               </span>
             </div>
           </div>

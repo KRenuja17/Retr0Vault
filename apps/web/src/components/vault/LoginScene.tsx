@@ -2,6 +2,8 @@ import { useId, useMemo, type CSSProperties, type FormEvent, type ReactNode, typ
 
 import { cx } from "@/lib/cx";
 
+import { SleepDial } from "./SleepDial";
+
 import styles from "./LoginScene.module.css";
 
 /*
@@ -76,6 +78,12 @@ export const restingLoginView: LoginView = {
 export const lockedLoginView: LoginView = {
   ...restingLoginView,
   message: "Vault locked. Present a name and a combination to return.",
+};
+
+/** The room as a lapsed session leaves it: the vault locked itself. */
+export const endedLoginView: LoginView = {
+  ...restingLoginView,
+  message: "The session ended and the vault locked itself. Present a name and a combination to return.",
 };
 
 export interface LoginBindings {
@@ -357,7 +365,7 @@ export function LoginScene({ view, live, intro = "play", reduced = false, sceneR
 
       <footer className={styles.bar}>
         <span className={cx(styles.typeIn)} style={{ "--d": "1100ms" } as CSSProperties}>
-          {live?.frontDoor ?? <span className={styles.mono}>← Front door</span>}
+          {live?.frontDoor ?? <SleepDial variant="link" label="Front door" still />}
         </span>
         <span className={cx(styles.mono, styles.typeIn, styles.barCentre)} style={{ "--d": "1180ms" } as CSSProperties}>
           Press ↵ to open

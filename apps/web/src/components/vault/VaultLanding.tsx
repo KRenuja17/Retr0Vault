@@ -8,7 +8,7 @@ import { showcaseThumbnailUrl } from "@/lib/api/media";
 import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
 import { useReducedMotion } from "@/lib/motion/preferences";
-import { nextDoorSplit, type DoorSplit } from "@/lib/vault/doorSequence";
+import { nextDoorSplit, peekDoorSplit, type DoorSplit } from "@/lib/vault/doorSequence";
 import { holdPageStill } from "@/lib/vault/scrollLock";
 
 import { dealCatalogue } from "./VaultDoors";
@@ -30,12 +30,24 @@ import styles from "./VaultLanding.module.css";
  * The contact strip and counters come from the public showcase: the whole
  * archive's newest plates, whoever filed them, readable before signing in.
  *
+ * From inside, the vault can be put to sleep: the doors arrive open, already
+ * printed, and close over the page the depositor was reading, and a standby
+ * light shows while it sleeps. Before the doors open again the session is
+ * checked (`onUnlock`): if it lapsed meanwhile, the page behind becomes the
+ * strong room, and that is what the doors open onto.
+ *
  * Everything that can be read or pressed lives once, in a control layer above
  * the doors; the doors themselves are pictures of the page and are hidden from
  * assistive technology.
  */
 
 export interface VaultLandingProps {
+  /** Play the front door's arrival, or close its doors over the page (the vault going to sleep). */
+  readonly arrival?: "intro" | "closing";
+  /** Who the sleeping vault is waiting for, on its standby line. */
+  readonly depositor?: string | undefined;
+  /** Runs before the doors open; the page behind may change meanwhile. */
+  readonly onUnlock?: () => Promise<void>;
   /** The doors have started to part: the page behind can begin to arrive. */
   readonly onOpening?: () => void;
   /** The doors are fully open: remove the landing. */
@@ -44,7 +56,8 @@ export interface VaultLandingProps {
 
 type ShowcaseFrame = ShowcaseResponse["references"][number];
 
-type Phase = "ready" | "unlocking" | "seamed" | "opening";
+/** Closing in (away, closing, sealing) arrives at `ready`; opening leaves it. */
+type Phase = "away" | "closing" | "sealing" | "ready" | "unlocking" | "seamed" | "opening";
 
 /** One tick of the dial is one number: 60 numbers round the face. */
 const DEGREES_PER_NUMBER = 6;
@@ -56,6 +69,9 @@ const COUNT_STEPS = 18;
 const COUNT_STEP_MS = 45;
 /** The doors' transition; the landing is removed on its transitionend, or after this. */
 const DOOR_SAFETY_MS = 1700;
+/** The doors' travel (the CSS transition), and the seam's moment once they meet. */
+const DOOR_MOVE_MS = 1150;
+const SEAM_MS = 380;
 const STRIP_MIN_FRAMES = 12;
 
 const WORD_LEFT = "Retr";
@@ -86,6 +102,17 @@ function turnTo(from: number, target: number, direction: 1 | -1, minimum: number
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Two frames: the doors are painted where they start before they move. */
+function painted(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== "function") {
+      resolve();
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 /** A cubic ease-out tween; settles, never overshoots. Instant without a frame loop. */
@@ -170,10 +197,12 @@ interface FaceProps {
   readonly slots: readonly [string, string, string];
   readonly lockedSlots: number;
   readonly frames: readonly ShowcaseFrame[];
+  /** Asleep: the standby line, and who it waits for. */
+  readonly standby: string | null;
 }
 
 /** The printed page on one door. Pure picture: every door carries the same one. */
-function Face({ counts, slots, lockedSlots, frames }: FaceProps) {
+function Face({ counts, slots, lockedSlots, frames, standby }: FaceProps) {
   return (
     <div className={styles.face}>
       <span className={cx(styles.registration, styles.registrationTopLeft)} />
@@ -256,9 +285,15 @@ function Face({ counts, slots, lockedSlots, frames }: FaceProps) {
       </div>
 
       <div className={styles.bar}>
-        <span className={cx(styles.mono, styles.typeIn)} style={{ "--d": "1400ms" } as CSSProperties}>
-          No cloud · no AI keys
-        </span>
+        {standby === null ? (
+          <span className={cx(styles.mono, styles.typeIn)} style={{ "--d": "1400ms" } as CSSProperties}>
+            No cloud · no AI keys
+          </span>
+        ) : (
+          <span className={cx(styles.mono, styles.standby)}>
+            <span className={styles.standbyLight} /> {standby}
+          </span>
+        )}
         <span className={cx(styles.mono, styles.typeIn, styles.barCentre)} style={{ "--d": "1500ms" } as CSSProperties}>
           Press ↵ to enter
         </span>
@@ -270,19 +305,23 @@ function Face({ counts, slots, lockedSlots, frames }: FaceProps) {
   );
 }
 
-export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
+export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening, onDone }: VaultLandingProps) {
   const reduced = useReducedMotion();
   const showcase = useQuery({
     queryKey: queryKeys.showcase(),
     queryFn: ({ signal }) => fetchShowcase(signal),
   });
-  const [split, setSplit] = useState<DoorSplit>("left-right");
+  const closingIn = arrival === "closing";
+  // Closing in, the doors take their turn as they start; until then they show the one they will take.
+  const [split, setSplit] = useState<DoorSplit>(() => (closingIn ? peekDoorSplit() : "left-right"));
+  const tookTurn = useRef(false);
 
   const root = useRef<HTMLDivElement>(null);
   const enter = useRef<HTMLButtonElement>(null);
   const turn = useRef(0);
   const finished = useRef(false);
-  const [phase, setPhase] = useState<Phase>("ready");
+  const unlocking = useRef<Promise<void> | null>(null);
+  const [phase, setPhase] = useState<Phase>(closingIn && !reduced ? "away" : "ready");
   const [live, setLive] = useState(0);
   const [locked, setLocked] = useState<number[]>([]);
   const [rolled, setRolled] = useState(0);
@@ -313,28 +352,73 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
     root.current?.style.setProperty("--dial-turn", `${value}deg`);
   }, []);
 
-  const finish = useCallback(() => {
-    if (finished.current) return;
-    finished.current = true;
-    onDone();
+  /** Once per opening, however it is asked for: the page behind is settled first. */
+  const unlock = useCallback(() => {
+    unlocking.current ??= (onUnlock?.() ?? Promise.resolve()).catch(() => undefined);
+    return unlocking.current;
+  }, [onUnlock]);
+
+  // The page behind can change while the doors are opening (a lapsed session
+  // swaps in the strong room), so the landing always hands back to the latest.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
   }, [onDone]);
 
-  // The page behind the doors does not scroll, and starts at the top.
+  const finish = useCallback(async () => {
+    if (finished.current) return;
+    finished.current = true;
+    await unlock();
+    onDoneRef.current();
+  }, [unlock]);
+
+  const shut = phase !== "away" && phase !== "closing";
+
+  // The page behind the doors does not scroll. On a first visit it starts at
+  // the top; put to sleep, it is held where the depositor left it, once the
+  // doors have met over it.
   useEffect(() => {
+    if (!shut) return undefined;
     const release = holdPageStill();
-    if (window.scrollY !== 0) window.scrollTo(0, 0);
+    if (!closingIn && window.scrollY !== 0) window.scrollTo(0, 0);
     return release;
-  }, []);
+  }, [closingIn, shut]);
+
+  // Closing in: painted open, the doors come together, the seam shows where they met, then fades.
+  useEffect(() => {
+    if (phase === "away") {
+      if (!tookTurn.current) {
+        tookTurn.current = true;
+        setSplit(nextDoorSplit());
+      }
+      let cancelled = false;
+      void painted().then(() => {
+        if (!cancelled) setPhase("closing");
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (phase === "closing") {
+      const timer = setTimeout(() => setPhase("sealing"), DOOR_MOVE_MS + 40);
+      return () => clearTimeout(timer);
+    }
+    if (phase === "sealing") {
+      const timer = setTimeout(() => setPhase("ready"), SEAM_MS);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [phase]);
 
   useEffect(() => {
     // Focused for the keyboard, without drawing the focus ring on arrival.
-    enter.current?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
-  }, []);
+    if (phase === "ready") enter.current?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+  }, [phase]);
 
-  // Counters roll up once the type has landed.
+  // Counters roll up once the type has landed; closing in, the doors arrive already printed.
   useEffect(() => {
     if (totals === undefined) return undefined;
-    if (reduced) {
+    if (reduced || closingIn) {
       setRolled(COUNT_STEPS);
       return undefined;
     }
@@ -351,7 +435,7 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
       clearTimeout(start);
       if (interval !== undefined) clearInterval(interval);
     };
-  }, [totals, reduced]);
+  }, [totals, reduced, closingIn]);
 
   // At rest the dial leans toward the pointer, a little, and the readout follows it.
   useEffect(() => {
@@ -384,9 +468,11 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
   const open = useCallback(async () => {
     if (phase !== "ready") return;
     if (reduced) {
-      finish();
+      void finish();
       return;
     }
+    // The session is read again while the dial turns.
+    const unlocked = unlock();
     setPhase("unlocking");
     const [first, second, third] = combination;
     const stops: Array<[number, 1 | -1, number]> = [[first, 1, 360], [second, -1, 180], [third, 1, 60]];
@@ -400,6 +486,7 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
       setLocked((current) => [...current, number]);
       await wait(140);
     }
+    await unlocked;
     // This door takes the visit's next turn in the sequence of splits.
     setSplit(nextDoorSplit());
     setPhase("seamed");
@@ -407,18 +494,19 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
     setPhase("opening");
     onOpening?.();
     dealCatalogue();
-    setTimeout(finish, DOOR_SAFETY_MS);
-  }, [combination, finish, onOpening, phase, reduced, setTurn]);
+    setTimeout(() => void finish(), DOOR_SAFETY_MS);
+  }, [combination, finish, onOpening, phase, reduced, setTurn, unlock]);
 
-  // ↵ opens from anywhere on the page; Escape skips straight in.
+  // Enter opens from anywhere on the page; Escape skips straight in (once the doors are shut).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") finish();
+      if (!shut) return;
+      if (event.key === "Escape") void finish();
       else if (event.key === "Enter" && document.activeElement !== enter.current) void open();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [finish, open]);
+  }, [finish, open, shut]);
 
   const slots: [string, string, string] = [
     locked[0] !== undefined ? pad(locked[0]) : pad(live),
@@ -426,7 +514,8 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
     locked[2] !== undefined ? pad(locked[2]) : locked.length === 2 ? pad(live) : "––",
   ];
 
-  const face = <Face counts={counts} slots={slots} lockedSlots={locked.length} frames={frames} />;
+  const standby = closingIn ? (depositor === undefined ? "Asleep" : `Asleep · ${depositor}`) : null;
+  const face = <Face counts={counts} slots={slots} lockedSlots={locked.length} frames={frames} standby={standby} />;
   const summary = totals === undefined
     ? "The archive is being read."
     : `${totals.plates} plates, ${totals.motionStudies} motion studies.`;
@@ -434,14 +523,20 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
   return (
     <div
       ref={root}
-      className={cx(styles.vault, reduced && styles.still, styles[phase], split === "up-down" && styles.upDown)}
+      className={cx(
+        styles.vault,
+        reduced && styles.still,
+        closingIn && styles.settled,
+        styles[phase],
+        split === "up-down" && styles.upDown,
+      )}
       role="dialog"
       aria-modal="true"
       aria-labelledby="vault-title"
       aria-describedby="vault-summary"
     >
       <div className={cx(styles.door, styles.doorLeft)} aria-hidden="true" onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget && event.propertyName === "transform") finish();
+        if (event.target === event.currentTarget && event.propertyName === "transform" && phase === "opening") void finish();
       }}>
         {face}
       </div>
@@ -461,7 +556,7 @@ export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
             <span className={styles.status}>
               <ConnectionStatus />
             </span>
-            <button type="button" className={styles.skip} onClick={finish}>
+            <button type="button" className={styles.skip} onClick={() => void finish()}>
               Skip
             </button>
           </span>

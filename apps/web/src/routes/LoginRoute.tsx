@@ -4,17 +4,17 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
 import {
-  LoginScene, lockedLoginView, restingLoginView, type LoginFocus, type LoginMode, type LoginStamp, type LoginView,
+  LoginScene, endedLoginView, lockedLoginView, restingLoginView, type LoginFocus, type LoginMode, type LoginStamp, type LoginView,
 } from "@/components/vault/LoginScene";
+import { SleepDial } from "@/components/vault/SleepDial";
 import { useDoors } from "@/components/vault/VaultDoors";
 import { ApiError } from "@/lib/api/client";
 import { signIn } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
-import { useSession } from "@/lib/auth/session";
+import { forgetAccountQueries, useSession } from "@/lib/auth/session";
 import { useReducedMotion } from "@/lib/motion/preferences";
+import { useFrontDoor } from "@/lib/vault/frontDoor";
 import { holdPageStill } from "@/lib/vault/scrollLock";
-
-import { useFrontDoor } from "./RootLayout";
 
 /*
  * `/login` — the strong room behind the front door. Holds the state machine;
@@ -104,6 +104,9 @@ export function LoginRoute() {
   const reduced = useReducedMotion();
 
   const arrivedThroughDoors = (location.state as { arrived?: unknown } | null)?.arrived === "doors";
+  // The doors that brought the depositor here closed on their own: the session lapsed.
+  const sessionEnded = (location.state as { ended?: unknown } | null)?.ended === true;
+  const closedView = sessionEnded ? endedLoginView : lockedLoginView;
   const from = (location.state as { from?: unknown } | null)?.from;
   const destination = typeof from === "string" && from.startsWith("/") && !from.startsWith("/login") ? from : "/all";
 
@@ -113,6 +116,7 @@ export function LoginRoute() {
   const glyphsRef = useRef<HTMLSpanElement>(null);
   const turn = useRef(0);
   const leaving = useRef(false);
+  const played = useRef(false);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -120,7 +124,7 @@ export function LoginRoute() {
   const [focus, setFocus] = useState<LoginFocus>("none");
   const [mode, setMode] = useState<LoginMode>("idle");
   // Arriving through the closing doors, the room matches the picture they bore.
-  const [message, setMessage] = useState(arrivedThroughDoors ? lockedLoginView.message : restingLoginView.message);
+  const [message, setMessage] = useState(arrivedThroughDoors ? closedView.message : restingLoginView.message);
   const [stamp, setStamp] = useState<LoginStamp | null>(null);
   const [jolt, setJolt] = useState(0);
   const [caret, setCaret] = useState(0);
@@ -130,6 +134,11 @@ export function LoginRoute() {
 
   // The strong room has no page to scroll behind it.
   useEffect(() => holdPageStill(), []);
+
+  // Nothing read under a session that has ended waits here for the next depositor.
+  useEffect(() => {
+    if (session.data === null) forgetAccountQueries(client);
+  }, [client, session.data]);
 
   const setTurn = useCallback((value: number) => {
     turn.current = value;
@@ -322,6 +331,7 @@ export function LoginRoute() {
       await wait(reduced ? 0 : GRANTED_HOLD_MS);
       const picture = <LoginScene view={{ ...viewRef.current, dialTurn: turn.current }} />;
       await doors.open(picture, async () => {
+        forgetAccountQueries(client);
         client.setQueryData(queryKeys.session(), response);
         navigate(destination, { replace: true });
         // Let the vault's first plates arrive before the doors part, so they can be dealt in.
@@ -355,7 +365,10 @@ export function LoginRoute() {
     return <Navigate to={destination} replace />;
   }
 
-  const intro = arrivedThroughDoors ? "settled" : frontDoor === "sealed" ? "wait" : "play";
+  // Once the room has been seen, the front door closing over it again (the
+  // vault put to sleep) leaves it as it is rather than winding its arrival back.
+  if (frontDoor !== "sealed") played.current = true;
+  const intro = arrivedThroughDoors ? "settled" : !played.current && frontDoor === "sealed" ? "wait" : "play";
 
   return (
     <LoginScene
@@ -377,9 +390,7 @@ export function LoginRoute() {
         onPasswordScroll: syncGlyphs,
         status: <ConnectionStatus />,
         frontDoor: (
-          <button type="button" className="rv-front-door-link" onClick={() => navigate("/")}>
-            ← Front door
-          </button>
+          <SleepDial variant="link" label="Front door" />
         ),
       }}
     />

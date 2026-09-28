@@ -95,15 +95,15 @@ describe("the vault's front door", () => {
     archive();
     renderRoute("/");
     await userEvent.click(await screen.findByRole("button", { name: /enter the vault/i }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("link", { name: "Stillpage" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByRole("link", { name: "Stillpage" })).toBeInTheDocument();
   });
 
   it("can be skipped, by the button or by Escape", async () => {
     archive();
     renderRoute("/");
     await userEvent.click(await screen.findByRole("button", { name: /^skip$/i }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     renderRoute("/");
     await screen.findAllByRole("dialog");
@@ -117,7 +117,8 @@ describe("the vault's front door", () => {
     expect(await screen.findByRole("link", { name: "Stillpage" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    await userEvent.click(screen.getByRole("link", { name: /front door/i }));
+    // The footer's dial puts the vault to sleep behind its front door.
+    await userEvent.click(screen.getByRole("button", { name: "Front door" }));
     expect(await screen.findByRole("dialog", { name: "Retr0Vault" })).toBeInTheDocument();
     expect(location().pathname).toBe("/all");
   });

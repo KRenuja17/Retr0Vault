@@ -1,10 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation, useNavigate, useNavigationType } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { LoginScene, endedLoginView } from "@/components/vault/LoginScene";
 import { VaultLanding } from "@/components/vault/VaultLanding";
-import { DoorsProvider } from "@/components/vault/VaultDoors";
+import { DoorsProvider, useDoors } from "@/components/vault/VaultDoors";
 import { ApiError } from "@/lib/api/client";
-import { useSession, useSignedOutWatcher } from "@/lib/auth/session";
+import { queryKeys } from "@/lib/api/queryKeys";
+import { SESSION_RECHECK_MS, useSession, useSignedOutWatcher } from "@/lib/auth/session";
+import { FrontDoorContext, useFrontDoor, VaultSleepContext, type FrontDoorState } from "@/lib/vault/frontDoor";
 
 import styles from "./RootLayout.module.css";
 
@@ -17,20 +21,25 @@ import styles from "./RootLayout.module.css";
  * has. It is up while the address is `/`, or while a page was reached with
  * `state.vault`, until it is opened or skipped (and again on a new visit to
  * `/`); the page behind stays inert until it opens.
+ *
+ * From any page the front door can be closed again (`useVaultSleep`): its
+ * doors close over the page, which stays where it was, still signed in. The
+ * session is read again before the doors next open, so a lapsed one opens
+ * onto the strong room instead.
  */
+
+export { useFrontDoor } from "@/lib/vault/frontDoor";
+export type { FrontDoorState } from "@/lib/vault/frontDoor";
 
 /** The API cannot be reached at all: the session is unknown, not refused. */
 function isUnreachable(error: unknown): boolean {
   return error instanceof ApiError && error.isOffline;
 }
 
-export type FrontDoorState = "sealed" | "opening" | "gone";
+type LocationState = Record<string, unknown> | null;
 
-const FrontDoorContext = createContext<FrontDoorState>("gone");
-
-/** Whether the front door still stands over the page, is opening, or has gone. */
-export function useFrontDoor(): FrontDoorState {
-  return useContext(FrontDoorContext);
+function stateOf(state: unknown): Record<string, unknown> {
+  return state !== null && typeof state === "object" ? { ...(state as Record<string, unknown>) } : {};
 }
 
 export function RootLayout() {
@@ -38,31 +47,67 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
+  const client = useQueryClient();
+  const session = useSession();
   const [dismissed, setDismissed] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [arrival, setArrival] = useState<"intro" | "closing">("intro");
 
   // A new visit to the front door raises it again.
   useEffect(() => {
-    if (location.pathname === "/" && navigationType === "PUSH") setDismissed(false);
+    if (location.pathname === "/" && navigationType === "PUSH") {
+      setDismissed(false);
+      setArrival("intro");
+    }
   }, [location.key, location.pathname, navigationType]);
 
   const sealed = !dismissed && (location.pathname === "/" || (location.state as { vault?: unknown } | null)?.vault === true);
+  const here = `${location.pathname}${location.search}${location.hash}`;
 
   const openVault = useCallback(() => {
     setDismissed(true);
     setOpening(false);
-    void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-  }, [location.pathname, location.search, navigate]);
+    setArrival("intro");
+    // Only the front door's own mark is taken off the page; what the page keeps (its sheets) stays.
+    const { vault: _vault, ...rest } = stateOf(location.state);
+    void navigate(here, { replace: true, state: (Object.keys(rest).length > 0 ? rest : null) as LocationState });
+  }, [here, location.state, navigate]);
+
+  const sleep = useCallback(() => {
+    if (sealed) return;
+    setArrival("closing");
+    setDismissed(false);
+    setOpening(false);
+    void navigate(here, { replace: true, state: { ...stateOf(location.state), vault: true } });
+  }, [here, location.state, navigate, sealed]);
+
+  /** Before the doors open: a session not read lately is read again, so the right room is behind them. */
+  const checkSession = useCallback(async () => {
+    const state = client.getQueryState(queryKeys.session());
+    if (state?.status === "success" && Date.now() - state.dataUpdatedAt < SESSION_RECHECK_MS) return;
+    // A read already under way (the first, on arrival) is waited for, not restarted.
+    await client.refetchQueries({ queryKey: queryKeys.session(), exact: true }, { cancelRefetch: false });
+  }, [client]);
 
   const frontDoor: FrontDoorState = sealed ? (opening ? "opening" : "sealed") : "gone";
 
   return (
     <DoorsProvider>
       <FrontDoorContext.Provider value={frontDoor}>
-        {sealed ? <VaultLanding onOpening={() => setOpening(true)} onDone={openVault} /> : null}
-        <div className={styles.page} inert={sealed && !opening}>
-          <Outlet />
-        </div>
+        <VaultSleepContext.Provider value={sleep}>
+          {sealed ? (
+            <VaultLanding
+              arrival={arrival}
+              depositor={session.data?.user.username}
+              onUnlock={checkSession}
+              onOpening={() => setOpening(true)}
+              onDone={openVault}
+            />
+          ) : null}
+          <div className={styles.page} inert={sealed && !opening}>
+            <Outlet />
+          </div>
+        </VaultSleepContext.Provider>
       </FrontDoorContext.Provider>
     </DoorsProvider>
   );
@@ -81,10 +126,37 @@ export function FrontDoorRoute() {
   return <Navigate to={inside ? "/all" : "/login"} replace state={frontDoor === "gone" ? null : { vault: true }} />;
 }
 
+/**
+ * The session ended while the depositor was inside (it lapsed, or was ended
+ * elsewhere): the vault locks itself. Doors bearing the strong room close over
+ * the page, and the strong room is put behind them.
+ */
+function VaultLocksItself({ from }: { readonly from: string }) {
+  const doors = useDoors();
+  const navigate = useNavigate();
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void (async () => {
+      await doors.close(<LoginScene view={endedLoginView} />);
+      void navigate("/login", { replace: true, state: { arrived: "doors", ended: true, from } });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      doors.dismiss();
+    })();
+  }, [doors, from, navigate]);
+
+  return null;
+}
+
 /** The vault's rooms need a session; without one the reader is sent to the strong room. */
 export function RequireSession({ children }: { readonly children: ReactNode }) {
   const session = useSession();
   const location = useLocation();
+  const frontDoor = useFrontDoor();
+  const wasInside = useRef(false);
+  if (session.data?.user !== undefined) wasInside.current = true;
 
   if (session.isPending) {
     return <p className={styles.pending}>Reading the vault’s register…</p>;
@@ -100,14 +172,18 @@ export function RequireSession({ children }: { readonly children: ReactNode }) {
     );
   }
   if (session.data === null) {
+    const from = `${location.pathname}${location.search}`;
+    // In plain view, the doors close on the room as it was; behind the front door, the room is simply swapped.
+    if (wasInside.current && frontDoor === "gone") {
+      return (
+        <>
+          <VaultLocksItself from={from} />
+          {children}
+        </>
+      );
+    }
     const vault = (location.state as { vault?: unknown } | null)?.vault === true;
-    return (
-      <Navigate
-        to="/login"
-        replace
-        state={{ from: `${location.pathname}${location.search}`, ...(vault ? { vault: true } : {}) }}
-      />
-    );
+    return <Navigate to="/login" replace state={{ from, ...(vault ? { vault: true } : {}) }} />;
   }
   return <>{children}</>;
 }

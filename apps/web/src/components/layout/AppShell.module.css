@@ -38,19 +38,21 @@
   gap: var(--rv-space-3);
 }
 
-.wordmark:hover {
-  text-decoration: none;
-}
-
 .wordmarkText {
+  display: inline-flex;
+  align-items: baseline;
   font-family: var(--rv-font-display);
   font-size: clamp(1.5rem, 2.2vw, 2rem);
   letter-spacing: var(--rv-tracking-display);
   line-height: 1;
 }
 
-.wordmarkMark {
-  color: var(--rv-accent);
+.wordmarkLink {
+  color: inherit;
+}
+
+.wordmarkLink:hover {
+  text-decoration: none;
 }
 
 .strapline {
@@ -90,12 +92,7 @@
 }
 
 .frontDoor {
-  border-bottom: var(--rv-border) solid var(--rv-rule-soft);
-}
-
-.frontDoor:hover {
-  text-decoration: none;
-  border-bottom-color: var(--rv-ink);
+  font-size: 0.625rem;
 }
 
 /* --- connection status ------------------------------------------------- */
