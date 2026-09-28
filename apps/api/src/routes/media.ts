@@ -51,13 +51,19 @@ export async function registerMediaRoutes(
           // and missing files must not produce a long-lived cached success or 304.
           reply.header("Cache-Control", "private, max-age=0, must-revalidate")
             .header("ETag", media.etag);
-          if (matchesEtag(request.headers["if-none-match"], media.etag)) return reply.code(304).send();
+          if (matchesEtag(request.headers["if-none-match"], media.etag)) {
+            media.body.destroy();
+            return reply.code(304).send();
+          }
           reply.type(media.contentType).header("Content-Length", media.size);
-          if (request.method === "HEAD") return reply.send();
-          // Await response completion/abort before closing the verified handle.
-          return await reply.send(media.file.createReadStream({ autoClose: false }));
-        } finally {
-          await media.file.close();
+          if (request.method === "HEAD") {
+            media.body.destroy();
+            return reply.send();
+          }
+          return await reply.send(media.body);
+        } catch (error) {
+          media.body.destroy();
+          throw error;
         }
       },
     });

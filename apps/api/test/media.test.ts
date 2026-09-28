@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
 import { get } from "node:http";
+import type { Readable } from "node:stream";
 import { dirname, join } from "node:path";
 
 import sharp from "sharp";
@@ -55,12 +55,12 @@ describe("ID-based reference media", () => {
     expect(errorResponseSchema.parse(response.json()).error.code).toBe(code);
     expect(response.body).not.toContain(context.directory);
   }
-  function trackOpenedFiles(): FileHandle[] {
-    const opened: FileHandle[] = [];
+  function trackOpenedFiles(): Readable[] {
+    const opened: Readable[] = [];
     const openImage = ReferenceStorage.prototype.openReferenceImage;
     vi.spyOn(ReferenceStorage.prototype, "openReferenceImage").mockImplementation(async function (this: ReferenceStorage, ...args) {
       const media = await openImage.apply(this, args);
-      opened.push(media.file);
+      opened.push(media.body);
       return media;
     });
     return opened;
@@ -124,7 +124,7 @@ describe("ID-based reference media", () => {
       }
       expect((await context.app.inject({ url: url(reference.id, kind), headers: { "if-none-match": '"unmatched"' } })).statusCode).toBe(200);
     }
-    await vi.waitFor(() => expect(opened.every((file) => file.fd === -1)).toBe(true));
+    await vi.waitFor(() => expect(opened.every((body) => body.destroyed)).toBe(true));
   });
 
   it("changes the validator when the stored image changes", async () => {
@@ -241,21 +241,16 @@ describe("ID-based reference media", () => {
     expect(response.rawPayload).toEqual(original);
   });
 
-  it.each(["creation", "read"])("returns uncached JSON and closes the handle after a stream %s failure before sending bytes", async (failure) => {
+  it.each(["immediate", "deferred"])("returns uncached JSON and releases the file after an %s read failure before sending bytes", async (failure) => {
     const reference = await upload();
-    const opened: FileHandle[] = [];
+    const opened: Readable[] = [];
     const openImage = ReferenceStorage.prototype.openReferenceImage;
     vi.spyOn(ReferenceStorage.prototype, "openReferenceImage").mockImplementation(async function (this: ReferenceStorage, ...args) {
       const media = await openImage.apply(this, args);
-      opened.push(media.file);
-      const createStream = media.file.createReadStream.bind(media.file);
-      vi.spyOn(media.file, "createReadStream").mockImplementation((options) => {
-        const error = new Error(`Read failed: ${context.directory}`);
-        if (failure === "creation") throw error;
-        const stream = createStream(options);
-        queueMicrotask(() => stream.destroy(error));
-        return stream;
-      });
+      opened.push(media.body);
+      const error = new Error(`Read failed: ${context.directory}`);
+      if (failure === "immediate") queueMicrotask(() => media.body.destroy(error));
+      else setImmediate(() => media.body.destroy(error));
       return media;
     });
     const response = await context.app.inject(url(reference.id));
@@ -265,7 +260,7 @@ describe("ID-based reference media", () => {
     expect(response.headers.etag).toBeUndefined();
     expect(errorResponseSchema.parse(response.json()).error.code).toBe("INTERNAL_SERVER_ERROR");
     expect(response.body).not.toContain(context.directory);
-    await vi.waitFor(() => expect(opened[0]!.fd).toBe(-1));
+    await vi.waitFor(() => expect(opened[0]!.destroyed).toBe(true));
   });
 
   // Real sockets: allow more than the 5 s default when the full suite (Chromium
@@ -288,7 +283,7 @@ describe("ID-based reference media", () => {
     });
     await vi.waitFor(() => {
       expect(opened.length).toBe(1);
-      expect(opened[0]!.fd).toBe(-1);
+      expect(opened[0]!.destroyed).toBe(true);
     });
   }, 15_000);
 });

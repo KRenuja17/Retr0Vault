@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { referenceListQuerySchema } from "@retr0vault/shared";
 import { openPglite, type DatabaseConnection, type Db } from "../src/database/connection.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { maintainOrphanFiles, orphanGracePeriodMs } from "../src/storage/orphans.js";
 import { createImageReferenceRecord, getReference, listReferences, updateReference } from "../src/services/references.js";
@@ -20,6 +21,7 @@ describe("storage hardening and recovery", () => {
   let root: string;
   let database: DatabaseConnection;
   let connection: Db;
+  let blobs: LocalBlobStore;
   let storage: ReferenceStorage;
   let image: Buffer;
   beforeEach(async () => {
@@ -27,7 +29,8 @@ describe("storage hardening and recovery", () => {
     root = join(directory, "storage");
     database = await createTestDatabase();
     connection = database.database;
-    storage = new ReferenceStorage(root);
+    blobs = new LocalBlobStore(root);
+    storage = new ReferenceStorage(blobs);
     image = await sharp({ create: { width: 16, height: 8, channels: 3, background: "red" } }).png().toBuffer();
   });
   afterEach(async () => {
@@ -69,14 +72,14 @@ describe("storage hardening and recovery", () => {
     symlinkSync(outside, join(root, kind), "junction");
     await expect(store()).rejects.toThrow(/symbolic link/);
     expect(readdirSync(outside)).toEqual(["sentinel"]);
-    await expect(maintainOrphanFiles(connection, root, true)).rejects.toThrow(/links/);
+    await expect(maintainOrphanFiles(connection, blobs, true)).rejects.toThrow(/links/);
   });
 
   it("rejects a linked storage root and traversal reads", async () => {
     const outside = join(directory, "outside"); mkdirSync(outside);
     symlinkSync(outside, root, "junction");
     await expect(store()).rejects.toThrow(/real directory/);
-    await expect(storage.getOriginalImagePath(randomUUID(), "../secret.png")).rejects.toThrow(/namespace/);
+    await expect(storage.locateOriginalImage(randomUUID(), "../secret.png", join(directory, "inbox"))).rejects.toThrow(/namespace/);
     expect(readdirSync(outside)).toEqual([]);
   });
 
@@ -101,21 +104,21 @@ describe("storage hardening and recovery", () => {
     writeFileSync(join(root, recent), "recent");
     const extraForLiveId = `originals/${stored.id}.jpg`;
     oldFile(extraForLiveId, "keep");
-    const report = await maintainOrphanFiles(connection, root);
+    const report = await maintainOrphanFiles(connection, blobs);
     expect(report.candidates.sort()).toEqual(candidates.sort());
     expect(report.quarantined).toEqual([]);
     expect(existsSync(join(root, "quarantine"))).toBe(false);
     for (const path of candidates) expect(existsSync(join(root, path))).toBe(true);
-    const applied = await maintainOrphanFiles(connection, root, true);
+    const applied = await maintainOrphanFiles(connection, blobs, true);
     expect(applied.quarantined.sort()).toEqual(candidates.sort());
     for (const path of candidates) {
       expect(existsSync(join(root, path))).toBe(false);
-      expect(readFileSync(join(applied.quarantineDirectory!, path), "utf8")).toBe("orphan");
+      expect(readFileSync(join(root, applied.quarantinePrefix!, path), "utf8")).toBe("orphan");
     }
     expect(readFileSync(join(root, stored.originalPath), "utf8")).toBe("live");
     expect(readFileSync(join(root, extraForLiveId), "utf8")).toBe("keep");
     expect(existsSync(join(root, recent))).toBe(true);
-    expect((await maintainOrphanFiles(connection, root, true)).quarantined).toEqual([]);
+    expect((await maintainOrphanFiles(connection, blobs, true)).quarantined).toEqual([]);
     expect((await getStats(connection)).totalReferences).toBe(1);
   });
 
@@ -124,7 +127,7 @@ describe("storage hardening and recovery", () => {
     const other = `originals/${randomUUID()}.png`;
     oldFile(other);
     await createImageReferenceRecord(connection, stored.id, { title: "Legacy" }, { ...stored, originalPath: other });
-    expect((await maintainOrphanFiles(connection, root, true)).candidates).not.toContain(other);
+    expect((await maintainOrphanFiles(connection, blobs, true)).candidates).not.toContain(other);
     expect(existsSync(join(root, other))).toBe(true);
   });
 
@@ -132,7 +135,7 @@ describe("storage hardening and recovery", () => {
     const path = `originals/${randomUUID()}.png`; oldFile(path);
     const unavailable = await createIsolatedTestDatabase();
     await unavailable.close();
-    await expect(maintainOrphanFiles(unavailable.database, root, true)).rejects.toThrow();
+    await expect(maintainOrphanFiles(unavailable.database, blobs, true)).rejects.toThrow();
     expect(existsSync(join(root, path))).toBe(true);
     expect(existsSync(join(root, "quarantine"))).toBe(false);
   });
@@ -177,7 +180,8 @@ describe("storage hardening and recovery", () => {
       for (const q of ["Restorableword", "Archivedword", "ochreword", "grainword"]) {
         expect((await listReferences(reopened, referenceListQuerySchema.parse({ q }))).items[0]?.id).toBe(stored.id);
       }
-      const safePath = await new ReferenceStorage(join(restored, "storage")).getOriginalImagePath(stored.id, stored.originalPath);
+      const safePath = await new ReferenceStorage(new LocalBlobStore(join(restored, "storage")))
+        .locateOriginalImage(stored.id, stored.originalPath, join(restored, "inbox"));
       expect(readFileSync(safePath)).toEqual(image);
       expect(readFileSync(join(restored, "storage", stored.thumbnailPath))).toEqual(readFileSync(join(root, stored.thumbnailPath)));
       expect(JSON.parse(readFileSync(join(restored, "analysis-results/result.json"), "utf8"))).toEqual({ referenceId: stored.id });

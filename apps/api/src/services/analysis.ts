@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { asc, eq, or } from "drizzle-orm";
 import { z } from "zod";
@@ -21,11 +21,17 @@ import { ApiError } from "../errors.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
 import { getReference, updateReference } from "./references.js";
 
+/**
+ * The references awaiting analysis. Image paths are on this PC: the stored
+ * files for a local store, or copies in `<data>/analysis-inbox/images` when
+ * files live in the bucket.
+ */
 export async function getPendingAnalysis(
   db: Db,
   storage: ReferenceStorage,
-  resultsDirectory: string,
+  dataDirectory: string,
 ): Promise<PendingAnalysisManifest> {
+  const inbox = join(dataDirectory, "analysis-inbox");
   const pending = await db.select().from(references)
     .where(eq(references.analysisStatus, "pending"))
     .orderBy(asc(references.createdAt), asc(references.id));
@@ -34,12 +40,12 @@ export async function getPendingAnalysis(
 
   for (const reference of pending) {
     try {
-      const imagePath = await storage.getOriginalImagePath(reference.id, reference.originalPath);
+      const imagePath = await storage.locateOriginalImage(reference.id, reference.originalPath, inbox);
       const frames = await db.select().from(referenceFrames).where(eq(referenceFrames.referenceId, reference.id))
         .orderBy(asc(referenceFrames.sortOrder));
       const availableFrames = await Promise.all(frames.map(async (frame) => ({
         frameType: frame.frameType, sortOrder: frame.sortOrder,
-        imagePath: await storage.getCaptureFramePath(reference.id, frame.imagePath),
+        imagePath: await storage.locateCaptureFrame(reference.id, frame.imagePath, inbox),
       })));
       items.push({
         referenceId: reference.id,
@@ -57,7 +63,7 @@ export async function getPendingAnalysis(
   return pendingAnalysisManifestSchema.parse({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    resultsDirectory: resolve(resultsDirectory),
+    resultsDirectory: resolve(dataDirectory, "analysis-results"),
     analysisSchema: referenceAnalysisJsonSchema,
     designTypes: await db.select({
       id: designTypes.id, name: designTypes.name, slug: designTypes.slug,

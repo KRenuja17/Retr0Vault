@@ -18,7 +18,7 @@ export async function registerAnalysisRoutes(
 ): Promise<void> {
   app.get("/api/v1/analysis/pending", async (request) => {
     parseRequest(z.object({}).strict(), request.query);
-    return await getPendingAnalysis(db, storage, join(analysisDataDirectory, "analysis-results"));
+    return await getPendingAnalysis(db, storage, analysisDataDirectory);
   });
 
   app.post("/api/v1/analysis/import", { bodyLimit: 2 * 1_024 * 1_024 }, async (request) => {

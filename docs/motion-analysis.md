@@ -9,7 +9,7 @@ A **motion study** belongs to one reference and holds 1–4 screen recordings ("
 1. Read `manifest.json`. It contains the exact JSON Schema, stable reference IDs, the `resultsDirectory`, and for every study:
    - `designContext`: the reference's design DNA and thesis, for context only
    - `inspectionNotes` and `verifiedTech`: what the user verified in a live browser (numbered by `index`)
-   - `clips`: each ready clip's absolute paths and computed evidence
+   - `clips`: each ready clip's absolute paths and computed evidence. The archive keeps its files in a private bucket, so exporting the manifest downloads the evidence to `motion-inbox/evidence/` next to it (unchanged files are not fetched again); with local storage the paths point at the stored files themselves.
 2. For each clip, read the evidence **in this order**:
    1. `energyTimelinePath`: the motion-energy curve. Shaded windows are **events**, dashed lines are **hard cuts**, and the ticks under the axis are the keyframes (S start, O onset, P peak, T settle, C cut, · fill, E end). The shape of the curve shows pacing and easing: a long ramp up and a slow tail read as ease-out; a spike with an instant drop reads as a snap.
    2. `regionSheetPath`: where in the frame the change happened, overall and per event. `spread` near 1 means the whole frame moved (camera, scroll, page transition); a low spread means a local effect (cursor, hover, one component). `still rows` means a band at the top or bottom stayed still while the rest moved, a hint of a pinned or sticky element.

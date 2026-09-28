@@ -19,6 +19,7 @@ import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { probeMedia, resolveMotionTools } from "../src/motion/ffmpeg.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { maintainOrphanFiles } from "../src/storage/orphans.js";
 import { createMultipartPayload, createTestApp, disposeTestApp, queryRows, type TestAppContext } from "./helpers.js";
 
@@ -363,7 +364,7 @@ describe("motion clip management", () => {
     }
     utimesSync(join(context.storageRoot, "motion", referenceId, live!.id, "poster.webp"), old, old);
 
-    const report = await maintainOrphanFiles(context.db, context.storageRoot);
+    const report = await maintainOrphanFiles(context.db, new LocalBlobStore(context.storageRoot));
     expect(report.candidates).toEqual([`motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/clip.mp4`]);
     expect(report.skipped).toEqual(expect.arrayContaining([
       { path: `motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/notes.txt`, reason: "unrecognized filename" },

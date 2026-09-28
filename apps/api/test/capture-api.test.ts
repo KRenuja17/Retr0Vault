@@ -13,6 +13,7 @@ import type { Db } from "../src/database/connection.js";
 import { referenceFrames } from "../src/database/schema.js";
 import { ApiError } from "../src/errors.js";
 import { createDesignType } from "../src/services/design-types.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { createTestApp, disposeTestApp, queryRows, rejectWrites, validDesignTypeInput, type TestAppContext } from "./helpers.js";
 
@@ -110,7 +111,7 @@ describe("website reference API and storage", () => {
   });
 
   it("rolls back only newly created images on storage failure and preserves preexisting files", async () => {
-    const storage = new ReferenceStorage(context.storageRoot);
+    const storage = new ReferenceStorage(new LocalBlobStore(context.storageRoot));
     const id = randomUUID();
     const captureDirectory = join(context.storageRoot, "captures", id);
     mkdirSync(captureDirectory, { recursive: true });
@@ -152,7 +153,7 @@ describe("website reference API and storage", () => {
   });
 
   it("refuses traversal and directory symlinks for capture storage and cleanup", async () => {
-    const storage = new ReferenceStorage(context.storageRoot);
+    const storage = new ReferenceStorage(new LocalBlobStore(context.storageRoot));
     await expect(storage.storeCapture("../outside", frames)).rejects.toThrow();
     const id = randomUUID();
     const outside = join(context.directory, "outside");

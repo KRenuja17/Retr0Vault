@@ -11,6 +11,7 @@ import {
   analysisReport, failedAnalysisResult, getPendingAnalysis, importAnalyses,
 } from "../services/analysis.js";
 import type { AppConfig } from "../config.js";
+import { openBlobStore } from "../storage/open-blob-store.js";
 import { ReferenceStorage } from "../storage/reference-storage.js";
 
 const guidePath = fileURLToPath(new URL("../../../../docs/analysis-schema.md", import.meta.url));
@@ -33,7 +34,7 @@ export async function exportPendingAnalysis(
   storage: ReferenceStorage,
   dataDirectory: string,
 ) {
-  const manifest = await getPendingAnalysis(db, storage, join(dataDirectory, "analysis-results"));
+  const manifest = await getPendingAnalysis(db, storage, dataDirectory);
   const guide = await readFile(guidePath, "utf8");
   const inbox = join(dataDirectory, "analysis-inbox");
   await mkdir(inbox, { recursive: true });
@@ -110,11 +111,16 @@ export type AnalysisCommand = z.infer<typeof analysisCommandSchema>;
 export async function runAnalysisCommand(
   command: AnalysisCommand,
   db: Db,
-  config: Pick<AppConfig, "storageRoot" | "analysisDataDirectory">,
+  config: Pick<AppConfig, "objectStorage" | "storageRoot" | "analysisDataDirectory">,
 ): Promise<{ result: unknown; ok: boolean }> {
   if (command[0] === "export") {
-    const result = await exportPendingAnalysis(db, new ReferenceStorage(config.storageRoot), config.analysisDataDirectory);
-    return { result, ok: result.unavailable.length === 0 };
+    const blobs = openBlobStore(config);
+    try {
+      const result = await exportPendingAnalysis(db, new ReferenceStorage(blobs), config.analysisDataDirectory);
+      return { result, ok: result.unavailable.length === 0 };
+    } finally {
+      blobs.close?.();
+    }
   }
   const result = await importAnalysisFiles(db, join(config.analysisDataDirectory, "analysis-results"), command.length === 2);
   return { result, ok: result.failed === 0 };

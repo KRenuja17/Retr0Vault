@@ -1,6 +1,7 @@
 import { count } from "drizzle-orm";
 import { openCliDatabase } from "../database/cli-connection.js";
 import { references } from "../database/schema.js";
+import { openBlobStore } from "./open-blob-store.js";
 import { maintainOrphanFiles } from "./orphans.js";
 
 const args = process.argv.slice(2);
@@ -14,8 +15,13 @@ try {
   const [row] = await connection.database.select({ total: count() }).from(references);
   const total = row?.total ?? 0;
   if (quarantine && total === 0) throw new Error("The database has no references; refusing to quarantine storage");
-  const report = await maintainOrphanFiles(connection.database, config.storageRoot, quarantine);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  const blobs = openBlobStore(config);
+  try {
+    const report = await maintainOrphanFiles(connection.database, blobs, quarantine);
+    process.stdout.write(`${JSON.stringify({ store: blobs.description, ...report }, null, 2)}\n`);
+  } finally {
+    blobs.close?.();
+  }
 } finally {
   await connection.close();
 }

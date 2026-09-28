@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { and, asc, count, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
@@ -204,11 +204,17 @@ async function importOneMotion(
 // Curator export
 // ---------------------------------------------------------------------------
 
+/**
+ * The motion studies awaiting analysis. Evidence paths are on this PC: the
+ * stored files for a local store, or copies in `<data>/motion-inbox/evidence`
+ * when files live in the bucket.
+ */
 export async function getPendingMotion(
   db: Db,
   storage: MotionStorage,
-  resultsDirectory: string,
+  dataDirectory: string,
 ): Promise<PendingMotionManifest> {
+  const inbox = join(dataDirectory, "motion-inbox");
   const pending = await db.select({ referenceId: motionStudies.referenceId }).from(motionStudies)
     .where(eq(motionStudies.motionStatus, "pending")).orderBy(asc(motionStudies.createdAt), asc(motionStudies.id));
   const studies: PendingMotionManifest["studies"] = [];
@@ -226,7 +232,7 @@ export async function getPendingMotion(
     try {
       const clips = [];
       for (const clip of ready) {
-        const path = (name: string) => storage.existingPath(referenceId, clip.id, name);
+        const path = (name: string) => storage.locate(referenceId, clip.id, name, inbox);
         const keyframeRows = await db.select().from(motionKeyframes).where(eq(motionKeyframes.motionClipId, clip.id))
           .orderBy(asc(motionKeyframes.sortOrder));
         const evidence = clipEvidenceSchema.parse(clip.evidence);
@@ -244,7 +250,7 @@ export async function getPendingMotion(
           regionSheetPath: await path("regions.webp"),
           keyframes: await Promise.all(keyframeRows.map(async (keyframe) => ({
             index: keyframe.sortOrder, timeMs: keyframe.timeMs, reason: keyframe.reason,
-            imagePath: await storage.existingPath(referenceId, clip.id, keyframe.imagePath.split("/").at(-1)!),
+            imagePath: await path(keyframe.imagePath.split("/").at(-1)!),
           }))),
           bursts: await Promise.all(evidence.bursts.map(async (burst) => ({ ...burst, imagePath: await path(burstFileName(burst.index)) }))),
           evidence,
@@ -268,7 +274,7 @@ export async function getPendingMotion(
   return pendingMotionManifestSchema.parse({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    resultsDirectory: resolve(resultsDirectory),
+    resultsDirectory: resolve(dataDirectory, "motion-results"),
     analysisSchema: motionAnalysisJsonSchema,
     studies,
     unavailable,

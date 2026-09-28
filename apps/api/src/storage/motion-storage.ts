@@ -1,20 +1,27 @@
-import { createHash } from "node:crypto";
-import { constants, createWriteStream } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, rm, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import { z } from "zod";
 
+import { contentTypeFor, type BlobStore, type ByteRange, type RangeRequest } from "./blob-store.js";
+import { locateLocally } from "./local-copy.js";
+
 /*
- * Files of a motion clip live in `motion/<reference-id>/<clip-id>/`. Only the
- * fixed names below are ever created, served or removed; nothing is derived
- * from user input, and no directory on the way may be a link.
+ * Files of a motion clip live under the key prefix `motion/<reference-id>/<clip-id>/`.
+ * Only the fixed names below are ever created, served or removed; nothing is
+ * derived from user input.
+ *
+ * ffmpeg needs real files, so uploads and processing go through a temporary
+ * folder on this PC (`createWorkspace`); only finished files reach the store.
  */
 
 export const motionFileNamePattern =
-  /^(?:source\.bin|clip\.mp4|clip\.part\.mp4|preview\.mp4|preview\.part\.mp4|poster\.webp|k-0(?:[01][0-9]|2[0-3])\.webp|burst-[0-3]\.webp|energy\.json|energy\.webp|regions\.webp|contact-sheet\.webp)$/u;
+  /^(?:source\.bin|clip\.mp4|preview\.mp4|poster\.webp|k-0(?:[01][0-9]|2[0-3])\.webp|burst-[0-3]\.webp|energy\.json|energy\.webp|regions\.webp|contact-sheet\.webp)$/u;
 
 export type MotionMediaKind = "clip" | "preview" | "poster" | "energy" | "regions" | "contact-sheet";
 
@@ -37,145 +44,151 @@ export function burstFileName(index: number): string {
   return `burst-${index}.webp`;
 }
 
+/** An opened motion file. Destroying `body` releases it. */
 export interface OpenMotionFile {
-  readonly file: FileHandle;
+  readonly body: Readable;
   readonly contentType: string;
+  /** The whole file's size, even when `range` limits the body. */
   readonly size: number;
   readonly etag: string;
+  readonly range?: ByteRange;
 }
 
-async function unlinkIfPresent(path: string): Promise<void> {
-  await unlink(path).catch((error: NodeJS.ErrnoException) => {
-    if (error.code !== "ENOENT") throw error;
-  });
+/** A private temporary folder on this PC for one upload or processing run. */
+export interface MotionWorkspace {
+  readonly directory: string;
+  /** A path inside the workspace for a file name it manages. */
+  path(name: string): string;
+  dispose(): Promise<void>;
 }
 
 export class MotionStorage {
-  readonly #root: string;
+  readonly #blobs: BlobStore;
+  readonly #workRoot: string;
 
-  public constructor(root: string) {
-    this.#root = resolve(root);
+  public constructor(blobs: BlobStore, workRoot: string = join(tmpdir(), "retr0vault-motion")) {
+    this.#blobs = blobs;
+    this.#workRoot = resolve(workRoot);
   }
 
-  /** Storage-relative portable path, as stored in the database. */
+  /** The storage key of a managed file, as stored in the database. */
   public relativePath(referenceId: string, clipId: string, name: string): string {
-    this.#validate(referenceId, clipId, name);
+    z.uuid().parse(referenceId);
+    z.uuid().parse(clipId);
+    if (!motionFileNamePattern.test(name)) throw new Error("Motion file name is not managed");
     return `motion/${referenceId}/${clipId}/${name}`;
   }
 
-  /** Absolute path of a managed file; the directories are checked when used. */
-  public absolutePath(referenceId: string, clipId: string, name: string): string {
-    const path = resolve(this.#root, this.relativePath(referenceId, clipId, name));
-    const fromRoot = relative(this.#root, path);
-    if (fromRoot.startsWith("..") || isAbsolute(fromRoot)) throw new Error("Motion path resolves outside the storage root");
-    return path;
+  /**
+   * A path on this PC where a curator can read a stored file: the file itself
+   * for a local store, or a copy under `inboxDirectory/evidence`.
+   */
+  public async locate(referenceId: string, clipId: string, name: string, inboxDirectory: string): Promise<string> {
+    const key = this.relativePath(referenceId, clipId, name);
+    return locateLocally(this.#blobs, key, join(inboxDirectory, "evidence", key));
   }
 
-  public async prepareClipDirectory(referenceId: string, clipId: string): Promise<void> {
-    await this.#safeDirectory(this.#clipDirectory(referenceId, clipId), true);
+  public async createWorkspace(): Promise<MotionWorkspace> {
+    await mkdir(this.#workRoot, { recursive: true });
+    const directory = await mkdtemp(join(this.#workRoot, "work-"));
+    return {
+      directory,
+      path: (name: string) => {
+        if (!/^[a-z0-9-]+(?:\.[a-z0-9]+)+$/u.test(name)) throw new Error("Workspace file name is not managed");
+        return join(directory, name);
+      },
+      dispose: () => rm(directory, { recursive: true, force: true, maxRetries: 3 }),
+    };
   }
 
-  /** Streams an upload to `source.bin`; refuses to overwrite. Returns bytes written. */
-  public async writeUpload(referenceId: string, clipId: string, stream: Readable): Promise<void> {
-    await this.prepareClipDirectory(referenceId, clipId);
-    const path = this.absolutePath(referenceId, clipId, "source.bin");
+  /** Streams an upload into a new workspace file; the caller disposes the workspace. */
+  public async receiveUpload(workspace: MotionWorkspace, stream: Readable): Promise<string> {
+    const path = workspace.path(`${randomUUID()}.bin`);
     try {
       await pipeline(stream, createWriteStream(path, { flags: "wx" }));
     } catch (error) {
-      await unlinkIfPresent(path).catch(() => undefined);
+      await unlink(path).catch(() => undefined);
       throw error;
     }
-  }
-
-  /** Verified absolute path of an existing managed file, for ffmpeg input. */
-  public async existingPath(referenceId: string, clipId: string, name: string): Promise<string> {
-    const path = this.absolutePath(referenceId, clipId, name);
-    await this.#safeDirectory(this.#clipDirectory(referenceId, clipId), false);
-    const entry = await lstat(path);
-    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Motion file is not a regular file");
     return path;
   }
 
-  public async exists(referenceId: string, clipId: string, name: string): Promise<boolean> {
-    return this.existingPath(referenceId, clipId, name).then(() => true, () => false);
+  /** Stores a local file under a managed name. `source.bin` is never overwritten. */
+  public async storeFile(referenceId: string, clipId: string, name: string, path: string): Promise<void> {
+    const key = this.relativePath(referenceId, clipId, name);
+    await this.#blobs.writeFile(key, path, { contentType: contentTypeFor(key), exclusive: name === "source.bin" });
   }
 
   public async writeFile(referenceId: string, clipId: string, name: string, contents: Buffer | string): Promise<void> {
-    await this.prepareClipDirectory(referenceId, clipId);
-    const path = this.absolutePath(referenceId, clipId, name);
-    // `wx` refuses an existing file or link; callers clear generated files first.
-    const handle = await open(path, "wx");
-    try {
-      await handle.writeFile(contents);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    const key = this.relativePath(referenceId, clipId, name);
+    await this.#blobs.write(key, contents, { contentType: contentTypeFor(key) });
   }
 
-  /** Atomically moves a finished `*.part.mp4` into place. */
-  public async promote(referenceId: string, clipId: string, from: "clip.part.mp4" | "preview.part.mp4"): Promise<void> {
-    const source = await this.existingPath(referenceId, clipId, from);
-    const target = this.absolutePath(referenceId, clipId, from.replace(".part", ""));
-    await unlinkIfPresent(target);
-    await rename(source, target);
+  /** Saves a stored file to a new local file (for ffmpeg input or a curator inbox). */
+  public async download(referenceId: string, clipId: string, name: string, destination: string): Promise<void> {
+    await this.#blobs.download(this.relativePath(referenceId, clipId, name), destination);
+  }
+
+  public async readText(referenceId: string, clipId: string, name: string): Promise<string> {
+    return (await this.#blobs.readBuffer(this.relativePath(referenceId, clipId, name))).toString("utf8");
+  }
+
+  public async exists(referenceId: string, clipId: string, name: string): Promise<boolean> {
+    return (await this.#blobs.head(this.relativePath(referenceId, clipId, name))) !== undefined;
   }
 
   public async removeFile(referenceId: string, clipId: string, name: string): Promise<void> {
-    await this.#safeDirectory(this.#clipDirectory(referenceId, clipId), false).catch(() => undefined);
-    await unlinkIfPresent(this.absolutePath(referenceId, clipId, name));
+    await this.#blobs.delete(this.relativePath(referenceId, clipId, name));
   }
 
   /** Removes every generated file of a clip, keeping `source.bin` for a retry. */
   public async clearGenerated(referenceId: string, clipId: string): Promise<void> {
     for (const name of await this.#listClip(referenceId, clipId)) {
-      if (name !== "source.bin") await unlinkIfPresent(this.absolutePath(referenceId, clipId, name));
+      if (name !== "source.bin") await this.removeFile(referenceId, clipId, name);
     }
   }
 
-  /** Removes a clip's managed files and its directory. Unknown files are left and reported. */
+  /** Removes a clip's managed files. Unknown files are left and reported. */
   public async removeClip(referenceId: string, clipId: string): Promise<string[]> {
     const warnings: string[] = [];
     try {
-      for (const name of await this.#listClip(referenceId, clipId)) {
-        await unlinkIfPresent(this.absolutePath(referenceId, clipId, name));
+      const prefix = `${this.#clipPrefix(referenceId, clipId)}`;
+      let unmanaged = false;
+      for await (const object of this.#blobs.list(prefix)) {
+        const name = object.key.slice(prefix.length);
+        if (motionFileNamePattern.test(name)) await this.#blobs.delete(object.key);
+        else unmanaged = true;
       }
-      await rmdir(this.#clipDirectory(referenceId, clipId)).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") warnings.push("motion clip directory still contains unmanaged files");
-      });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") warnings.push("motion clip files could not be removed safely");
+      if (unmanaged) warnings.push("motion clip directory still contains unmanaged files");
+    } catch {
+      warnings.push("motion clip files could not be removed safely");
     }
     return warnings;
   }
 
-  /** Removes every clip directory of a study and the study directory itself. */
+  /** Removes every clip of a study. */
   public async removeStudy(referenceId: string): Promise<string[]> {
     z.uuid().parse(referenceId);
-    const directory = resolve(this.#root, "motion", referenceId);
+    const prefix = `motion/${referenceId}/`;
     const warnings: string[] = [];
-    let entries;
+    const clips = new Set<string>();
     try {
-      await this.#safeDirectory(directory, false);
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") warnings.push("motion study directory could not be inspected safely");
+      for await (const object of this.#blobs.list(prefix)) {
+        const [clipId, ...rest] = object.key.slice(prefix.length).split("/");
+        if (clipId !== undefined && rest.length > 0 && z.uuid().safeParse(clipId).success) clips.add(clipId);
+        else warnings.push("motion study directory contains unmanaged entries");
+      }
+    } catch {
+      warnings.push("motion study directory could not be inspected safely");
       return warnings;
     }
-    for (const entry of entries) {
-      if (entry.isDirectory() && !entry.isSymbolicLink() && z.uuid().safeParse(entry.name).success) {
-        warnings.push(...await this.removeClip(referenceId, entry.name));
-      } else {
-        warnings.push("motion study directory contains unmanaged entries");
-      }
-    }
-    await rmdir(directory).catch(() => undefined);
+    for (const clipId of clips) warnings.push(...await this.removeClip(referenceId, clipId));
     return warnings;
   }
 
-  public async openMedia(referenceId: string, clipId: string, kind: MotionMediaKind): Promise<OpenMotionFile> {
+  public async openMedia(referenceId: string, clipId: string, kind: MotionMediaKind, range?: RangeRequest): Promise<OpenMotionFile> {
     const { name, contentType } = mediaFiles[kind];
-    return this.#open(referenceId, clipId, name, contentType);
+    return this.#open(referenceId, clipId, name, contentType, range);
   }
 
   public async openIndexed(referenceId: string, clipId: string, kind: "keyframe" | "burst", index: number): Promise<OpenMotionFile> {
@@ -183,59 +196,32 @@ export class MotionStorage {
     return this.#open(referenceId, clipId, name, "image/webp");
   }
 
-  async #open(referenceId: string, clipId: string, name: string, contentType: string): Promise<OpenMotionFile> {
-    const path = await this.existingPath(referenceId, clipId, name);
-    const before = await lstat(path);
-    const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    try {
-      const stat = await file.stat();
-      const canonical = relative(await realpath(this.#root), await realpath(path));
-      if (!stat.isFile() || stat.size === 0 || stat.dev !== before.dev || stat.ino !== before.ino ||
-          canonical.startsWith("..") || isAbsolute(canonical)) {
-        throw new Error("Motion file changed while opening or is not a regular file");
-      }
-      const validator = createHash("sha256")
-        .update([referenceId, clipId, name, stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":")).digest("hex");
-      return { file, contentType, size: stat.size, etag: `W/"${validator}"` };
-    } catch (error) {
-      await file.close();
-      throw error;
+  async #open(referenceId: string, clipId: string, name: string, contentType: string, range?: RangeRequest): Promise<OpenMotionFile> {
+    const read = await this.#blobs.read(this.relativePath(referenceId, clipId, name), range);
+    if (read.size === 0) {
+      read.body.destroy();
+      throw new Error("Motion file is empty");
     }
+    const validator = createHash("sha256").update([referenceId, clipId, name, read.version].join(":")).digest("hex");
+    return {
+      body: read.body, contentType, size: read.size, etag: `W/"${validator}"`,
+      ...(read.range === undefined ? {} : { range: read.range }),
+    };
   }
 
   async #listClip(referenceId: string, clipId: string): Promise<string[]> {
-    const directory = this.#clipDirectory(referenceId, clipId);
-    await this.#safeDirectory(directory, false);
-    const entries = await readdir(directory, { withFileTypes: true });
-    return entries.filter((entry) => entry.isFile() && !entry.isSymbolicLink() && motionFileNamePattern.test(entry.name))
-      .map((entry) => entry.name);
-  }
-
-  #clipDirectory(referenceId: string, clipId: string): string {
-    z.uuid().parse(referenceId);
-    z.uuid().parse(clipId);
-    return resolve(this.#root, "motion", referenceId, clipId);
-  }
-
-  #validate(referenceId: string, clipId: string, name: string): void {
-    z.uuid().parse(referenceId);
-    z.uuid().parse(clipId);
-    if (!motionFileNamePattern.test(name)) throw new Error("Motion file name is not managed");
-  }
-
-  async #safeDirectory(directory: string, create: boolean): Promise<void> {
-    const fromRoot = relative(this.#root, directory);
-    const parts = fromRoot.split(/[\\/]/u).filter(Boolean);
-    if (isAbsolute(fromRoot) || parts.includes("..") || parts[0] !== "motion") throw new Error("Unsafe motion directory");
-    if (create) await mkdir(this.#root, { recursive: true });
-    const rootEntry = await lstat(this.#root);
-    if (!rootEntry.isDirectory() || rootEntry.isSymbolicLink()) throw new Error("Storage root must be a real directory");
-    let current = this.#root;
-    for (const part of parts) {
-      current = resolve(current, part);
-      if (create) await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
-      const entry = await lstat(current);
-      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Motion directories must be real directories inside the storage root");
+    const prefix = this.#clipPrefix(referenceId, clipId);
+    const names: string[] = [];
+    for await (const object of this.#blobs.list(prefix)) {
+      const name = object.key.slice(prefix.length);
+      if (motionFileNamePattern.test(name)) names.push(name);
     }
+    return names;
+  }
+
+  #clipPrefix(referenceId: string, clipId: string): string {
+    z.uuid().parse(referenceId);
+    z.uuid().parse(clipId);
+    return `motion/${referenceId}/${clipId}/`;
   }
 }

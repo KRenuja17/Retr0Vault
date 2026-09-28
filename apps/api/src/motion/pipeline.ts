@@ -11,7 +11,7 @@ import {
   type KeyframeReason,
 } from "@retr0vault/shared";
 
-import { burstFileName, keyframeFileName, type MotionStorage } from "../storage/motion-storage.js";
+import { burstFileName, keyframeFileName, type MotionStorage, type MotionWorkspace } from "../storage/motion-storage.js";
 import {
   analyzeSamples,
   MotionSampler,
@@ -36,8 +36,9 @@ import { renderBurstStrip, renderContactSheet, renderEnergyTimeline, renderRegio
  *              → dense 160 px greyscale samples → energy, regions, events
  *              → smart keyframes, burst strips, energy/region/contact sheets
  *
- * Every ffmpeg call shares one deadline. Files are written only through
- * MotionStorage, under names it manages.
+ * Every ffmpeg call shares one deadline. ffmpeg works in a temporary folder;
+ * finished files reach the store only through MotionStorage, under names it
+ * manages.
  */
 
 export const denseSampleWidth = 160;
@@ -90,43 +91,60 @@ function evenHeight(width: number, sourceWidth: number, sourceHeight: number): n
 }
 const gridSafeMinimum = 12;
 
+type RunFfmpeg = (args: readonly string[], options?: { onStdout?: (chunk: Buffer) => void; maxStdoutBytes?: number }) => Promise<Buffer>;
+
 export async function processClip(input: ProcessClipInput): Promise<ProcessedClip> {
-  const { tools, storage, referenceId, clipId } = input;
+  const { tools, storage } = input;
   const deadline = Date.now() + input.timeoutMs;
   const remaining = () => {
     const left = deadline - Date.now();
     if (left <= 0) throw new Error("Media processing timed out");
     return left;
   };
-  const run = (args: readonly string[], options: { onStdout?: (chunk: Buffer) => void; maxStdoutBytes?: number } = {}) =>
+  const run: RunFfmpeg = (args, options = {}) =>
     runTool(tools.ffmpeg, ["-hide_banner", "-nostdin", "-loglevel", "error", "-filter_threads", encoderThreads, ...args], {
       timeoutMs: remaining(), signal: input.signal, ...options,
     });
 
-  const source = await storage.existingPath(referenceId, clipId, "source.bin");
+  const workspace = await storage.createWorkspace();
+  try {
+    return await processInWorkspace(input, workspace, run, remaining);
+  } finally {
+    await workspace.dispose();
+  }
+}
+
+async function processInWorkspace(
+  input: ProcessClipInput,
+  workspace: MotionWorkspace,
+  run: RunFfmpeg,
+  remaining: () => number,
+): Promise<ProcessedClip> {
+  const { tools, storage, referenceId, clipId } = input;
+  const source = workspace.path("source.bin");
+  await storage.download(referenceId, clipId, "source.bin", source);
   const sourceProbe = await probeMedia(tools, source, Math.min(30_000, remaining()));
   assertWithinLimits(sourceProbe);
   await storage.clearGenerated(referenceId, clipId);
 
   // 1. Normalize to one playback format every browser can seek.
-  const clipPart = storage.absolutePath(referenceId, clipId, "clip.part.mp4");
+  const clipPath = workspace.path("clip.mp4");
   if (canRemux(sourceProbe)) {
-    await run(["-i", source, "-map", "0:v:0", "-c", "copy", "-an", "-sn", "-dn", "-movflags", "+faststart", "-f", "mp4", clipPart]);
+    await run(["-i", source, "-map", "0:v:0", "-c", "copy", "-an", "-sn", "-dn", "-movflags", "+faststart", "-f", "mp4", clipPath]);
   } else {
     await run(["-i", source, "-map", "0:v:0", "-an", "-sn", "-dn",
       "-vf", "scale='min(2560,iw)':-2:flags=bicubic,format=yuv420p",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", encoderThreads, "-movflags", "+faststart", "-f", "mp4", clipPart]);
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", encoderThreads, "-movflags", "+faststart", "-f", "mp4", clipPath]);
   }
-  await storage.promote(referenceId, clipId, "clip.part.mp4");
-  const clipPath = await storage.existingPath(referenceId, clipId, "clip.mp4");
   const probe = await probeMedia(tools, clipPath, Math.min(30_000, remaining()));
   const bytes = (await stat(clipPath)).size;
+  await storage.storeFile(referenceId, clipId, "clip.mp4", clipPath);
 
   // 2. The light proxy the catalogue plates play.
-  const previewPart = storage.absolutePath(referenceId, clipId, "preview.part.mp4");
+  const previewPath = workspace.path("preview.mp4");
   await run(["-i", clipPath, "-an", "-vf", "fps=24,scale='min(640,iw)':-2:flags=bicubic,format=yuv420p",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-threads", encoderThreads, "-movflags", "+faststart", "-f", "mp4", previewPart]);
-  await storage.promote(referenceId, clipId, "preview.part.mp4");
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-threads", encoderThreads, "-movflags", "+faststart", "-f", "mp4", previewPath]);
+  await storage.storeFile(referenceId, clipId, "preview.mp4", previewPath);
 
   // 3. Dense greyscale samples, streamed straight into the analyzer.
   const sampleFps = Math.min(maximumSampleFps, probe.fps);

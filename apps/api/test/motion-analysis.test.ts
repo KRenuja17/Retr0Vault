@@ -21,6 +21,7 @@ import {
 import { resolveMotionTools } from "../src/motion/ffmpeg.js";
 import { exportPendingMotion, importMotionFiles } from "../src/motion/cli.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { MotionStorage } from "../src/storage/motion-storage.js";
 import { createMultipartPayload, createTestApp, disposeTestApp, queryRows, type TestAppContext } from "./helpers.js";
 
@@ -261,7 +262,7 @@ describe("motion curator export", () => {
     expect(manifest.analysisSchema).toHaveProperty("properties.beats");
 
     const dataDirectory = join(context.directory, "data");
-    const written = await exportPendingMotion(connection, new MotionStorage(context.storageRoot), dataDirectory);
+    const written = await exportPendingMotion(connection, new MotionStorage(new LocalBlobStore(context.storageRoot)), dataDirectory);
     expect(written.exported).toBe(1);
     expect(readFileSync(join(dataDirectory, "motion-inbox", "instructions.md"), "utf8")).toContain("verifiedTechIndex");
 

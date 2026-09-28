@@ -21,6 +21,8 @@ import {
   type Db,
 } from "../src/database/connection.js";
 import type { MotionTools } from "../src/motion/ffmpeg.js";
+import type { BlobStore } from "../src/storage/blob-store.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
 
 export interface TestAppContext {
@@ -154,6 +156,25 @@ export async function rejectWrites(
   await db.execute(sql.raw(`CREATE TRIGGER ${name} BEFORE ${event} ON "${table}" FOR EACH ROW ${when === undefined ? "" : `WHEN (${when}) `}EXECUTE FUNCTION ${name}()`));
 }
 
+/**
+ * A store that behaves like the bucket for the code using it: every operation
+ * of `store`, but no `localPath`, so local tools are given copies.
+ */
+export function remoteLike(store: BlobStore): BlobStore {
+  return {
+    description: `bucket-like ${store.description}`,
+    head: (key) => store.head(key),
+    read: (key, range) => store.read(key, range),
+    readBuffer: (key) => store.readBuffer(key),
+    write: (key, body, options) => store.write(key, body, options),
+    writeFile: (key, path, options) => store.writeFile(key, path, options),
+    download: (key, path) => store.download(key, path),
+    copy: (from, to) => store.copy(from, to),
+    delete: (key) => store.delete(key),
+    list: (prefix) => store.list(prefix),
+  };
+}
+
 /** Every row of every table, to assert that a request changed nothing. */
 export async function databaseSnapshot(db: Db): Promise<Record<string, unknown[]>> {
   const tables = await queryRows<{ name: string }>(db, sql`
@@ -180,6 +201,11 @@ export async function createTestApp(
     readonly reuse?: TestAppContext;
     /** Use this directory for files (the database starts fresh). */
     readonly directory?: string;
+    /**
+     * Keep files as the bucket does: no local paths, so curator exports make
+     * copies. The files still live under `storageRoot`.
+     */
+    readonly remoteStorage?: boolean;
   } = {},
 ): Promise<TestAppContext> {
   const directory = options.reuse?.directory ?? options.directory ?? mkdtempSync(join(tmpdir(), `retr0vault-${label}-`));
@@ -190,6 +216,7 @@ export async function createTestApp(
       config: loadConfig({ ...process.env, ANALYSIS_DATA_DIR: join(directory, "data") }),
       connection,
       storageRoot,
+      ...(options.remoteStorage === true ? { blobStore: remoteLike(new LocalBlobStore(storageRoot)) } : {}),
       logger: false,
       // Tests talk to the app in process and never listen.
       motionQueueStart: "ready",

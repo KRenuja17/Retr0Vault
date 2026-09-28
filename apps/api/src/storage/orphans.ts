@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, renameSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { z } from "zod";
+
 import { sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { rowsOf, type Db } from "../database/connection.js";
+import type { BlobListing, BlobStore } from "./blob-store.js";
 import { motionFileNamePattern } from "./motion-storage.js";
 
 export const orphanGracePeriodMs = 24 * 60 * 60 * 1_000;
@@ -12,25 +13,9 @@ export interface OrphanReport {
   mode: "report" | "quarantine";
   candidates: string[];
   quarantined: string[];
-  quarantineDirectory: string | null;
+  /** Where quarantined files went, as a key prefix in the same store. */
+  quarantinePrefix: string | null;
   skipped: Array<{ path: string; reason: string }>;
-}
-
-function statIfPresent(path: string) {
-  try { return lstatSync(path); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
-}
-
-function safeDirectory(root: string, directory: string, create = false): void {
-  const path = relative(root, directory);
-  if (isAbsolute(path) || path.split(/[\\/]/u).includes("..")) throw new Error("Unsafe maintenance directory");
-  let current = root;
-  for (const part of ["", ...path.split(/[\\/]/u).filter(Boolean)]) {
-    current = resolve(current, part);
-    if (create && !statIfPresent(current)) mkdirSync(current);
-    const entry = lstatSync(current);
-    if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Maintenance directories must not be links");
-  }
 }
 
 interface CatalogueSnapshot {
@@ -54,94 +39,88 @@ function readCatalogue(db: Db): Promise<CatalogueSnapshot> {
   }), { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
+const isUuid = (value: string | undefined) => value !== undefined && z.uuid().safeParse(value).success;
+
+/**
+ * Which reference or clip a stored key would belong to, judged by its name
+ * alone. Only names Retr0Vault itself creates are ever candidates.
+ */
+function classify(key: string): { id: string | undefined; known: boolean; clip?: string } | "ignore" {
+  const parts = key.split("/");
+  switch (parts[0]) {
+    case "originals": {
+      const match = /^([^/]+)\.(?:jpg|png|webp)$/u.exec(parts.slice(1).join("/"));
+      return { id: match?.[1], known: match !== null && parts.length === 2 };
+    }
+    case "thumbnails": {
+      const match = /^([^/]+)\.webp$/u.exec(parts.slice(1).join("/"));
+      return { id: match?.[1], known: match !== null && parts.length === 2 };
+    }
+    case "captures":
+      return { id: parts[1], known: parts.length === 3 && /^(?:viewport|hero|scroll-50|scroll-80|fullpage)\.png$/u.test(parts[2]!) };
+    case "motion":
+      if (parts.length === 2 && parts[1] === ".gitkeep") return "ignore";
+      return {
+        id: parts[2],
+        known: parts.length === 4 && isUuid(parts[1]) && motionFileNamePattern.test(parts[3]!),
+        clip: `${parts[1]}/${parts[2]}`.toLowerCase(),
+      };
+    default:
+      return "ignore";
+  }
+}
+
+/**
+ * Stored files no database row owns: reported, and moved under a
+ * `quarantine/<batch>/` prefix only when asked. Nothing is ever deleted
+ * outright, recently written files are left alone (an upload or import may
+ * still be finishing them), and names Retr0Vault did not create are only
+ * reported.
+ */
 export async function maintainOrphanFiles(
   db: Db,
-  storageRoot: string,
+  blobs: BlobStore,
   quarantine = false,
 ): Promise<OrphanReport> {
-  const root = resolve(storageRoot);
-  const report: OrphanReport = { mode: quarantine ? "quarantine" : "report", candidates: [], quarantined: [], quarantineDirectory: null, skipped: [] };
-  // The grace period covers files an API or import process is still writing;
-  // stop those processes before quarantining anyway.
+  const report: OrphanReport = { mode: quarantine ? "quarantine" : "report", candidates: [], quarantined: [], quarantinePrefix: null, skipped: [] };
   const { references: rows, frames, clips } = await readCatalogue(db);
-  {
-    const liveIds = new Set(rows.map((row) => row.id.toLowerCase()));
-    const livePaths = new Set([...rows.flatMap((row) => [row.original_path, row.thumbnail_path]), ...frames.map((row) => row.image_path)]
-      .map((path) => resolve(root, path).toLowerCase()));
-    if (!statIfPresent(root)) return report;
-    safeDirectory(root, root);
-    const cutoff = Date.now() - orphanGracePeriodMs;
-    const motionClipKeys = new Set(clips.map((row) => `${row.referenceId}/${row.clipId}`.toLowerCase()));
-    // `owned` overrides the reference-ID rule for motion files, which belong to a clip.
-    const inspect = (path: string, id: string | undefined, known: boolean, owned?: boolean) => {
-      const absolute = resolve(root, path);
-      const entry = lstatSync(absolute);
-      const reason = entry.isSymbolicLink() || !entry.isFile() ? "not a regular file" :
-        !known || !z.uuid().safeParse(id).success ? "unrecognized filename" :
-        (owned ?? (liveIds.has(id!.toLowerCase()) || livePaths.has(absolute.toLowerCase()))) ? "owned by a database reference" :
-        entry.mtimeMs > cutoff ? "less than 24 hours old" : undefined;
-      if (reason) { report.skipped.push({ path, reason }); return; }
-      report.candidates.push(path);
-      if (!quarantine) return;
-      // Recheck immediately before moving; never follow directory links.
-      safeDirectory(root, dirname(absolute));
-      const current = lstatSync(absolute);
-      if (!current.isFile() || current.isSymbolicLink() || current.ino !== entry.ino || current.dev !== entry.dev ||
-          current.mtimeMs !== entry.mtimeMs || current.size !== entry.size) throw new Error("Storage changed during maintenance; stop all writers and retry");
-      if (!report.quarantineDirectory) {
-        safeDirectory(root, resolve(root, "quarantine"), true);
-        const batch = resolve(root, "quarantine", randomUUID());
-        mkdirSync(batch); // Exclusive new batch: existing content is never overwritten.
-        report.quarantineDirectory = batch;
-      }
-      const destination = resolve(report.quarantineDirectory, path);
-      safeDirectory(root, dirname(destination), true);
-      if (statIfPresent(destination)) throw new Error("Quarantine destination already exists");
-      renameSync(absolute, destination);
-      report.quarantined.push(path);
-    };
-    for (const kind of ["originals", "thumbnails", "captures"] as const) {
-      const directory = resolve(root, kind);
-      if (!statIfPresent(directory)) continue;
-      safeDirectory(root, directory);
-      for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
-        if (kind === "captures" && entry.isDirectory() && !entry.isSymbolicLink() && z.uuid().safeParse(entry.name).success) {
-          const captureDirectory = resolve(directory, entry.name);
-          safeDirectory(root, captureDirectory);
-          for (const frame of readdirSync(captureDirectory).sort()) {
-            inspect(`${kind}/${entry.name}/${frame}`, entry.name, /^(viewport|hero|scroll-50|scroll-80|fullpage)\.png$/u.test(frame));
-          }
-        } else {
-          const match = /^(.*)\.(jpg|png|webp)$/u.exec(entry.name);
-          inspect(`${kind}/${entry.name}`, match?.[1], kind === "originals" ? !!match : kind === "thumbnails" && match?.[2] === "webp");
-        }
-      }
+  const liveIds = new Set(rows.map((row) => row.id.toLowerCase()));
+  const livePaths = new Set([...rows.flatMap((row) => [row.original_path, row.thumbnail_path]), ...frames.map((row) => row.image_path)]
+    .map((path) => path.toLowerCase()));
+  const liveClips = new Set(clips.map((row) => `${row.referenceId}/${row.clipId}`.toLowerCase()));
+  const cutoff = Date.now() - orphanGracePeriodMs;
+
+  const inspect = async (object: BlobListing): Promise<void> => {
+    const kind = classify(object.key);
+    if (kind === "ignore") return;
+    // A motion file belongs to its clip; any other file to its reference, or to a row naming its path.
+    const owned = kind.clip === undefined
+      ? liveIds.has(kind.id?.toLowerCase() ?? "") || livePaths.has(object.key.toLowerCase())
+      : liveClips.has(kind.clip);
+    const reason = !kind.known || !isUuid(kind.id) ? "unrecognized filename" :
+      owned ? "owned by a database reference" :
+      object.lastModified.getTime() > cutoff ? "less than 24 hours old" : undefined;
+    if (reason !== undefined) {
+      report.skipped.push({ path: object.key, reason });
+      return;
     }
-    // Motion clips: motion/<reference-id>/<clip-id>/<managed file>.
-    const motionRoot = resolve(root, "motion");
-    if (statIfPresent(motionRoot)) {
-      safeDirectory(root, motionRoot);
-      for (const study of readdirSync(motionRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
-        if (!study.isDirectory() || study.isSymbolicLink() || !z.uuid().safeParse(study.name).success) {
-          if (study.name !== ".gitkeep") report.skipped.push({ path: `motion/${study.name}`, reason: "unrecognized filename" });
-          continue;
-        }
-        const studyDirectory = resolve(motionRoot, study.name);
-        safeDirectory(root, studyDirectory);
-        for (const clip of readdirSync(studyDirectory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
-          if (!clip.isDirectory() || clip.isSymbolicLink() || !z.uuid().safeParse(clip.name).success) {
-            report.skipped.push({ path: `motion/${study.name}/${clip.name}`, reason: "unrecognized filename" });
-            continue;
-          }
-          const clipDirectory = resolve(studyDirectory, clip.name);
-          safeDirectory(root, clipDirectory);
-          const owned = motionClipKeys.has(`${study.name}/${clip.name}`.toLowerCase());
-          for (const file of readdirSync(clipDirectory).sort()) {
-            inspect(`motion/${study.name}/${clip.name}/${file}`, clip.name, motionFileNamePattern.test(file), owned);
-          }
-        }
-      }
+    report.candidates.push(object.key);
+    if (!quarantine) return;
+    // Recheck immediately before moving.
+    const current = await blobs.head(object.key);
+    if (current === undefined || current.size !== object.size || current.lastModified.getTime() > cutoff) {
+      throw new Error("Storage changed during maintenance; stop all writers and retry");
     }
-    return report;
+    report.quarantinePrefix ??= `quarantine/${randomUUID()}/`;
+    const destination = `${report.quarantinePrefix}${object.key}`;
+    if (await blobs.head(destination) !== undefined) throw new Error("Quarantine destination already exists");
+    await blobs.copy(object.key, destination);
+    await blobs.delete(object.key);
+    report.quarantined.push(object.key);
+  };
+
+  for (const prefix of ["originals/", "thumbnails/", "captures/", "motion/"]) {
+    for await (const object of blobs.list(prefix)) await inspect(object);
   }
+  return report;
 }

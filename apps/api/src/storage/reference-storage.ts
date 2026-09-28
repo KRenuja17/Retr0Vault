@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
-import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
+import { join } from "node:path";
+import type { Readable } from "node:stream";
 
 import sharp, { type Metadata } from "sharp";
 
@@ -10,6 +9,8 @@ import type { ImageFormat } from "@retr0vault/shared";
 import { ApiError } from "../errors.js";
 import { captureFrameNames, type CapturedFrame } from "../capture/service.js";
 import { z } from "zod";
+import { contentTypeFor, isBlobNotFound, type BlobStore } from "./blob-store.js";
+import { locateLocally } from "./local-copy.js";
 
 const originalExtensions: Record<ImageFormat, string> = {
   jpeg: "jpg",
@@ -37,8 +38,8 @@ export interface FileCleanupResult {
 }
 
 /**
- * A replacement image already in place on disk, with the files it displaced
- * kept aside until the database agrees. `commit` discards the displaced files;
+ * A replacement image already in place, with the objects it displaced kept
+ * aside until the database agrees. `commit` discards the displaced copies;
  * `rollback` puts them back. Exactly one of the two must be called.
  */
 export interface StagedImageReplacement {
@@ -49,8 +50,9 @@ export interface StagedImageReplacement {
 
 type ManagedKind = "original" | "thumbnail" | "capture";
 
+/** An opened reference image. Destroying `body` releases it. */
 export interface OpenReferenceImage {
-  readonly file: FileHandle;
+  readonly body: Readable;
   readonly contentType: string;
   readonly size: number;
   readonly etag: string;
@@ -60,28 +62,16 @@ function isSupportedFormat(format: string | undefined): format is ImageFormat {
   return format === "jpeg" || format === "png" || format === "webp";
 }
 
-async function unlinkIfPresent(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch (error) {
-    if (
-      typeof error !== "object" ||
-      error === null ||
-      !("code" in error) ||
-      error.code !== "ENOENT"
-    ) {
-      throw error;
-    }
-  }
-}
+/** Where a displaced object waits while its replacement is not yet committed. */
+const asideKey = (key: string) => `${key}.previous`;
 
 export class ReferenceStorage {
-  readonly #root: string;
+  readonly #blobs: BlobStore;
   /** References whose image is being swapped; a second swap waits its turn. */
   readonly #replacing = new Set<string>();
 
-  public constructor(root: string) {
-    this.#root = resolve(root);
+  public constructor(blobs: BlobStore) {
+    this.#blobs = blobs;
   }
 
   public async inspectImage(buffer: Buffer): Promise<ImageMetadata> {
@@ -128,13 +118,18 @@ export class ReferenceStorage {
     };
   }
 
-  public async getOriginalImagePath(referenceId: string, storedPath: string): Promise<string> {
-    const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "original");
-    return this.#readableImagePath(absolutePath);
+  /**
+   * A path on this PC where a curator can read the original image: the stored
+   * file itself for a local store, or a copy under `inboxDirectory/images`.
+   */
+  public async locateOriginalImage(referenceId: string, storedPath: string, inboxDirectory: string): Promise<string> {
+    const key = this.#managedKey(referenceId, storedPath, "original");
+    return locateLocally(this.#blobs, key, join(inboxDirectory, "images", key));
   }
 
-  public async getCaptureFramePath(referenceId: string, storedPath: string): Promise<string> {
-    return this.#readableImagePath(this.#resolveManagedPath(referenceId, storedPath, "capture"));
+  public async locateCaptureFrame(referenceId: string, storedPath: string, inboxDirectory: string): Promise<string> {
+    const key = this.#managedKey(referenceId, storedPath, "capture");
+    return locateLocally(this.#blobs, key, join(inboxDirectory, "images", key));
   }
 
   public async openReferenceImage(
@@ -142,41 +137,16 @@ export class ReferenceStorage {
     storedPath: string,
     kind: "original" | "thumbnail",
   ): Promise<OpenReferenceImage> {
-    const absolutePath = this.#resolveManagedPath(referenceId, storedPath, kind);
-    const safePath = await this.#readableImagePath(absolutePath);
-    const before = await lstat(safePath);
-    const file = await open(safePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    try {
-      const stat = await file.stat();
-      // Serve the verified handle, not a path that is reopened later by HTTP.
-      // Recheck both directory safety and identity after opening to reject swaps.
-      const after = await lstat(await this.#readableImagePath(absolutePath));
-      if (!stat.isFile() || stat.size === 0 || stat.dev !== before.dev || stat.ino !== before.ino ||
-          stat.dev !== after.dev || stat.ino !== after.ino) {
-        throw new Error("Reference image changed while opening or is not a regular image file");
-      }
-      const contentType = { ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" }[extname(storedPath)];
-      if (contentType === undefined) throw new Error("Unsupported reference image extension");
-      const validator = createHash("sha256").update(
-        [referenceId, kind, stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":"),
-      ).digest("hex");
-      return { file, contentType, size: stat.size, etag: `W/"${validator}"` };
-    } catch (error) {
-      await file.close();
-      throw error;
+    const key = this.#managedKey(referenceId, storedPath, kind);
+    const contentType = contentTypeFor(key);
+    if (!contentType.startsWith("image/")) throw new Error("Unsupported reference image extension");
+    const read = await this.#blobs.read(key);
+    if (read.size === 0) {
+      read.body.destroy();
+      throw new Error("Reference image is empty");
     }
-  }
-
-  async #readableImagePath(absolutePath: string): Promise<string> {
-    await this.#safeDirectory(dirname(absolutePath), false);
-    const entry = await lstat(absolutePath);
-    const canonicalRoot = await realpath(this.#root);
-    const canonicalPath = await realpath(absolutePath);
-    const relativePath = relative(canonicalRoot, canonicalPath);
-    if (!entry.isFile() || entry.isSymbolicLink() || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-      throw new Error("Original image is not a regular file inside the storage root");
-    }
-    return canonicalPath;
+    const validator = createHash("sha256").update([referenceId, kind, key, read.version].join(":")).digest("hex");
+    return { body: read.body, contentType, size: read.size, etag: `W/"${validator}"` };
   }
 
   public async storeCapture(referenceId: string, frames: CapturedFrame[]): Promise<StoredWebsiteCapture> {
@@ -197,24 +167,16 @@ export class ReferenceStorage {
         if (frame.frameType !== expectedType) throw new Error("Invalid capture frame type");
         const metadata = await this.inspectImage(frame.buffer);
         if (metadata.format !== "png") throw new Error("Capture frames must be PNG images");
-        const storedPath = `captures/${referenceId}/${frame.name}.png`;
-        const absolutePath = this.#resolveManagedPath(referenceId, storedPath, "capture");
-        await this.#safeDirectory(dirname(absolutePath), true);
-        await this.#writeExclusive(absolutePath, frame.buffer, () => written.push(storedPath));
+        const key = this.#managedKey(referenceId, `captures/${referenceId}/${frame.name}.png`, "capture");
+        await this.#writeNew(key, frame.buffer, written);
       }
-      const thumbnail = this.#resolveManagedPath(referenceId, thumbnailPath, "thumbnail");
-      await this.#safeDirectory(dirname(thumbnail), true);
       const buffer = await sharp(frames[0].buffer).resize({ width: 640, height: 480, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
-      await this.#writeExclusive(thumbnail, buffer, () => written.push(thumbnailPath));
+      await this.#writeNew(this.#managedKey(referenceId, thumbnailPath, "thumbnail"), buffer, written);
       return { ...await this.inspectImage(frames[0].buffer), originalPath, thumbnailPath,
         frames: frames.map((frame, sortOrder) => ({ frameType: frame.frameType, imagePath: `captures/${referenceId}/${frame.name}.png`, sortOrder })) };
     } catch (error) {
-      // Include partially written files, but never paths owned by an earlier call.
-      for (const storedPath of written) {
-        const absolutePath = this.#resolveManagedPath(referenceId, storedPath, storedPath.startsWith("captures/") ? "capture" : "thumbnail");
-        await this.#safeDirectory(dirname(absolutePath), false).then(() => unlinkIfPresent(absolutePath)).catch(() => undefined);
-      }
-      await this.#removeEmptyCaptureDirectory(referenceId);
+      // Remove what this call wrote, never objects owned by an earlier call.
+      await Promise.allSettled(written.map((key) => this.#blobs.delete(key)));
       throw error;
     }
   }
@@ -226,31 +188,18 @@ export class ReferenceStorage {
   ): Promise<StoredReferenceImage> {
     const originalPath = `originals/${referenceId}.${originalExtensions[metadata.format]}`;
     const thumbnailPath = `thumbnails/${referenceId}.webp`;
-    const originalAbsolutePath = this.#resolveManagedPath(
-      referenceId,
-      originalPath,
-      "original",
-    );
-    const thumbnailAbsolutePath = this.#resolveManagedPath(
-      referenceId,
-      thumbnailPath,
-      "thumbnail",
-    );
+    const originalKey = this.#managedKey(referenceId, originalPath, "original");
+    const thumbnailKey = this.#managedKey(referenceId, thumbnailPath, "thumbnail");
 
-    // Decode before creating files: header-valid but truncated images are 400s.
+    // Decode before storing anything: header-valid but truncated images are 400s.
     const thumbnail = await this.#decodeThumbnail(buffer);
 
     const written: string[] = [];
     try {
-      await this.#safeDirectory(dirname(originalAbsolutePath), true);
-      await this.#safeDirectory(dirname(thumbnailAbsolutePath), true);
-      await this.#writeExclusive(originalAbsolutePath, buffer, () => written.push(originalAbsolutePath));
-      await this.#writeExclusive(thumbnailAbsolutePath, thumbnail, () => written.push(thumbnailAbsolutePath));
+      await this.#writeNew(originalKey, buffer, written);
+      await this.#writeNew(thumbnailKey, thumbnail, written);
     } catch (error) {
-      await Promise.allSettled(written.map(async (path) => {
-        await this.#safeDirectory(dirname(path), false);
-        await unlinkIfPresent(path);
-      }));
+      await Promise.allSettled(written.map((key) => this.#blobs.delete(key)));
       throw error;
     }
 
@@ -263,9 +212,9 @@ export class ReferenceStorage {
    * new format); a website reference takes it as its primary viewport frame,
    * stored as PNG like every capture frame, and keeps its other frames.
    *
-   * The new files are written beside the old ones first, the old ones are
-   * moved aside, and only then are the new ones renamed into place, so a
-   * failure at any point leaves the reference showing its previous picture.
+   * The current objects are first copied aside, then the new ones are written
+   * under the reference's keys, so until `commit` the previous picture can
+   * always be put back.
    */
   public async replaceImage(
     referenceId: string,
@@ -279,17 +228,25 @@ export class ReferenceStorage {
     this.#replacing.add(referenceId);
     const release = () => this.#replacing.delete(referenceId);
 
-    const staged: string[] = [];
-    const displaced: Array<{ path: string; aside: string }> = [];
+    /** Keys that held the previous picture, now copied aside. */
+    const displaced: string[] = [];
+    /** Keys written with the new picture. */
     const placed: string[] = [];
 
     const restore = async (): Promise<FileCleanupResult> => {
       const warnings: string[] = [];
-      for (const path of [...placed, ...staged]) {
-        await unlinkIfPresent(path).catch(() => warnings.push("replacement: a new file could not be removed"));
+      for (const key of placed) {
+        if (!displaced.includes(key)) {
+          await this.#blobs.delete(key).catch(() => warnings.push("replacement: a new file could not be removed"));
+        }
       }
-      for (const { path, aside } of displaced) {
-        await rename(aside, path).catch(() => warnings.push("replacement: a previous file could not be restored"));
+      for (const key of displaced) {
+        try {
+          await this.#blobs.copy(asideKey(key), key);
+          await this.#blobs.delete(asideKey(key));
+        } catch {
+          warnings.push("replacement: a previous file could not be restored");
+        }
       }
       return { warnings };
     };
@@ -310,52 +267,39 @@ export class ReferenceStorage {
           : `originals/${referenceId}.${originalExtensions[metadata.format]}`,
         thumbnailPath: `thumbnails/${referenceId}.webp`,
       };
-
-      const incoming: Array<[ManagedKind, string, Buffer]> = [
-        ["original", image.originalPath, original],
-        ["thumbnail", image.thumbnailPath, thumbnail],
+      const incoming: Array<[string, Buffer]> = [
+        [this.#managedKey(referenceId, image.originalPath, "original"), original],
+        [this.#managedKey(referenceId, image.thumbnailPath, "thumbnail"), thumbnail],
       ];
-      const targets: string[] = [];
-      for (const [kind, storedPath, bytes] of incoming) {
-        const target = this.#resolveManagedPath(referenceId, storedPath, kind);
-        await this.#safeDirectory(dirname(target), true);
-        const staging = `${target}.incoming`;
-        // A crash mid-replacement can leave one behind; it was never in use.
-        await unlinkIfPresent(staging);
-        await this.#writeExclusive(staging, bytes, () => staged.push(staging));
-        targets.push(target);
-      }
-
-      const outgoing: Array<[ManagedKind, string]> = [
-        ["original", current.originalPath],
-        ["thumbnail", current.thumbnailPath],
+      const outgoing = [
+        this.#managedKey(referenceId, current.originalPath, "original"),
+        this.#managedKey(referenceId, current.thumbnailPath, "thumbnail"),
       ];
-      for (const [kind, storedPath] of outgoing) {
-        const path = this.#resolveManagedPath(referenceId, storedPath, kind);
-        await this.#safeDirectory(dirname(path), false);
-        const aside = `${path}.previous`;
-        await unlinkIfPresent(aside);
+
+      for (const key of outgoing) {
         try {
-          await rename(path, aside);
-          displaced.push({ path, aside });
+          await this.#blobs.copy(key, asideKey(key));
+          displaced.push(key);
         } catch (error) {
           // A picture that is already missing is exactly what is being replaced.
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          if (!isBlobNotFound(error)) throw error;
         }
       }
-
-      for (const [index, target] of targets.entries()) {
-        await rename(staged[index]!, target);
-        placed.push(target);
+      for (const [key, bytes] of incoming) {
+        placed.push(key);
+        await this.#blobs.write(key, bytes, { contentType: contentTypeFor(key) });
       }
-      staged.length = 0;
+      // A format change moves the original to a new key; the old one goes aside.
+      for (const key of displaced) {
+        if (!placed.includes(key)) await this.#blobs.delete(key);
+      }
 
       return {
         image,
         commit: async () => {
           const warnings: string[] = [];
-          for (const { aside } of displaced) {
-            await unlinkIfPresent(aside).catch(() => warnings.push("replacement: a previous file could not be removed"));
+          for (const key of displaced) {
+            await this.#blobs.delete(asideKey(key)).catch(() => warnings.push("replacement: a previous file could not be removed"));
           }
           release();
           return { warnings };
@@ -381,28 +325,18 @@ export class ReferenceStorage {
   ): Promise<FileCleanupResult> {
     const warnings: string[] = [];
 
-    const entries: Array<["original" | "thumbnail" | "capture", string]> = [
+    const entries: Array<[ManagedKind, string]> = [
       ["original", originalPath],
       ["thumbnail", thumbnailPath],
       ...framePaths.filter((path) => path !== originalPath).map((path): ["capture", string] => ["capture", path]),
     ];
     for (const [kind, storedPath] of entries) {
       try {
-        const absolutePath = this.#resolveManagedPath(
-          referenceId,
-          storedPath,
-          kind,
-        );
-        await this.#safeDirectory(dirname(absolutePath), false);
-        await unlinkIfPresent(absolutePath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          warnings.push(`${kind}: managed file could not be removed safely`);
-        }
+        await this.#blobs.delete(this.#managedKey(referenceId, storedPath, kind));
+      } catch {
+        warnings.push(`${kind}: managed file could not be removed safely`);
       }
     }
-
-    if (originalPath.startsWith("captures/")) await this.#removeEmptyCaptureDirectory(referenceId);
 
     return { warnings };
   }
@@ -438,13 +372,20 @@ export class ReferenceStorage {
     }
   }
 
-  #resolveManagedPath(
+  /** Writes a key that must not exist yet, recording it before the write so a failure can remove it. */
+  async #writeNew(key: string, bytes: Buffer, written: string[]): Promise<void> {
+    await this.#blobs.write(key, bytes, { contentType: contentTypeFor(key), exclusive: true });
+    written.push(key);
+  }
+
+  /** The storage key of a managed file: only names the reference's own namespace allows. */
+  #managedKey(
     referenceId: string,
     storedPath: string,
     kind: ManagedKind,
   ): string {
     z.uuid().parse(referenceId);
-    if (isAbsolute(storedPath) || storedPath.includes("\\")) {
+    if (storedPath.startsWith("/") || storedPath.includes("\\")) {
       throw new Error("Stored image path must be a portable relative path");
     }
 
@@ -461,50 +402,6 @@ export class ReferenceStorage {
     if (!expectedPattern.test(storedPath)) {
       throw new Error("Stored image path is outside the reference namespace");
     }
-
-    const absolutePath = resolve(this.#root, storedPath);
-    const relativePath = relative(this.#root, absolutePath);
-    if (
-      relativePath === "" ||
-      relativePath.startsWith("..") ||
-      isAbsolute(relativePath)
-    ) {
-      throw new Error("Stored image path resolves outside the storage root");
-    }
-
-    return absolutePath;
-  }
-
-  async #safeDirectory(directory: string, create: boolean): Promise<void> {
-    const parts = relative(this.#root, directory).split(/[\\/]/).filter(Boolean);
-    if (parts.some((part) => part === "..") || isAbsolute(relative(this.#root, directory))) throw new Error("Unsafe storage directory");
-    if (create) await mkdir(this.#root, { recursive: true });
-    const rootEntry = await lstat(this.#root);
-    if (!rootEntry.isDirectory() || rootEntry.isSymbolicLink()) throw new Error("Storage root must be a real directory");
-    let current = this.#root;
-    for (const part of parts) {
-      current = resolve(current, part);
-      if (create) await mkdir(current).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
-      const entry = await lstat(current);
-      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("Storage directory must be inside the storage root and must not be a symbolic link");
-    }
-  }
-
-  async #writeExclusive(path: string, buffer: Buffer, onCreated: () => void): Promise<void> {
-    // wx refuses an existing file or link. Record ownership before the first write
-    // so disk-full errors cannot leave an untracked partially written file.
-    const handle = await open(path, "wx");
-    onCreated();
-    try {
-      await handle.writeFile(buffer);
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  }
-
-  async #removeEmptyCaptureDirectory(referenceId: string): Promise<void> {
-    const directory = dirname(this.#resolveManagedPath(referenceId, `captures/${referenceId}/viewport.png`, "capture"));
-    await this.#safeDirectory(directory, false).then(() => rmdir(directory)).catch(() => undefined);
+    return storedPath;
   }
 }

@@ -21,6 +21,7 @@ import type { Db } from "../src/database/connection.js";
 import { references } from "../src/database/schema.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createImageReferenceRecord, getReference } from "../src/services/references.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { createTestApp, disposeTestApp, rejectWrites, validDesignTypeInput, type TestAppContext } from "./helpers.js";
 
@@ -38,7 +39,7 @@ describe("external-curator analysis", () => {
   beforeEach(async () => {
     context = await createTestApp("analysis");
     connection = context.db;
-    storage = new ReferenceStorage(context.storageRoot);
+    storage = new ReferenceStorage(new LocalBlobStore(context.storageRoot));
     await createDesignType(connection, validDesignTypeInput);
     image = await sharp({ create: { width: 8, height: 6, channels: 3, background: "#eeeecc" } }).png().toBuffer();
   });
@@ -236,7 +237,8 @@ describe("external-curator analysis", () => {
     const id = randomUUID();
     writeFileSync(join(outside, `${id}.png`), image);
     symlinkSync(outside, join(root, "originals"), "junction");
-    await expect(new ReferenceStorage(root).getOriginalImagePath(id, `originals/${id}.png`)).rejects.toThrow(/inside the storage root/);
+    await expect(new ReferenceStorage(new LocalBlobStore(root)).locateOriginalImage(id, `originals/${id}.png`, join(context.directory, "inbox")))
+      .rejects.toThrow(/inside the storage root/);
     expect(readFileSync(join(outside, `${id}.png`))).toEqual(image);
   });
 
@@ -268,7 +270,7 @@ describe("external-curator analysis", () => {
     const dataDirectory = join(context.directory, "cli-data");
     const run = async (...args: string[]) => {
       const { result, ok } = await runAnalysisCommand(analysisCommandSchema.parse(args), connection,
-        { storageRoot: context.storageRoot, analysisDataDirectory: dataDirectory });
+        { objectStorage: undefined, storageRoot: context.storageRoot, analysisDataDirectory: dataDirectory });
       return { ok, result: result as { exported?: number; imported?: number; failed?: number } };
     };
     const exported = await run("export");

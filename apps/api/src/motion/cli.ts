@@ -11,6 +11,7 @@ import { openCliDatabase } from "../database/cli-connection.js";
 import type { Db } from "../database/connection.js";
 import { failedMotionResult, getPendingMotion, importMotionAnalyses, motionReport } from "../services/motion-analysis.js";
 import { MotionStorage } from "../storage/motion-storage.js";
+import { openBlobStore } from "../storage/open-blob-store.js";
 
 /*
  * Motion curator workflow, mirroring analysis:export-pending / analysis:import:
@@ -22,7 +23,7 @@ import { MotionStorage } from "../storage/motion-storage.js";
 const guidePath = fileURLToPath(new URL("../../../../docs/motion-analysis.md", import.meta.url));
 
 export async function exportPendingMotion(db: Db, storage: MotionStorage, dataDirectory: string) {
-  const manifest = await getPendingMotion(db, storage, join(dataDirectory, "motion-results"));
+  const manifest = await getPendingMotion(db, storage, dataDirectory);
   const guide = await readFile(guidePath, "utf8");
   const inbox = join(dataDirectory, "motion-inbox");
   await mkdir(inbox, { recursive: true });
@@ -65,9 +66,14 @@ async function main(): Promise<void> {
   const { config, connection } = await openCliDatabase();
   try {
     if (args[0] === "export") {
-      const result = await exportPendingMotion(connection.database, new MotionStorage(config.storageRoot), config.analysisDataDirectory);
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      if (result.unavailable.length > 0) process.exitCode = 1;
+      const blobs = openBlobStore(config);
+      try {
+        const result = await exportPendingMotion(connection.database, new MotionStorage(blobs), config.analysisDataDirectory);
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        if (result.unavailable.length > 0) process.exitCode = 1;
+      } finally {
+        blobs.close?.();
+      }
     } else {
       const result = await importMotionFiles(connection.database, join(config.analysisDataDirectory, "motion-results"), args.length === 2);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

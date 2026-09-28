@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -38,6 +37,7 @@ import {
   resetMotionAnalysis,
   updateMotionStudy,
 } from "../services/motion-analysis.js";
+import { BlobRangeError, resolveRange, type ByteRange, type RangeRequest } from "../storage/blob-store.js";
 import type { MotionMediaKind, MotionStorage, OpenMotionFile } from "../storage/motion-storage.js";
 
 const referenceParameters = z.object({ id: z.uuid() }).strict();
@@ -61,10 +61,11 @@ function matchesEtag(header: string | undefined, etag: string): boolean {
 }
 
 /**
- * One `bytes=` range, as browsers send for video seeking. Multiple ranges are
- * answered with the whole file (allowed by RFC 9110); a malformed header is ignored.
+ * One `bytes=` range, as browsers send for video seeking, before the file's
+ * size is known. Multiple ranges are answered with the whole file (allowed by
+ * RFC 9110); a malformed header is ignored.
  */
-export function parseByteRange(header: string | undefined, size: number): { start: number; end: number } | "unsatisfiable" | undefined {
+export function parseRangeHeader(header: string | undefined): RangeRequest | "unsatisfiable" | undefined {
   if (header === undefined) return undefined;
   const match = /^bytes=(\d*)-(\d*)$/u.exec(header.trim());
   if (match === null) return undefined;
@@ -73,41 +74,66 @@ export function parseByteRange(header: string | undefined, size: number): { star
   if (first === "") {
     const suffix = Number(last);
     if (!Number.isSafeInteger(suffix) || suffix === 0) return "unsatisfiable";
-    return { start: Math.max(0, size - suffix), end: size - 1 };
+    return { suffix };
   }
   const start = Number(first);
-  const end = last === "" ? size - 1 : Math.min(Number(last), size - 1);
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) return "unsatisfiable";
-  return { start, end };
+  if (!Number.isSafeInteger(start)) return "unsatisfiable";
+  const end = Number(last);
+  // An end past any possible size means "to the end".
+  return { start, end: last === "" || !Number.isSafeInteger(end) ? undefined : end };
+}
+
+/** The bytes a `Range` header covers in a file of `size` bytes. */
+export function parseByteRange(header: string | undefined, size: number): ByteRange | "unsatisfiable" | undefined {
+  const requested = parseRangeHeader(header);
+  return requested === undefined || requested === "unsatisfiable" ? requested : resolveRange(requested, size);
 }
 
 async function sendMotionFile(
   request: FastifyRequest,
   reply: FastifyReply,
-  media: OpenMotionFile,
+  open: (range?: RangeRequest) => Promise<OpenMotionFile>,
   ranges: boolean,
 ): Promise<FastifyReply> {
+  reply.header("Cache-Control", "private, max-age=0, must-revalidate").header("X-Content-Type-Options", "nosniff");
+  if (ranges) reply.header("Accept-Ranges", "bytes");
+  const requested = ranges ? parseRangeHeader(request.headers.range) : undefined;
+  let media: OpenMotionFile;
   try {
-    reply.header("Cache-Control", "private, max-age=0, must-revalidate").header("ETag", media.etag)
-      .header("X-Content-Type-Options", "nosniff");
-    if (ranges) reply.header("Accept-Ranges", "bytes");
-    if (matchesEtag(request.headers["if-none-match"], media.etag)) return reply.code(304).send();
+    // The range goes to the store with the read: one request per seek.
+    media = await open(requested === "unsatisfiable" ? undefined : requested);
+  } catch (error) {
+    if (error instanceof BlobRangeError) {
+      return reply.code(416).header("Content-Range", `bytes */${error.size}`).send();
+    }
+    // Missing, unreadable and unsafe files are indistinguishable over HTTP.
+    throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
+  }
+  try {
+    reply.header("ETag", media.etag);
+    if (matchesEtag(request.headers["if-none-match"], media.etag)) {
+      media.body.destroy();
+      return reply.code(304).send();
+    }
     reply.type(media.contentType);
-    const range = ranges ? parseByteRange(request.headers.range, media.size) : undefined;
-    if (range === "unsatisfiable") {
+    if (requested === "unsatisfiable") {
+      media.body.destroy();
       return reply.code(416).header("Content-Range", `bytes */${media.size}`).send();
     }
-    if (range !== undefined) {
-      reply.code(206).header("Content-Range", `bytes ${range.start}-${range.end}/${media.size}`)
-        .header("Content-Length", range.end - range.start + 1);
-      if (request.method === "HEAD") return reply.send();
-      return await reply.send(media.file.createReadStream({ autoClose: false, start: range.start, end: range.end }));
+    if (media.range !== undefined) {
+      reply.code(206).header("Content-Range", `bytes ${media.range.start}-${media.range.end}/${media.size}`)
+        .header("Content-Length", media.range.end - media.range.start + 1);
+    } else {
+      reply.header("Content-Length", media.size);
     }
-    reply.header("Content-Length", media.size);
-    if (request.method === "HEAD") return reply.send();
-    return await reply.send(media.file.createReadStream({ autoClose: false }));
-  } finally {
-    await media.file.close();
+    if (request.method === "HEAD") {
+      media.body.destroy();
+      return reply.send();
+    }
+    return await reply.send(media.body);
+  } catch (error) {
+    media.body.destroy();
+    throw error;
   }
 }
 
@@ -134,35 +160,36 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
 
     const clipId = randomUUID();
     const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-    let received = false;
+    let upload: string | undefined;
+    // The recording is checked on this PC before it is stored.
+    const workspace = await storage.createWorkspace();
     try {
       for await (const part of request.parts({ limits: { fileSize: options.maxUploadBytes, files: 1, fields: 4 } })) {
         if (part.type === "file") {
-          if (part.fieldname !== "file" || received) {
+          if (part.fieldname !== "file" || upload !== undefined) {
             part.file.resume();
             throw new ApiError(400, "VALIDATION_ERROR", "Upload exactly one recording in the multipart field 'file'");
           }
-          await storage.writeUpload(referenceId, clipId, part.file);
+          upload = await storage.receiveUpload(workspace, part.file);
           if (part.file.truncated) throw new ApiError(413, "UPLOAD_TOO_LARGE", "The recording exceeds the configured size limit");
-          received = true;
         } else {
           if (part.valueTruncated || part.fieldnameTruncated) throw new ApiError(413, "MULTIPART_FIELD_TOO_LARGE", "An upload field exceeds the size limit");
           if (Object.hasOwn(fields, part.fieldname)) throw new ApiError(400, "DUPLICATE_MULTIPART_FIELD", "A multipart field was provided more than once");
           fields[part.fieldname] = part.value;
         }
       }
-      if (!received) throw new ApiError(400, "RECORDING_REQUIRED", "Upload exactly one recording in the multipart field 'file'");
+      if (upload === undefined) throw new ApiError(400, "RECORDING_REQUIRED", "Upload exactly one recording in the multipart field 'file'");
       const input = parseRequest(createMotionClipFieldsSchema, fields);
-      const source = await storage.existingPath(referenceId, clipId, "source.bin");
       let probe;
       try {
-        probe = await probeMedia(options.tools, source);
+        probe = await probeMedia(options.tools, upload);
         assertWithinLimits(probe);
       } catch (error) {
         if (error instanceof MotionLimitError) throw new ApiError(422, "MOTION_OUT_OF_LIMITS", error.message);
         if (error instanceof UnsupportedMediaError) throw new ApiError(415, "UNSUPPORTED_MEDIA", error.message);
         throw error;
       }
+      await storage.storeFile(referenceId, clipId, "source.bin", upload);
       const study = await createQueuedClip(db, {
         referenceId, clipId, label: input.label, posterMs: input.posterMs,
         sourceFormat: `${probe.formatName.split(",")[0]}/${probe.codec}`.slice(0, 60),
@@ -178,6 +205,8 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
         throw new ApiError(400, "VALIDATION_ERROR", "Upload one recording with at most the label and posterMs fields");
       }
       throw error;
+    } finally {
+      await workspace.dispose();
     }
   });
 
@@ -208,7 +237,7 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
 
   app.get("/api/v1/motion/pending", async (request) => {
     parseRequest(emptyQuery, request.query);
-    return await getPendingMotion(db, storage, join(options.dataDirectory, "motion-results"));
+    return await getPendingMotion(db, storage, options.dataDirectory);
   });
 
   app.post("/api/v1/motion/import", { bodyLimit: 2 * 1_024 * 1_024 }, async (request) => {
@@ -254,11 +283,11 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
     const { clipId } = parseRequest(clipParameters, request.params);
     parseRequest(emptyQuery, request.query);
     const { referenceId } = await readyClipForMedia(db, clipId);
-    const path = await storage.existingPath(referenceId, clipId, "energy.json").catch(() => {
+    const text = await storage.readText(referenceId, clipId, "energy.json").catch(() => {
       throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
     });
     const parsed = z.object({ sampleFps: z.number(), energy: z.array(z.number()) }).passthrough()
-      .parse(JSON.parse(await readFile(path, "utf8")));
+      .parse(JSON.parse(text));
     return clipEnergySchema.parse({ sampleFps: parsed.sampleFps, energy: parsed.energy.map((value) => Math.min(1, Math.max(0, value))) });
   });
 
@@ -272,10 +301,8 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
         const { clipId } = parseRequest(clipParameters, request.params);
         parseRequest(emptyQuery, request.query);
         const { referenceId } = await readyClipForMedia(db, clipId);
-        const media = await storage.openMedia(referenceId, clipId, kind).catch(() => {
-          throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
-        });
-        return sendMotionFile(request, reply, media, kind === "clip" || kind === "preview");
+        return sendMotionFile(request, reply, (range) => storage.openMedia(referenceId, clipId, kind, range),
+          kind === "clip" || kind === "preview");
       },
     });
   }
@@ -295,10 +322,8 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
         if (index >= (kind === "keyframes" ? clip.keyframeCount : clip.burstCount)) {
           throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
         }
-        const media = await storage.openIndexed(clip.referenceId, clipId, kind === "keyframes" ? "keyframe" : "burst", index).catch(() => {
-          throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
-        });
-        return sendMotionFile(request, reply, media, false);
+        return sendMotionFile(request, reply,
+          () => storage.openIndexed(clip.referenceId, clipId, kind === "keyframes" ? "keyframe" : "burst", index), false);
       },
     });
   }

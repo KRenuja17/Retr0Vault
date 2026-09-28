@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { errorResponseSchema, referenceResponseSchema } from "@retr0vault/shared";
 
 import type { CapturedFrame } from "../src/capture/service.js";
+import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { createMultipartPayload, createTestApp, disposeTestApp, type TestAppContext } from "./helpers.js";
 
@@ -185,7 +186,7 @@ describe("replacing a reference's picture", () => {
 
   it("puts the previous files back when the swap is rolled back, and swaps one at a time", async () => {
     const reference = await fileImage();
-    const storage = new ReferenceStorage(context.storageRoot);
+    const storage = new ReferenceStorage(new LocalBlobStore(context.storageRoot));
     const current = { sourceType: "image" as const, originalPath: reference.originalPath, thumbnailPath: reference.thumbnailPath };
     const thumbnail = readFileSync(join(context.storageRoot, reference.thumbnailPath));
 
@@ -208,7 +209,7 @@ describe("replacing a reference's picture", () => {
 
   it("replaces a picture whose files had already gone missing", async () => {
     const reference = await fileImage();
-    const storage = new ReferenceStorage(context.storageRoot);
+    const storage = new ReferenceStorage(new LocalBlobStore(context.storageRoot));
     await storage.deleteReferenceFiles(reference.id, reference.originalPath, reference.thumbnailPath);
     expect((await context.app.inject({ url: `/api/v1/media/${reference.id}/thumbnail` })).statusCode).toBe(404);
 

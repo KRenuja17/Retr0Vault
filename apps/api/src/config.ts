@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
+import type { S3BlobStoreConfig } from "./storage/s3-blob-store.js";
+
 const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -32,7 +34,14 @@ const environmentSchema = z.object({
   MOTION_PROCESS_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(300_000),
   FFMPEG_PATH: z.string().trim().min(1).optional(),
   FFPROBE_PATH: z.string().trim().min(1).optional(),
+  S3_ENDPOINT: z.url({ protocol: /^https$/u }).optional(),
+  S3_REGION: z.string().trim().min(1).optional(),
+  S3_BUCKET: z.string().trim().min(1).optional(),
+  S3_ACCESS_KEY_ID: z.string().trim().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().trim().min(1).optional(),
 });
+
+const objectStorageVariables = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const;
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -61,6 +70,8 @@ export interface AppConfig {
     | "silent";
   /** Postgres connection string (Supabase session pooler); required unless a connection is supplied. */
   readonly databaseUrl: string | undefined;
+  /** The private bucket for files; when absent, files stay under `storageRoot`. */
+  readonly objectStorage: S3BlobStoreConfig | undefined;
   readonly storageRoot: string;
   readonly maxUploadBytes: number;
   readonly analysisDataDirectory: string;
@@ -85,6 +96,13 @@ export function loadConfig(
   }
 
   const configuredStorageRoot = result.data.STORAGE_ROOT ?? "storage";
+  const data = result.data;
+  const presentStorageVariables = objectStorageVariables.filter((name) => data[name] !== undefined);
+  // Half a bucket configuration is a mistake, not a request for local files.
+  if (presentStorageVariables.length > 0 && presentStorageVariables.length < objectStorageVariables.length) {
+    const missing = objectStorageVariables.filter((name) => data[name] === undefined);
+    throw new Error(`Invalid environment configuration: object storage also needs ${missing.join(", ")}`);
+  }
 
   return {
     nodeEnv: result.data.NODE_ENV,
@@ -92,6 +110,13 @@ export function loadConfig(
     port: result.data.PORT,
     logLevel: result.data.LOG_LEVEL,
     databaseUrl: result.data.DATABASE_URL,
+    objectStorage: presentStorageVariables.length === 0 ? undefined : {
+      endpoint: data.S3_ENDPOINT!,
+      region: data.S3_REGION!,
+      bucket: data.S3_BUCKET!,
+      accessKeyId: data.S3_ACCESS_KEY_ID!,
+      secretAccessKey: data.S3_SECRET_ACCESS_KEY!,
+    },
     storageRoot: isAbsolute(configuredStorageRoot)
       ? configuredStorageRoot
       : resolve(repositoryRoot, configuredStorageRoot),

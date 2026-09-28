@@ -24,7 +24,10 @@ import { ChromiumCaptureService, type CaptureService } from "./capture/service.j
 import { resolveMotionTools, type MotionTools } from "./motion/ffmpeg.js";
 import { MotionQueue, type ClipProcessor } from "./motion/queue.js";
 import { registerMotionRoutes } from "./routes/motion.js";
+import type { BlobStore } from "./storage/blob-store.js";
+import { LocalBlobStore } from "./storage/local-blob-store.js";
 import { MotionStorage } from "./storage/motion-storage.js";
+import { openBlobStore } from "./storage/open-blob-store.js";
 
 export interface BuildAppOptions {
   readonly config?: AppConfig;
@@ -35,7 +38,10 @@ export interface BuildAppOptions {
   readonly connection?: DatabaseConnection;
   readonly migrationsFolder?: string;
   readonly logger?: FastifyServerOptions["logger"];
+  /** Keep files in this local folder (tests); otherwise the configured bucket or storage folder. */
   readonly storageRoot?: string;
+  /** A store to use for files instead (tests); it wins over `storageRoot`. */
+  readonly blobStore?: BlobStore;
   readonly maxUploadBytes?: number;
   readonly captureService?: CaptureService;
   /** `null` simulates missing ffmpeg/ffprobe; undefined resolves them from config. */
@@ -95,12 +101,13 @@ export async function buildApp(
   }
   const connection = options.connection ?? openPostgres(config.databaseUrl!);
   const db = connection.database;
-  const storage = new ReferenceStorage(
-    options.storageRoot ?? config.storageRoot,
-  );
+  const blobs: BlobStore = options.blobStore ??
+    (options.storageRoot === undefined ? openBlobStore(config) : new LocalBlobStore(options.storageRoot));
+  app.addHook("onClose", async () => blobs.close?.());
+  const storage = new ReferenceStorage(blobs);
   const captureService = options.captureService ?? new ChromiumCaptureService({ timeoutMs: config.captureTimeoutMs });
   app.addHook("preClose", async () => captureService.close());
-  const motionStorage = new MotionStorage(options.storageRoot ?? config.storageRoot);
+  const motionStorage = new MotionStorage(blobs);
   const motionTools = options.motionTools === null ? undefined :
     options.motionTools ?? resolveMotionTools({ ffmpegPath: config.ffmpegPath, ffprobePath: config.ffprobePath });
   const motionQueue = new MotionQueue({
