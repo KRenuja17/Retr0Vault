@@ -60,8 +60,9 @@ export async function listUsers(db: Db) {
     id: users.id,
     username: users.username,
     createdAt: users.createdAt,
-    references: sql<number>`(select count(*)::integer from "references" r where r.owner_id = ${users.id})`,
-    collections: sql<number>`(select count(*)::integer from collections c where c.owner_id = ${users.id})`,
+    // Qualified by hand: inside the subquery a bare "id" would be the subquery's own.
+    references: sql<number>`(select count(*)::integer from "references" r where r.owner_id = "users"."id")`,
+    collections: sql<number>`(select count(*)::integer from collections c where c.owner_id = "users"."id")`,
   }).from(users).orderBy(asc(users.usernameKey));
 }
 

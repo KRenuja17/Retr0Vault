@@ -27,6 +27,21 @@ Keys stay in `.env`: never in a commit, a screenshot or a chat, and never sent t
 
 Every table has Row Level Security on with no policies, so Supabase's public Data API can read nothing; the API connects as the tables' owner. A free Supabase project pauses after a quiet week: `/api/v1/health` then fails with 503 `DATABASE_UNAVAILABLE`, and the project resumes from the Supabase dashboard. B2 keeps earlier versions of changed or deleted files by default (the bucket's lifecycle settings), which is a safety net that also counts toward storage. Each request to the bucket takes about half a second or more from here, so the API keeps a local copy of every file it writes or reads (`FILE_CACHE_MAX_MB`); the bucket stays the durable copy, and the cache can be deleted at any time with the API stopped.
 
+## Accounts
+
+The vault needs an account. `/` is the front door and `/login` the strong room behind it; every other page, and every API route except the health check, signing in and out, and the front door's showcase, needs a session. Each account sees only its own references and collections (another account's answer as if missing); design types are shared.
+
+```powershell
+npm run users -- list                               # accounts and what they own
+npm run users -- create <username> --adopt-unowned  # a new account; asks for the password, hidden
+npm run users -- password <username>                # a new password; signs the account out everywhere
+npm run users -- adopt <username>                   # give it every reference and collection with no owner
+```
+
+Passwords are stored only as scrypt hashes and never passed on the command line (the command asks, or reads `RETR0VAULT_PASSWORD` when scripted). A session is an HttpOnly, SameSite=Strict cookie; the database keeps only a hash of its token, and it lasts 14 days from its last use. After five failed sign-ins for a name or from an address, sign-in pauses for 30 seconds, doubling with each further failure up to 15 minutes. "Lock the vault" in the masthead signs out.
+
+The front door's film strip and counters are public: the newest plates of the whole archive, whoever filed them (ids, titles and thumbnails only).
+
 ## Start Retr0Vault on Windows
 
 From PowerShell in the repository root, with `.env` filled in:
