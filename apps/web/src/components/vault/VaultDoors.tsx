@@ -51,6 +51,16 @@ const painted = () => new Promise<void>((resolve) => {
   }
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
 });
+/**
+ * A quiet moment: the page just put behind the doors has finished arriving (its
+ * plates rendered, its first pictures decoded), or `limit` has passed. The seam
+ * is cut then, so a busy frame cannot swallow it.
+ */
+const quiet = (limit: number) => new Promise<void>((resolve) => {
+  if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: limit });
+  else setTimeout(resolve, 0);
+});
+const QUIET_LIMIT_MS = 450;
 
 /**
  * Deal the catalogue plates that are on screen, in reading order, as the doors
@@ -90,8 +100,11 @@ export function DoorsProvider({ children }: { readonly children: ReactNode }) {
       setScene({ face, split: nextDoorSplit(), phase: "shut" });
       await painted();
       await behind();
+      await quiet(QUIET_LIMIT_MS);
       await painted();
       phase("seamed");
+      // The seam's moment is counted from when it is on screen, not from when it was asked for.
+      await painted();
       await wait(SEAM_MS);
       phase("parting");
       dealCatalogue();
@@ -110,6 +123,7 @@ export function DoorsProvider({ children }: { readonly children: ReactNode }) {
     phase("closing");
     await wait(MOVE_MS + 40);
     phase("sealed");
+    await painted();
     await wait(SEAM_MS);
   }, [phase, reduced]);
 

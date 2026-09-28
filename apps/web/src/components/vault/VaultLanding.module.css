@@ -664,12 +664,15 @@
   height: 5px;
 }
 
+/* The spark runs on as the doors start to part; it is never cut short by them. */
 .seamed .spark,
+.opening .spark,
 .sealing .spark {
   animation: spark-down 380ms cubic-bezier(0.7, 0, 0.2, 1) both;
 }
 
 .upDown.seamed .spark,
+.upDown.opening .spark,
 .upDown.sealing .spark {
   animation-name: spark-across;
 }

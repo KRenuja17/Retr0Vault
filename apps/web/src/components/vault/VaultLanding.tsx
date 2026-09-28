@@ -490,7 +490,9 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
     // This door takes the visit's next turn in the sequence of splits.
     setSplit(nextDoorSplit());
     setPhase("seamed");
-    await wait(380);
+    // The seam's moment is counted from when it is on screen, not from when it was asked for.
+    await painted();
+    await wait(SEAM_MS);
     setPhase("opening");
     onOpening?.();
     dealCatalogue();
