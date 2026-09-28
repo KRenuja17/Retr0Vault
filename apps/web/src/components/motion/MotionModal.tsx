@@ -16,6 +16,7 @@ import { ApiError } from "@/lib/api/client";
 import { motionBurstUrl, motionMediaUrl } from "@/lib/api/media";
 import { cx } from "@/lib/cx";
 import { describeIngestFailure } from "@/lib/ingest/errors";
+import { useSiblingSheetLink } from "@/lib/navigation/sheetStack";
 import { timecode, TRIGGER_LABELS } from "@/lib/motion/format";
 import {
   useMotionClipRemoval,
@@ -192,6 +193,8 @@ function StudyActions({ study, onClose, onDeleted }: {
 }) {
   const [confirming, setConfirming] = useState(false);
   const remove = useMotionStudyRemoval();
+  // The design analysis takes this sheet's place rather than opening over it.
+  const sibling = useSiblingSheetLink();
   const cancel = useRef<HTMLButtonElement>(null);
   const promptId = useId();
   useEffect(() => {
@@ -224,7 +227,7 @@ function StudyActions({ study, onClose, onDeleted }: {
             variant="solid"
             title={brief.length > 0 ? "Copy the motion brief for a coding agent" : "No motion brief filed yet"}
           />
-          <ActionLink variant="outline" to={`/reference/${study.referenceId}`}>View design analysis</ActionLink>
+          <ActionLink variant="outline" to={`/reference/${study.referenceId}`} {...sibling}>View design analysis</ActionLink>
           <ActionButton variant="remove" onClick={() => setConfirming(true)} title="Remove the recordings and motion analysis; the reference stays">
             Delete motion study
           </ActionButton>

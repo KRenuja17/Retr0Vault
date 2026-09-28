@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { CollectionResponse } from "@retr0vault/shared";
 
@@ -12,6 +12,13 @@ import {
   originFromState,
 } from "@/lib/catalogue/filters";
 import { clearPlateFocus, requestPlateFocus } from "@/lib/catalogue/plateFocus";
+import {
+  backdropPath,
+  sheetStackFromState,
+  SheetStackProvider,
+  type SheetStack,
+} from "@/lib/navigation/sheetStack";
+import { MotionView } from "@/components/motion/MotionView";
 import { ActionLink, MonoLabel } from "@/components/primitives";
 import {
   useCollections,
@@ -113,40 +120,43 @@ function CollectionHeader({
 
 /**
  * `/reference/:id` — the reference sheet raised over the catalogue it was
- * opened from. The catalogue renders behind the scrim, so the modal is layered
- * over the archive rather than replacing it, and the address stays shareable.
+ * opened from (or over the Motion grid, when the reader turned to it from a
+ * motion study opened there). The page renders behind the scrim, so the modal
+ * is layered over the archive rather than replacing it, and the address stays
+ * shareable.
  */
 export function ReferenceRoute() {
   const { id = "" } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Which slice the plate was opened from; falls back to the whole archive for
-  // a link pasted straight into the address bar.
-  const origin = originFromState(location.state);
-
   /*
-   * `key` is "default" only for the entry the app was loaded on, so this
-   * distinguishes "opened from a plate" — where going back is what the reader
-   * expects, and keeps Back and CLOSE symmetric — from a direct visit, where
-   * there is no catalogue behind us in history to return to.
+   * Opened from a plate: the slice it came from is behind the sheet, one step
+   * back in history. `key` is "default" only for the entry the app was loaded
+   * on, so a direct visit has no catalogue behind it; it falls back to the
+   * slice the state names, or the whole archive. Turned to from the motion
+   * study, the sheet inherits that study's stack instead.
    */
-  const openedFromCatalogue = location.key !== "default";
+  const arrival = useRef<SheetStack>({
+    backdrop: { kind: "catalogue", filter: originFromState(location.state) },
+    inHistory: location.key !== "default",
+  }).current;
+  const stack = sheetStackFromState(location.state) ?? arrival;
 
   /*
    * Leaving the sheet, whether it was closed or the reference was removed, is
    * the same navigation: back to the entry it was opened from, so the reader
    * lands on the exact slice, search and scroll position they left — and a
-   * direct visit, which has no catalogue behind it in history, is sent to the
-   * slice the address named instead.
+   * direct visit, which has nothing behind it in history, is sent to the page
+   * the stack names instead.
    */
   const returnToCatalogue = useCallback(() => {
-    if (openedFromCatalogue) {
+    if (stack.inHistory) {
       navigate(-1);
     } else {
-      navigate(filterToPath(origin), { replace: true });
+      navigate(backdropPath(stack.backdrop), { replace: true });
     }
-  }, [navigate, openedFromCatalogue, origin]);
+  }, [navigate, stack]);
 
   const close = useCallback(() => {
     // Radix cannot restore focus across a route change, so hand it to the
@@ -163,10 +173,14 @@ export function ReferenceRoute() {
   }, [returnToCatalogue]);
 
   return (
-    <>
-      <CatalogueView filter={origin} label={filterLabel(origin)} />
+    <SheetStackProvider value={stack}>
+      {stack.backdrop.kind === "catalogue" ? (
+        <CatalogueView filter={stack.backdrop.filter} label={filterLabel(stack.backdrop.filter)} />
+      ) : (
+        <MotionView address={stack.backdrop.path} />
+      )}
       <ReferenceModal referenceId={id} onClose={close} onDeleted={deleted} />
-    </>
+    </SheetStackProvider>
   );
 }
 

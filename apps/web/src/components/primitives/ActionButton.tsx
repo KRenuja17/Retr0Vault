@@ -40,6 +40,8 @@ export interface ActionLinkProps extends ActionButtonBaseProps {
   readonly title?: string | undefined;
   /** History state carried with the navigation, e.g. the originating slice. */
   readonly state?: unknown;
+  /** Replace the current history entry instead of adding one. */
+  readonly replace?: boolean | undefined;
 }
 
 const variantClass: Record<ActionButtonVariant, string | undefined> = {
@@ -107,12 +109,14 @@ export function ActionLink({
   to,
   title,
   state,
+  replace,
 }: ActionLinkProps) {
   return (
     <Link
       to={to}
       title={title}
       state={state}
+      replace={replace === true}
       className={classesFor(variant, size, block, className)}
     >
       {children}

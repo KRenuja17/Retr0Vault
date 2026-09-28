@@ -144,6 +144,64 @@ describe("catalogue cross-links", () => {
     await userEvent.click(within(plates[0]!).getByRole("link", { name: "Lando Norris" }));
     expect(await screen.findByRole("link", { name: "Motion study →" })).toHaveAttribute("href", `/motion/${REFERENCE_ID}`);
   });
+
+  function sheetSwitchRoutes() {
+    const withMotion = makeReference({
+      id: REFERENCE_ID, title: "Lando Norris", catalogueIndex: 1,
+      motion: { studyId: "dddddddd-0000-4000-8000-000000000001", status: "analyzed", clipCount: 2, readyClipCount: 2, primaryClipId: HERO_CLIP, durationMs: 15_000, previewClipId: HERO_CLIP },
+    });
+    stubApi([
+      { path: /^\/references$/u, handler: () => referencePage([withMotion]) },
+      { path: new RegExp(`^/references/${REFERENCE_ID}$`, "u"), handler: () => withMotion },
+      { path: new RegExp(`^/references/${REFERENCE_ID}/motion$`, "u"), handler: () => makeStudy() },
+      { path: /^\/motion$/u, handler: () => motionPage([makeListItem()]) },
+      { path: /^\/motion\/clips\/[^/]+\/energy$/u, handler: () => ({ sampleFps: 10, energy: [0, 0.1, 0] }) },
+    ]);
+  }
+
+  it("turns one sheet into the other instead of stacking them, so one CLOSE returns to the catalogue", async () => {
+    sheetSwitchRoutes();
+    const { router } = renderRoute("/all");
+    await userEvent.click(within((await screen.findAllByRole("article"))[0]!).getByRole("link", { name: "Lando Norris" }));
+
+    // Design analysis → motion study → design analysis → motion study.
+    for (let round = 0; round < 2; round += 1) {
+      await userEvent.click(await screen.findByRole("link", { name: "Motion study →" }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(`/motion/${REFERENCE_ID}`));
+      // The catalogue stays behind the sheet the whole time (hidden from assistive tech while it is open).
+      expect(screen.getByRole("heading", { name: "Complete archive", hidden: true })).toBeInTheDocument();
+      if (round === 0) {
+        await userEvent.click(await within(await screen.findByRole("dialog")).findByRole("link", { name: "View design analysis" }));
+        await waitFor(() => expect(router.state.location.pathname).toBe(`/reference/${REFERENCE_ID}`));
+      }
+    }
+
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/all"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("does the same from the Motion grid, keeping the grid behind the design analysis", async () => {
+    sheetSwitchRoutes();
+    const { router } = renderRoute("/motion");
+    await userEvent.click(within(await screen.findByRole("article")).getByRole("link", { name: "Lando Norris" }));
+    await userEvent.click(await within(await screen.findByRole("dialog")).findByRole("link", { name: "View design analysis" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/reference/${REFERENCE_ID}`));
+    expect(screen.getByRole("navigation", { name: "Motion filters", hidden: true })).toBeInTheDocument();
+
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/motion"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes a sheet visited by its address to the page it was switched over", async () => {
+    sheetSwitchRoutes();
+    const { router } = renderRoute(`/reference/${REFERENCE_ID}`);
+    await userEvent.click(await screen.findByRole("link", { name: "Motion study →" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/motion/${REFERENCE_ID}`));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/all"));
+  });
 });
 
 describe("the motion sheet", () => {

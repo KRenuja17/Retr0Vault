@@ -8,6 +8,7 @@ import {
   MonoLabel,
 } from "@/components/primitives";
 import { ApiError } from "@/lib/api/client";
+import { useSiblingSheetLink } from "@/lib/navigation/sheetStack";
 import { useDeleteReference } from "@/lib/references/useDeleteReference";
 
 import styles from "./ReferenceModal.module.css";
@@ -53,6 +54,8 @@ export function ReferenceActions({
   const promptId = useId();
   const cancel = useRef<HTMLButtonElement>(null);
   const remove = useDeleteReference();
+  // The motion study takes this sheet's place rather than opening over it.
+  const sibling = useSiblingSheetLink();
 
   /*
    * The sheet is a route, so it can be unmounted out from under an in-flight
@@ -188,6 +191,7 @@ export function ReferenceActions({
             <ActionLink
               variant="outline"
               to={`/motion/${reference.id}`}
+              {...sibling}
               title="Open the recordings and motion analysis for this reference"
             >
               Motion study →
