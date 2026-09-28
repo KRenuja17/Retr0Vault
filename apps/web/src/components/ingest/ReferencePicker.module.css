@@ -1,13 +1,23 @@
-/* The chosen reference, printed like a ledger entry above the mount. */
+/* The chosen reference, printed like a ledger entry above the mount, with the
+   way back to the list at its right edge. */
 .chosen {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--rv-space-1);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rv-space-3);
   padding: var(--rv-space-3) var(--rv-space-4);
   border: var(--rv-border) solid var(--rv-rule);
   border-left: var(--rv-rule-weight-heavy) solid var(--rv-accent);
   background-color: var(--rv-surface);
+}
+
+.chosenText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rv-space-1);
+  min-width: 0;
 }
 
 .chosenTitle {

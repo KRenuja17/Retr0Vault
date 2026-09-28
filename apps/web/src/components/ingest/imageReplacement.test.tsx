@@ -101,6 +101,39 @@ describe("replacing a reference's picture", () => {
     expect(sent(replacements(api.requests)[0], "resetAnalysis")).toBe("true");
   });
 
+  it("cancels a replacement half-way, sending nothing and going back to the list", async () => {
+    const api = stubApi([{ path: /^\/references$/u, handler: () => referencePage([LANDO, STILLPAGE]) }]);
+    renderIngest(<ImageReplacement />);
+    // Nothing chosen yet, so there is nothing to cancel.
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+
+    await chooseLando();
+    await userEvent.click(screen.getByRole("checkbox", { name: /file for re-analysis/i }));
+    await userEvent.upload(screen.getByLabelText(/choose new picture/i), makeFile("hero.png", "image/png"));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Back to the list, with the search field ready and the mount empty.
+    expect(await screen.findByRole("button", { name: /lando norris/i })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+    expect(screen.queryByText(/hero\.png/u)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.getByRole("button", { name: /replace the picture/i })).toBeDisabled();
+    expect(replacements(api.requests)).toHaveLength(0);
+
+    // Choosing again starts clean: re-analysis is unchecked.
+    await chooseLando();
+    expect(screen.getByRole("checkbox", { name: /file for re-analysis/i })).not.toBeChecked();
+  });
+
+  it("goes back to the list from the chosen reference", async () => {
+    stubApi([{ path: /^\/references$/u, handler: () => referencePage([LANDO, STILLPAGE]) }]);
+    renderIngest(<ImageReplacement />);
+    await chooseLando();
+    await userEvent.click(screen.getByRole("button", { name: /choose another reference/i }));
+    expect(await screen.findByRole("button", { name: /stillpage/i })).toBeInTheDocument();
+    expect(screen.getByRole("searchbox")).toHaveFocus();
+  });
+
   it("has nothing to re-analyse for a pending reference", async () => {
     stubApi([{ path: /^\/references$/u, handler: () => referencePage([LANDO, STILLPAGE]) }]);
     renderIngest(<ImageReplacement />);

@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReferenceResponse } from "@retr0vault/shared";
 
@@ -35,7 +35,8 @@ const ALL_LIMIT = 100;
  * Choose a reference already in the archive: the newest eight until a search
  * is run, then the best matches, with a count of how many there are and a way
  * to list them all. Once one is chosen it is printed like a ledger entry, with
- * a way to choose again.
+ * a plain way back to the list; coming back, for whatever reason, puts the
+ * reader in the search field.
  */
 export function ReferencePicker({
   selected,
@@ -52,7 +53,16 @@ export function ReferencePicker({
   const [submitted, setSubmitted] = useState("");
   const [showAll, setShowAll] = useState(false);
   const inputId = useId();
+  const searchField = useRef<HTMLInputElement>(null);
+  const hadSelection = useRef(selected !== null);
   const limit = showAll ? ALL_LIMIT : PREVIEW_LIMIT;
+
+  // Back from a chosen reference (its own button, or the lane's Cancel): the
+  // chosen card is gone, so focus goes where the reader chooses again.
+  useEffect(() => {
+    if (hadSelection.current && selected === null) searchField.current?.focus();
+    hadSelection.current = selected !== null;
+  }, [selected]);
   const results = useQuery({
     queryKey: ["references", `${lane}-picker`, submitted, limit],
     queryFn: ({ signal }) => fetchReferences({ limit, sort: submitted ? "relevance" : "newest", ...(submitted ? { q: submitted } : {}) }, signal),
@@ -67,10 +77,14 @@ export function ReferencePicker({
   if (selected !== null) {
     return (
       <div className={styles.chosen}>
-        <MonoLabel size="micro" tone="muted" uppercase>{chosenLabel}</MonoLabel>
-        <p className={styles.chosenTitle}>{selected.title}</p>
-        <MonoLabel size="micro" tone="muted">{describeChosen(selected)}</MonoLabel>
-        <ActionButton variant="quiet" size="small" onClick={() => onSelect(null)}>Choose another reference</ActionButton>
+        <div className={styles.chosenText}>
+          <MonoLabel size="micro" tone="muted" uppercase>{chosenLabel}</MonoLabel>
+          <p className={styles.chosenTitle}>{selected.title}</p>
+          <MonoLabel size="micro" tone="muted">{describeChosen(selected)}</MonoLabel>
+        </div>
+        <ActionButton variant="outline" size="small" onClick={() => onSelect(null)}>
+          <span aria-hidden="true">← </span>Choose another reference
+        </ActionButton>
       </div>
     );
   }
@@ -80,6 +94,7 @@ export function ReferencePicker({
       <div className={styles.pickerSearch}>
         <label htmlFor={inputId} className="rv-visually-hidden">{searchLabel}</label>
         <input
+          ref={searchField}
           id={inputId}
           className={cx(ingest.control, ingest.controlMono)}
           type="search"

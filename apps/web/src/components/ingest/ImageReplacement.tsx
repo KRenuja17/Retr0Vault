@@ -95,6 +95,13 @@ export function ImageReplacement() {
     setResetAnalysis(false);
   }
 
+  /** Changed their mind: nothing is sent, and the lane is as it was before a reference was chosen. */
+  function cancel() {
+    if (replacement.isPending) return;
+    clear();
+    choose(null);
+  }
+
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
@@ -254,6 +261,16 @@ export function ImageReplacement() {
           <ActionButton type="submit" variant="solid" disabled={reference === null || selected === null || replacement.isPending}>
             {replacement.isPending ? "Replacing" : "Replace the picture"}
           </ActionButton>
+          {reference === null && selected === null ? null : (
+            <ActionButton
+              variant="outline"
+              onClick={cancel}
+              disabled={replacement.isPending}
+              title="Leave this reference's picture as it is and go back to the list"
+            >
+              Cancel
+            </ActionButton>
+          )}
           <MonoLabel size="micro" tone="muted" uppercase className={styles.actionsNote}>
             {reference === null
               ? "Choose a reference first"
