@@ -95,8 +95,9 @@ describe("the vault's front door", () => {
     archive();
     renderRoute("/");
     await userEvent.click(await screen.findByRole("button", { name: /enter the vault/i }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(await screen.findByRole("link", { name: "Stillpage" })).toBeInTheDocument();
+    // The door waits for the session's first read, so the right room is behind it.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
+    expect(await screen.findByRole("link", { name: "Stillpage" }, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it("can be skipped, by the button or by Escape", async () => {

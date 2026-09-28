@@ -64,14 +64,26 @@ export function RootLayout() {
   const sealed = !dismissed && (location.pathname === "/" || (location.state as { vault?: unknown } | null)?.vault === true);
   const here = `${location.pathname}${location.search}${location.hash}`;
 
+  // Where the page behind the door is now. The door opens after the session is
+  // read, and a lapsed session changes the page before React renders again, so
+  // opening reads this rather than the location it was created with.
+  const behind = useRef({ pathname: location.pathname, search: location.search, hash: location.hash, state: location.state as unknown });
+  behind.current = { pathname: location.pathname, search: location.search, hash: location.hash, state: location.state };
+
   const openVault = useCallback(() => {
     setDismissed(true);
     setOpening(false);
     setArrival("intro");
+    const page = behind.current;
+    // At `/` the front door's own route chooses the room once the door is gone.
+    if (page.pathname === "/") return;
     // Only the front door's own mark is taken off the page; what the page keeps (its sheets) stays.
-    const { vault: _vault, ...rest } = stateOf(location.state);
-    void navigate(here, { replace: true, state: (Object.keys(rest).length > 0 ? rest : null) as LocationState });
-  }, [here, location.state, navigate]);
+    const { vault: _vault, ...rest } = stateOf(page.state);
+    void navigate(`${page.pathname}${page.search}${page.hash}`, {
+      replace: true,
+      state: (Object.keys(rest).length > 0 ? rest : null) as LocationState,
+    });
+  }, [navigate]);
 
   const sleep = useCallback(() => {
     if (sealed) return;
@@ -87,7 +99,15 @@ export function RootLayout() {
     if (state?.status === "success" && Date.now() - state.dataUpdatedAt < SESSION_RECHECK_MS) return;
     // A read already under way (the first, on arrival) is waited for, not restarted.
     await client.refetchQueries({ queryKey: queryKeys.session(), exact: true }, { cancelRefetch: false });
-  }, [client]);
+    // The session lapsed while the door was shut: the strong room is put behind
+    // it now, so the door opens onto it, and signing in returns to the room.
+    const page = behind.current;
+    if (client.getQueryData(queryKeys.session()) === null && page.pathname !== "/" && page.pathname !== "/login") {
+      const next = { from: `${page.pathname}${page.search}`, vault: true };
+      behind.current = { pathname: "/login", search: "", hash: "", state: next };
+      void navigate("/login", { replace: true, state: next });
+    }
+  }, [client, navigate]);
 
   const frontDoor: FrontDoorState = sealed ? (opening ? "opening" : "sealed") : "gone";
 
