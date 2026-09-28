@@ -137,14 +137,16 @@ export async function getMotionStudiesById(db: Db, studyIds: string[]): Promise<
 export async function motionSummaries(db: Db, referenceIds: string[]): Promise<Map<string, ReferenceMotionSummary>> {
   const summaries = new Map<string, ReferenceMotionSummary>();
   if (referenceIds.length === 0) return summaries;
-  const studies = await db.select({ id: motionStudies.id, referenceId: motionStudies.referenceId, status: motionStudies.motionStatus })
-    .from(motionStudies).where(inArray(motionStudies.referenceId, referenceIds));
-  if (studies.length === 0) return summaries;
-  const clips = await db.select({
-    id: motionClips.id, studyId: motionClips.motionStudyId, sortOrder: motionClips.sortOrder,
-    status: motionClips.processingStatus, durationMs: motionClips.durationMs,
-  }).from(motionClips).where(inArray(motionClips.motionStudyId, studies.map((study) => study.id)))
-    .orderBy(asc(motionClips.sortOrder));
+  // One round trip: each study with its clips (none, for a study without any).
+  const rows = await db.select({
+    studyId: motionStudies.id, referenceId: motionStudies.referenceId, studyStatus: motionStudies.motionStatus,
+    id: motionClips.id, status: motionClips.processingStatus, durationMs: motionClips.durationMs,
+  }).from(motionStudies)
+    .leftJoin(motionClips, eq(motionClips.motionStudyId, motionStudies.id))
+    .where(inArray(motionStudies.referenceId, referenceIds))
+    .orderBy(asc(motionStudies.id), asc(motionClips.sortOrder));
+  const studies = [...new Map(rows.map((row) => [row.studyId, { id: row.studyId, referenceId: row.referenceId, status: row.studyStatus }])).values()];
+  const clips = rows.flatMap((row) => row.id === null ? [] : [{ id: row.id, studyId: row.studyId, status: row.status!, durationMs: row.durationMs }]);
   for (const study of studies) {
     const own = clips.filter((clip) => clip.studyId === study.id);
     const primary = own[0];

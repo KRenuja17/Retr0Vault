@@ -293,15 +293,16 @@ function beatTriggers(beatsJson: unknown): MotionTrigger[] {
   return motionTriggerSchema.options.filter((trigger) => used.has(trigger));
 }
 
-export function listMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
-  return db.transaction((transaction) => queryMotion(transaction, query), { isolationLevel: "repeatable read", accessMode: "read only" });
-}
-
-async function queryMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
-  const countsByTrigger = await motionTriggerCounts(db);
-  const empty = () => motionListResponseSchema.parse({ items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0, countsByTrigger });
+/**
+ * One page of the motion section, in two pipelined round trips (counts and
+ * page together, then the page's tags and clips), as for references.
+ */
+export async function listMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
   const words = query.q ? searchWords(query.q) : undefined;
-  if (query.q && words === undefined) return empty();
+  if (query.q && words === undefined) {
+    const countsByTrigger = await motionTriggerCounts(db);
+    return motionListResponseSchema.parse({ items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0, countsByTrigger });
+  }
 
   const conditions: SQL[] = [];
   if (words !== undefined) conditions.push(sql`motion_search.document @@ ${searchQuery(words)}`);
@@ -329,24 +330,29 @@ async function queryMotion(db: Db, query: MotionListQuery): Promise<MotionListRe
     totalQuery.innerJoin(sql`motion_search`, joinCondition);
     pageQuery.innerJoin(sql`motion_search`, joinCondition);
   }
-  const [totalRow] = await totalQuery.where(where);
-  const total = totalRow?.value ?? 0;
   const order: SQL[] = query.sort === "relevance" && words !== undefined ? [sql`${motionSearchRank(words)} desc`, desc(motionStudies.createdAt)]
     : query.sort === "oldest" ? [asc(motionStudies.createdAt)]
       : query.sort === "title-asc" ? [sql`lower(${references.title}) asc`]
         : query.sort === "title-desc" ? [sql`lower(${references.title}) desc`]
           : [desc(motionStudies.createdAt)];
   const offset = (query.page - 1) * query.limit;
-  const rows = await pageQuery.where(where).orderBy(...order, asc(motionStudies.id)).limit(query.limit).offset(offset);
+  const [countsByTrigger, [totalRow], rows] = await Promise.all([
+    motionTriggerCounts(db),
+    totalQuery.where(where),
+    pageQuery.where(where).orderBy(...order, asc(motionStudies.id)).limit(query.limit).offset(offset),
+  ]);
+  const total = totalRow?.value ?? 0;
 
   const studyIds = rows.map((row) => row.studyId);
-  const tags = studyIds.length === 0 ? [] : await db.select().from(motionStudyTags)
-    .where(inArray(motionStudyTags.motionStudyId, studyIds)).orderBy(asc(motionStudyTags.sortOrder));
-  const clips = studyIds.length === 0 ? [] : await db.select({
-    id: motionClips.id, studyId: motionClips.motionStudyId, label: motionClips.label, sortOrder: motionClips.sortOrder,
-    processingStatus: motionClips.processingStatus, durationMs: motionClips.durationMs, width: motionClips.width, height: motionClips.height,
-    keyframeCount: sql<number>`(select count(*)::integer from motion_keyframes k where k.motion_clip_id = ${motionClips.id})`,
-  }).from(motionClips).where(inArray(motionClips.motionStudyId, studyIds)).orderBy(asc(motionClips.sortOrder));
+  const [tags, clips] = studyIds.length === 0 ? [[], []] : await Promise.all([
+    db.select().from(motionStudyTags)
+      .where(inArray(motionStudyTags.motionStudyId, studyIds)).orderBy(asc(motionStudyTags.sortOrder)),
+    db.select({
+      id: motionClips.id, studyId: motionClips.motionStudyId, label: motionClips.label, sortOrder: motionClips.sortOrder,
+      processingStatus: motionClips.processingStatus, durationMs: motionClips.durationMs, width: motionClips.width, height: motionClips.height,
+      keyframeCount: sql<number>`(select count(*)::integer from motion_keyframes k where k.motion_clip_id = ${motionClips.id})`,
+    }).from(motionClips).where(inArray(motionClips.motionStudyId, studyIds)).orderBy(asc(motionClips.sortOrder)),
+  ]);
 
   return motionListResponseSchema.parse({
     items: rows.map((row, index) => {

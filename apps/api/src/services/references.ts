@@ -292,16 +292,14 @@ export async function createWebsiteReferenceRecord(
   });
 }
 
+/**
+ * One catalogue page. Every database round trip costs a cloud hop, so the
+ * filters are subqueries, the total and the page are fetched together, and
+ * the page's relations in one more pipelined batch. (Without a snapshot
+ * transaction, a total can briefly disagree with a page while an import is
+ * writing; the next request agrees again.)
+ */
 export async function listReferences(db: Db, query: ReferenceListQuery): Promise<ReferenceListResponse> {
-  // Keep the total, page rows and hydrated relations on one read snapshot,
-  // including while an import is writing concurrently.
-  return db.transaction((transaction) => queryReferences(transaction, query), {
-    isolationLevel: "repeatable read",
-    accessMode: "read only",
-  });
-}
-
-async function queryReferences(db: Db, query: ReferenceListQuery): Promise<ReferenceListResponse> {
   const conditions: SQL[] = [];
   const emptyResult = () => referenceListResponseSchema.parse({
     items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0,
@@ -312,27 +310,22 @@ async function queryReferences(db: Db, query: ReferenceListQuery): Promise<Refer
     conditions.push(sql`reference_search.document @@ ${searchQuery(words)}`);
   }
 
+  // An unknown slug matches nothing, so the page is empty.
   if (query.designType !== undefined) {
-    const [designType] = await db.select({ id: designTypes.id }).from(designTypes).where(eq(designTypes.slug, query.designType));
-    if (designType === undefined) {
-      return emptyResult();
-    }
-    conditions.push(eq(references.designTypeId, designType.id));
+    conditions.push(inArray(
+      references.designTypeId,
+      db.select({ id: designTypes.id }).from(designTypes).where(eq(designTypes.slug, query.designType)),
+    ));
   }
 
   if (query.collection !== undefined) {
-    const [collection] = await db.select({ id: collections.id }).from(collections).where(eq(collections.slug, query.collection));
-    if (collection === undefined) {
-      return emptyResult();
-    }
-    conditions.push(
-      inArray(
-        references.id,
-        db.select({ id: collectionReferences.referenceId })
-          .from(collectionReferences)
-          .where(eq(collectionReferences.collectionId, collection.id)),
-      ),
-    );
+    conditions.push(inArray(
+      references.id,
+      db.select({ id: collectionReferences.referenceId })
+        .from(collectionReferences)
+        .innerJoin(collections, eq(collectionReferences.collectionId, collections.id))
+        .where(eq(collections.slug, query.collection)),
+    ));
   }
 
   if (query.status !== undefined) {
@@ -347,8 +340,6 @@ async function queryReferences(db: Db, query: ReferenceListQuery): Promise<Refer
     totalQuery.innerJoin(sql`reference_search`, joinCondition);
     pageQuery.innerJoin(sql`reference_search`, joinCondition);
   }
-  const [totalRow] = await totalQuery.where(whereClause);
-  const total = totalRow?.value ?? 0;
   const orderBy: SQL[] = query.sort === "relevance" && words !== undefined
     ? [sql`${referenceSearchRank(words)} desc`, desc(references.createdAt)]
     : query.sort === "oldest"
@@ -359,11 +350,15 @@ async function queryReferences(db: Db, query: ReferenceListQuery): Promise<Refer
           ? [sql`lower(${references.title}) desc`]
           : [desc(references.createdAt)];
   const offset = (query.page - 1) * query.limit;
-  const rows = await pageQuery
-    .where(whereClause)
-    .orderBy(...orderBy, asc(references.id))
-    .limit(query.limit)
-    .offset(offset);
+  const [[totalRow], rows] = await Promise.all([
+    totalQuery.where(whereClause),
+    pageQuery
+      .where(whereClause)
+      .orderBy(...orderBy, asc(references.id))
+      .limit(query.limit)
+      .offset(offset),
+  ]);
+  const total = totalRow?.value ?? 0;
 
   return referenceListResponseSchema.parse({
     items: (await hydrateReferences(db, rows)).map((reference, index) =>
