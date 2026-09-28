@@ -32,6 +32,9 @@ data/motion-results/*
 # Cloud migration reports (C6)
 data/cloud-migration/
 
+# Cloud backups (npm run cloud:backup)
+data/backups/
+
 # Runtime reference storage
 storage/originals/*
 !storage/originals/.gitkeep

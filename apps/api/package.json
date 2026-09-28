@@ -22,6 +22,7 @@
     "storage:orphans": "tsx --tsconfig ../../tsconfig.typecheck.json src/storage/orphans-cli.ts",
     "cloud:check": "tsx --tsconfig ../../tsconfig.typecheck.json src/cloud/check-cli.ts",
     "cloud:migrate": "tsx --tsconfig ../../tsconfig.typecheck.json src/cloud/migrate-cli.ts",
+    "cloud:backup": "tsx --tsconfig ../../tsconfig.typecheck.json src/cloud/backup-cli.ts",
     "analysis:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts export",
     "analysis:import": "tsx --tsconfig ../../tsconfig.typecheck.json src/analysis/cli.ts import",
     "motion:export-pending": "tsx --tsconfig ../../tsconfig.typecheck.json src/motion/cli.ts export",

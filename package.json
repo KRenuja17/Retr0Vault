@@ -34,6 +34,7 @@
     "storage:orphans": "npm run storage:orphans --workspace @retr0vault/api --",
     "cloud:check": "npm run cloud:check --workspace @retr0vault/api --",
     "cloud:migrate": "npm run cloud:migrate --workspace @retr0vault/api --",
+    "cloud:backup": "npm run cloud:backup --workspace @retr0vault/api --",
     "analysis:export-pending": "npm run analysis:export-pending --workspace @retr0vault/api --",
     "analysis:import": "npm run analysis:import --workspace @retr0vault/api --",
     "motion:export-pending": "npm run motion:export-pending --workspace @retr0vault/api --",

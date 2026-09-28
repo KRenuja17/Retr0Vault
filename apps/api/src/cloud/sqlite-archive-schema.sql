@@ -1,4 +1,4 @@
--- The pre-cloud SQLite schema (tables only), for the archive migration tests.
+-- The pre-cloud SQLite schema (tables only): the format of the archive `cloud:migrate` reads and of the backups `cloud:backup` writes.
 CREATE TABLE `design_types` (
 	`id` text PRIMARY KEY NOT NULL,
 	`slug` text NOT NULL,

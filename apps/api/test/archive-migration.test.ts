@@ -10,13 +10,14 @@ import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { migrateArchive, type ArchiveMigrationReport } from "../src/cloud/archive-migration.js";
+import { backupDatabase, mirrorFiles } from "../src/cloud/backup.js";
 import type { DatabaseConnection } from "../src/database/connection.js";
 import { getReference, listReferences } from "../src/services/references.js";
 import { getMotionStudy } from "../src/services/motion.js";
 import { LocalBlobStore } from "../src/storage/local-blob-store.js";
-import { createTestDatabase, queryRows, remoteLike } from "./helpers.js";
+import { createIsolatedTestDatabase, createTestDatabase, databaseSnapshot, queryRows, remoteLike } from "./helpers.js";
 
-const schema = readFileSync(fileURLToPath(new URL("./fixtures/sqlite-archive-schema.sql", import.meta.url)), "utf8");
+const schema = readFileSync(fileURLToPath(new URL("../src/cloud/sqlite-archive-schema.sql", import.meta.url)), "utf8");
 
 const ids = {
   designType: randomUUID(), rule: randomUUID(), term: randomUUID(), collection: randomUUID(),
@@ -159,5 +160,31 @@ describe("moving the SQLite archive to the cloud", () => {
     archive.close();
     await expect(run(false)).rejects.toThrow();
     expect(await queryRows(connection.database, sql`select count(*)::int as count from design_types`)).toEqual([{ count: 0 }]);
+  });
+
+  it("backs up to a file that the migration restores exactly, and mirrors the bucket", async () => {
+    await run(false);
+    const backupPath = join(directory, "backup.db");
+    const backup = await backupDatabase(connection.database, backupPath);
+    expect(backup.tables.find((table) => table.table === "motion_keyframes")).toEqual({ table: "motion_keyframes", rows: 1 });
+    await expect(backupDatabase(connection.database, backupPath)).rejects.toThrow(/already exists/);
+
+    const restored = await createIsolatedTestDatabase();
+    try {
+      const result = await migrateArchive({
+        sqlitePath: backupPath, source, target: remoteLike(new LocalBlobStore(join(directory, "second-bucket"))),
+        db: restored.database, dryRun: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(await databaseSnapshot(restored.database)).toEqual(await databaseSnapshot(connection.database));
+    } finally {
+      await restored.close();
+    }
+
+    const bucket = remoteLike(new LocalBlobStore(bucketRoot));
+    const mirror = join(directory, "mirror");
+    expect(await mirrorFiles(bucket, mirror)).toMatchObject({ files: 6 });
+    expect(readFileSync(join(mirror, `motion/${ids.website}/${ids.clip}/source.bin`), "utf8")).toBe("recording!!!");
+    expect(await mirrorFiles(bucket, mirror)).toMatchObject({ files: 6 });
   });
 });

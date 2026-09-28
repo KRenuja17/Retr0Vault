@@ -73,7 +73,7 @@ export interface ArchiveMigrationOptions {
 
 class DryRunRollback extends Error {}
 
-interface ColumnInfo {
+export interface ColumnInfo {
   readonly name: string;
   readonly type: string;
 }
@@ -135,7 +135,7 @@ function affected(result: unknown): number {
   return Number(candidate.count ?? candidate.affectedRows ?? 0);
 }
 
-async function columnsOf(db: Db): Promise<Map<string, ColumnInfo[]>> {
+export async function columnsOf(db: Db): Promise<Map<string, ColumnInfo[]>> {
   const rows = rowsOf<{ table: string; name: string; type: string }>(await db.execute(sql`
     select table_name as "table", column_name as name, data_type as type from information_schema.columns
     where table_schema = 'public' order by table_name, ordinal_position`));
