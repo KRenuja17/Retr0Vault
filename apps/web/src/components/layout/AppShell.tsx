@@ -1,10 +1,15 @@
-import { useCallback, type ReactNode } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useState, type ReactNode } from "react";
+import { Link, Outlet, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ReactiveGridBackground } from "@/components/environment/ReactiveGridBackground";
-import { ActionLink, MonoLabel, PageRule } from "@/components/primitives";
+import { ActionButton, ActionLink, MonoLabel, PageRule } from "@/components/primitives";
+import { LoginScene, lockedLoginView } from "@/components/vault/LoginScene";
+import { useDoors } from "@/components/vault/VaultDoors";
+import { signOut } from "@/lib/api/endpoints";
+import { queryKeys } from "@/lib/api/queryKeys";
+import { useSession } from "@/lib/auth/session";
 import { SelectionProvider } from "@/lib/selection/SelectionProvider";
-import { VaultLanding } from "@/components/vault/VaultLanding";
 
 import { ConnectionStatus } from "./ConnectionStatus";
 import styles from "./AppShell.module.css";
@@ -22,26 +27,42 @@ export interface AppShellProps {
  * The reactive grid mounts here rather than per route, so the environment
  * layer survives navigation and is never rebuilt mid-session.
  */
-export function AppShell({ navigation, children }: AppShellProps) {
-  const location = useLocation();
+/**
+ * Locking the vault: doors bearing the strong room close over the catalogue,
+ * the session ends, and the strong room is put behind the closed doors before
+ * they are taken away, so the depositor is left standing at its door.
+ */
+function useLockVault() {
+  const doors = useDoors();
+  const client = useQueryClient();
   const navigate = useNavigate();
-  /*
-   * The front door: arriving at `/` lands on the catalogue with the vault shut
-   * over it. The catalogue renders underneath all along, so opening the doors
-   * reveals the real plates; until then it is inert.
-   */
-  const sealed = (location.state as { vault?: unknown } | null)?.vault === true;
-  const openVault = useCallback(() => {
-    void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
-  }, [location.pathname, location.search, navigate]);
+  const [locking, setLocking] = useState(false);
+
+  async function lock() {
+    if (locking) return;
+    setLocking(true);
+    await doors.close(<LoginScene view={lockedLoginView} />);
+    await signOut().catch(() => undefined);
+    // One update: the session is forgotten as the strong room takes the page.
+    client.setQueryData(queryKeys.session(), null);
+    void navigate("/login", { replace: true, state: { arrived: "doors" } });
+    client.removeQueries({ predicate: (query) => !["session", "showcase", "health"].includes(String(query.queryKey[0])) });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    doors.dismiss();
+  }
+
+  return { lock, locking };
+}
+
+export function AppShell({ navigation, children }: AppShellProps) {
+  const session = useSession();
+  const { lock, locking } = useLockVault();
 
   return (
     <SelectionProvider>
       <ReactiveGridBackground />
 
-      {sealed ? <VaultLanding onDone={openVault} /> : null}
-
-      <div className={styles.shell} inert={sealed}>
+      <div className={styles.shell}>
         <a className="rv-skip-link" href="#catalogue">
           Skip to catalogue
         </a>
@@ -70,7 +91,7 @@ export function AppShell({ navigation, children }: AppShellProps) {
 
               <div className={styles.mastheadMeta}>
                 <MonoLabel size="small" tone="muted" uppercase>
-                  Local · single user
+                  {session.data?.user === undefined ? "Vault" : `Depositor · ${session.data.user.username}`}
                 </MonoLabel>
                 <ConnectionStatus />
                 <ActionLink variant="outline" size="small" to="/motion">
@@ -79,6 +100,15 @@ export function AppShell({ navigation, children }: AppShellProps) {
                 <ActionLink variant="outline" size="small" to="/add">
                   Add reference
                 </ActionLink>
+                <ActionButton
+                  variant="quiet"
+                  size="small"
+                  onClick={() => void lock()}
+                  disabled={locking}
+                  title="Sign out: the vault's doors close behind you"
+                >
+                  {locking ? "Locking" : "Lock the vault"}
+                </ActionButton>
               </div>
             </div>
           </div>

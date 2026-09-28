@@ -30,18 +30,18 @@ afterEach(() => {
 });
 
 describe("route shell", () => {
-  it("redirects the index to the catalogue", () => {
+  it("redirects the index to the catalogue", async () => {
     stubOfflineApi();
     renderAt("/");
     expect(
-      screen.getByRole("navigation", { name: /catalogue filters/i }),
+      await screen.findByRole("navigation", { name: /catalogue filters/i, hidden: true }),
     ).toBeInTheDocument();
   });
 
-  it("renders the masthead and marginalia on every route", () => {
+  it("renders the masthead and marginalia on every route", async () => {
     stubOfflineApi();
     renderAt("/all");
-    expect(screen.getByRole("link", { name: /retr0vault/i })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /retr0vault/i })).toBeInTheDocument();
     expect(screen.getByText(/web 4610 · api 4611/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /skip to catalogue/i })).toBeInTheDocument();
   });
@@ -83,11 +83,11 @@ describe("route shell", () => {
    * of the product. It is gone, and the address is now nothing special: it
    * falls through to the same not-found plate as any other unknown route.
    */
-  it("resolves the retired /foundation address through the not-found plate", () => {
+  it("resolves the retired /foundation address through the not-found plate", async () => {
     stubOfflineApi();
     renderAt("/foundation");
     expect(
-      screen.getByRole("heading", { name: /no such plate/i }),
+      await screen.findByRole("heading", { name: /no such plate/i }),
     ).toBeInTheDocument();
   });
 
@@ -100,9 +100,9 @@ describe("route shell", () => {
     expect(screen.queryByText(/visual system/i)).not.toBeInTheDocument();
   });
 
-  it("falls through to the not-found plate", () => {
+  it("falls through to the not-found plate", async () => {
     stubOfflineApi();
     renderAt("/nowhere");
-    expect(screen.getByRole("heading", { name: /no such plate/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /no such plate/i })).toBeInTheDocument();
   });
 });

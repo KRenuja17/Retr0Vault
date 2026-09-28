@@ -1,0 +1,17 @@
+.page {
+  display: contents;
+}
+
+/* While the session is read: a single line of marginalia on the paper. */
+.pending {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  color: var(--rv-ink-muted);
+}

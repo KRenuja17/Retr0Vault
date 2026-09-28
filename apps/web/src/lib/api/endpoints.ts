@@ -17,14 +17,40 @@ import type {
   StatsResponse,
   UpdateCollectionInput,
   UpdateReferenceInput,
+  LoginRequest,
+  SessionResponse,
+  ShowcaseResponse,
 } from "@retr0vault/shared";
 
-import { apiRequest } from "./client";
+import { ApiError, apiRequest } from "./client";
 
 /**
  * Thin, typed wrappers over the backend routes registered in apps/api. Types
  * come from @retr0vault/shared, so a contract change is a compile error here.
  */
+
+/** The signed-in account, or `null` when there is no session. */
+export async function fetchSession(signal?: AbortSignal): Promise<SessionResponse | null> {
+  try {
+    return await apiRequest<SessionResponse>("/auth/session", { signal: signal ?? null });
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401) return null;
+    throw error;
+  }
+}
+
+export function signIn(input: LoginRequest): Promise<SessionResponse> {
+  return apiRequest<SessionResponse>("/auth/login", { method: "POST", body: input });
+}
+
+export function signOut(): Promise<void> {
+  return apiRequest<void>("/auth/logout", { method: "POST" });
+}
+
+/** The front door's film strip and counters: public, readable before signing in. */
+export function fetchShowcase(signal?: AbortSignal): Promise<ShowcaseResponse> {
+  return apiRequest<ShowcaseResponse>("/showcase", { signal: signal ?? null });
+}
 
 export function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
   return apiRequest<HealthResponse>("/health", { signal: signal ?? null });

@@ -2,6 +2,8 @@ import type { MotionListParams, ReferenceListParams } from "./endpoints";
 
 /** One place to derive every TanStack Query key, so invalidation stays sane. */
 export const queryKeys = {
+  session: () => ["session"] as const,
+  showcase: () => ["showcase"] as const,
   health: () => ["health"] as const,
   stats: () => ["stats"] as const,
   designTypes: () => ["design-types"] as const,

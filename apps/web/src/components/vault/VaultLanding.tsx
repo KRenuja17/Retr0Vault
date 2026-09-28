@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { ReferenceResponse } from "@retr0vault/shared";
+import type { ShowcaseResponse } from "@retr0vault/shared";
 
 import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
-import { fetchReferences } from "@/lib/api/endpoints";
-import { referenceThumbnailUrl } from "@/lib/api/media";
-import { useStats } from "@/lib/catalogue/useCatalogue";
+import { fetchShowcase } from "@/lib/api/endpoints";
+import { showcaseThumbnailUrl } from "@/lib/api/media";
+import { queryKeys } from "@/lib/api/queryKeys";
 import { cx } from "@/lib/cx";
 import { useReducedMotion } from "@/lib/motion/preferences";
+import { nextDoorSplit, type DoorSplit } from "@/lib/vault/doorSequence";
+import { holdPageStill } from "@/lib/vault/scrollLock";
+
+import { dealCatalogue } from "./VaultDoors";
 
 import styles from "./VaultLanding.module.css";
 
@@ -17,8 +21,14 @@ import styles from "./VaultLanding.module.css";
  * The page is printed twice, once on each of two doors that meet down the
  * middle of the screen, so the whole composition (the wordmark, the dial in
  * place of its accent 0, the counters and the contact strip) splits cleanly
- * when the doors part. The doors open onto the real catalogue, already rendered
- * underneath, and its plates are dealt in as the gap widens.
+ * when the doors part. The doors open onto the page already rendered
+ * underneath: the strong room for a visitor, or the catalogue for a signed-in
+ * depositor, whose plates are dealt in as the gap widens. They split left and
+ * right or up and down, as the visit's door sequence says (left and right on
+ * arrival).
+ *
+ * The contact strip and counters come from the public showcase: the whole
+ * archive's newest plates, whoever filed them, readable before signing in.
  *
  * Everything that can be read or pressed lives once, in a control layer above
  * the doors; the doors themselves are pictures of the page and are hidden from
@@ -26,9 +36,13 @@ import styles from "./VaultLanding.module.css";
  */
 
 export interface VaultLandingProps {
+  /** The doors have started to part: the page behind can begin to arrive. */
+  readonly onOpening?: () => void;
   /** The doors are fully open: remove the landing. */
   readonly onDone: () => void;
 }
+
+type ShowcaseFrame = ShowcaseResponse["references"][number];
 
 type Phase = "ready" | "unlocking" | "seamed" | "opening";
 
@@ -93,26 +107,6 @@ function tween(from: number, to: number, ms: number, apply: (value: number) => v
   });
 }
 
-/**
- * Deal the catalogue plates that are on screen, in reading order, as the doors
- * part: each rises a little and straightens, like an index card set down.
- */
-function dealCatalogue() {
-  const plates = [...document.querySelectorAll<HTMLElement>("#catalogue article")]
-    .filter((plate) => plate.getBoundingClientRect().top < window.innerHeight)
-    .slice(0, 12);
-  plates.forEach((plate, index) => {
-    if (typeof plate.animate !== "function") return;
-    const tilt = index % 2 === 0 ? -1.6 : 1.2;
-    plate.animate(
-      [
-        { opacity: 0, transform: `translateY(64px) rotate(${tilt}deg)` },
-        { opacity: 1, transform: "none" },
-      ],
-      { duration: 720, delay: 260 + index * 90, easing: "cubic-bezier(0.2, 0, 0.2, 1)", fill: "backwards" },
-    );
-  });
-}
 
 function Dial() {
   const ticks = useMemo(() => Array.from({ length: 60 }, (_, index) => index), []);
@@ -175,7 +169,7 @@ interface FaceProps {
   readonly counts: readonly [number, number, number];
   readonly slots: readonly [string, string, string];
   readonly lockedSlots: number;
-  readonly frames: readonly ReferenceResponse[];
+  readonly frames: readonly ShowcaseFrame[];
 }
 
 /** The printed page on one door. Pure picture: every door carries the same one. */
@@ -249,7 +243,7 @@ function Face({ counts, slots, lockedSlots, frames }: FaceProps) {
             <figure key={`${reference.id}-${index}`} className={styles.frame}>
               <img
                 className={styles.frameImage}
-                src={referenceThumbnailUrl(reference.id, reference.updatedAt)}
+                src={showcaseThumbnailUrl(reference.id, reference.updatedAt)}
                 alt=""
                 draggable={false}
               />
@@ -276,13 +270,13 @@ function Face({ counts, slots, lockedSlots, frames }: FaceProps) {
   );
 }
 
-export function VaultLanding({ onDone }: VaultLandingProps) {
+export function VaultLanding({ onOpening, onDone }: VaultLandingProps) {
   const reduced = useReducedMotion();
-  const stats = useStats();
-  const references = useQuery({
-    queryKey: ["references", "vault-strip"],
-    queryFn: ({ signal }) => fetchReferences({ page: 1, limit: 16, sort: "newest" }, signal),
+  const showcase = useQuery({
+    queryKey: queryKeys.showcase(),
+    queryFn: ({ signal }) => fetchShowcase(signal),
   });
+  const [split, setSplit] = useState<DoorSplit>("left-right");
 
   const root = useRef<HTMLDivElement>(null);
   const enter = useRef<HTMLButtonElement>(null);
@@ -293,26 +287,26 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
   const [locked, setLocked] = useState<number[]>([]);
   const [rolled, setRolled] = useState(0);
 
+  const totals = showcase.data?.counts;
+
   const combination = useMemo<readonly [number, number, number]>(() => {
-    if (stats.data === undefined) return FALLBACK_COMBINATION;
-    const types = stats.data.countsByDesignType.filter((type) => type.referenceCount > 0).length;
-    return [stats.data.totalReferences % 60, stats.data.motionStudies.total % 60, types % 60];
-  }, [stats.data]);
+    if (totals === undefined) return FALLBACK_COMBINATION;
+    return [totals.plates % 60, totals.motionStudies % 60, totals.designTypes % 60];
+  }, [totals]);
 
   const counts = useMemo<readonly [number, number, number]>(() => {
-    if (stats.data === undefined) return [0, 0, 0];
-    const types = stats.data.countsByDesignType.filter((type) => type.referenceCount > 0).length;
+    if (totals === undefined) return [0, 0, 0];
     const fraction = rolled / COUNT_STEPS;
-    return [stats.data.totalReferences * fraction, stats.data.motionStudies.total * fraction, types * fraction];
-  }, [stats.data, rolled]);
+    return [totals.plates * fraction, totals.motionStudies * fraction, totals.designTypes * fraction];
+  }, [totals, rolled]);
 
   const frames = useMemo(() => {
-    const items = references.data?.items ?? [];
+    const items = showcase.data?.references ?? [];
     if (items.length === 0) return [];
-    const filled: ReferenceResponse[] = [];
+    const filled: ShowcaseFrame[] = [];
     while (filled.length < STRIP_MIN_FRAMES) filled.push(...items);
     return filled;
-  }, [references.data]);
+  }, [showcase.data]);
 
   const setTurn = useCallback((value: number) => {
     turn.current = value;
@@ -327,13 +321,9 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
 
   // The page behind the doors does not scroll, and starts at the top.
   useEffect(() => {
-    const html = document.documentElement;
-    const previous = html.style.overflow;
-    html.style.overflow = "hidden";
+    const release = holdPageStill();
     if (window.scrollY !== 0) window.scrollTo(0, 0);
-    return () => {
-      html.style.overflow = previous;
-    };
+    return release;
   }, []);
 
   useEffect(() => {
@@ -343,7 +333,7 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
 
   // Counters roll up once the type has landed.
   useEffect(() => {
-    if (stats.data === undefined) return undefined;
+    if (totals === undefined) return undefined;
     if (reduced) {
       setRolled(COUNT_STEPS);
       return undefined;
@@ -361,7 +351,7 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
       clearTimeout(start);
       if (interval !== undefined) clearInterval(interval);
     };
-  }, [stats.data, reduced]);
+  }, [totals, reduced]);
 
   // At rest the dial leans toward the pointer, a little, and the readout follows it.
   useEffect(() => {
@@ -410,12 +400,15 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
       setLocked((current) => [...current, number]);
       await wait(140);
     }
+    // This door takes the visit's next turn in the sequence of splits.
+    setSplit(nextDoorSplit());
     setPhase("seamed");
     await wait(380);
     setPhase("opening");
+    onOpening?.();
     dealCatalogue();
     setTimeout(finish, DOOR_SAFETY_MS);
-  }, [combination, finish, phase, reduced, setTurn]);
+  }, [combination, finish, onOpening, phase, reduced, setTurn]);
 
   // ↵ opens from anywhere on the page; Escape skips straight in.
   useEffect(() => {
@@ -434,14 +427,14 @@ export function VaultLanding({ onDone }: VaultLandingProps) {
   ];
 
   const face = <Face counts={counts} slots={slots} lockedSlots={locked.length} frames={frames} />;
-  const summary = stats.data === undefined
+  const summary = totals === undefined
     ? "The archive is being read."
-    : `${stats.data.totalReferences} plates, ${stats.data.motionStudies.total} motion studies.`;
+    : `${totals.plates} plates, ${totals.motionStudies} motion studies.`;
 
   return (
     <div
       ref={root}
-      className={cx(styles.vault, reduced && styles.still, styles[phase])}
+      className={cx(styles.vault, reduced && styles.still, styles[phase], split === "up-down" && styles.upDown)}
       role="dialog"
       aria-modal="true"
       aria-labelledby="vault-title"

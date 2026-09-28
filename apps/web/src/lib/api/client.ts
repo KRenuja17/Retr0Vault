@@ -8,6 +8,13 @@ import type { ErrorResponse } from "@retr0vault/shared";
 export const API_BASE_URL: string =
   import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
+/**
+ * Dispatched on `window` when the API says a request needs a session (the
+ * session expired or was ended elsewhere), so the app can return to the
+ * strong room's door.
+ */
+export const SIGNED_OUT_EVENT = "retr0vault:signed-out";
+
 export class ApiError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -136,6 +143,9 @@ export async function apiRequest<TResponse>(
   }
 
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    }
     if (isErrorResponse(payload)) {
       throw new ApiError(payload.error.message, {
         code: payload.error.code,

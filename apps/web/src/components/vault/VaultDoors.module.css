@@ -1,0 +1,194 @@
+/*
+ * Two doors, each carrying the whole picture: the first shows its first half,
+ * the second its second half, so together they read as one page until the
+ * seam is cut. Same timing and weight as the front door.
+ */
+
+.doors {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  pointer-events: auto;
+}
+
+.door {
+  position: absolute;
+  overflow: hidden;
+  transition:
+    transform 1150ms cubic-bezier(0.77, 0, 0.18, 1),
+    box-shadow 160ms linear;
+}
+
+.face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* --- left and right ----------------------------------------------------- */
+.leftRight .door {
+  top: 0;
+  bottom: 0;
+  width: 50%;
+}
+
+.leftRight .first {
+  left: 0;
+}
+
+.leftRight .second {
+  left: 50%;
+}
+
+.leftRight .second .face {
+  left: -50vw;
+}
+
+/* --- up and down -------------------------------------------------------- */
+.upDown .door {
+  left: 0;
+  right: 0;
+  height: 50%;
+}
+
+.upDown .first {
+  top: 0;
+}
+
+.upDown .second {
+  top: 50%;
+}
+
+.upDown .second .face {
+  top: -50vh;
+}
+
+/* Each door's inner edge: a heavy rule with ruler ticks, shown once the seam is cut. */
+.door::after {
+  content: "";
+  position: absolute;
+  opacity: 0;
+  transition: opacity 180ms linear;
+}
+
+.leftRight .door::after {
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  background-image: repeating-linear-gradient(to bottom, var(--rv-ink) 0 1px, transparent 1px 10px);
+  background-size: 8px 100%;
+  background-repeat: no-repeat;
+}
+
+.leftRight .first::after {
+  right: 0;
+  border-right: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-position: right 2px top;
+}
+
+.leftRight .second::after {
+  left: 0;
+  border-left: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-position: left 2px top;
+}
+
+.upDown .door::after {
+  left: 0;
+  right: 0;
+  height: 14px;
+  background-image: repeating-linear-gradient(to right, var(--rv-ink) 0 1px, transparent 1px 10px);
+  background-size: 100% 8px;
+  background-repeat: no-repeat;
+}
+
+.upDown .first::after {
+  bottom: 0;
+  border-bottom: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-position: left bottom 2px;
+}
+
+.upDown .second::after {
+  top: 0;
+  border-top: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-position: left top 2px;
+}
+
+/* --- the seam ----------------------------------------------------------- */
+.seam {
+  position: absolute;
+  background-color: var(--rv-ink);
+  pointer-events: none;
+  transition: transform 380ms cubic-bezier(0.7, 0, 0.2, 1), opacity 120ms linear;
+}
+
+.leftRight .seam {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: var(--rv-rule-weight-heavy);
+  transform: scaleY(0);
+  transform-origin: top;
+}
+
+.upDown .seam {
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: var(--rv-rule-weight-heavy);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.seamed .seam,
+.sealed .seam,
+.parting .seam {
+  transform: none;
+}
+
+.seamed .door::after,
+.parting .door::after,
+.apart .door::after,
+.closing .door::after {
+  opacity: 1;
+}
+
+.parting .seam {
+  opacity: 0;
+}
+
+/* --- open, and closing from open ------------------------------------------ */
+.parting,
+.apart {
+  pointer-events: none;
+}
+
+.leftRight.parting .first,
+.leftRight.apart .first {
+  transform: translateX(-100%);
+  box-shadow: 10px 0 0 rgba(var(--rv-grid-ink), 0.9);
+}
+
+.leftRight.parting .second,
+.leftRight.apart .second {
+  transform: translateX(100%);
+  box-shadow: -10px 0 0 rgba(var(--rv-grid-ink), 0.9);
+}
+
+.upDown.parting .first,
+.upDown.apart .first {
+  transform: translateY(-100%);
+  box-shadow: 0 10px 0 rgba(var(--rv-grid-ink), 0.9);
+}
+
+.upDown.parting .second,
+.upDown.apart .second {
+  transform: translateY(100%);
+  box-shadow: 0 -10px 0 rgba(var(--rv-grid-ink), 0.9);
+}
+
+/* A door arriving from its open position lands with a little weight. */
+.closing .door {
+  transition-timing-function: cubic-bezier(0.7, 0, 0.25, 1.08);
+}

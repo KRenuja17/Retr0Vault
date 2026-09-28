@@ -19,6 +19,11 @@ function versioned(url: string, version: string | undefined): string {
   return version === undefined ? url : `${url}?v=${encodeURIComponent(version)}`;
 }
 
+/** A thumbnail for the front door's film strip, readable before signing in. */
+export function showcaseThumbnailUrl(referenceId: string, version?: string): string {
+  return versioned(`${API_BASE_URL}/showcase/${encodeURIComponent(referenceId)}/thumbnail`, version);
+}
+
 /** WebP thumbnail. The only image the catalogue grid is allowed to request. */
 export function referenceThumbnailUrl(referenceId: string, version?: string): string {
   return versioned(`${API_BASE_URL}/media/${encodeURIComponent(referenceId)}/thumbnail`, version);

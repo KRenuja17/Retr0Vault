@@ -19,6 +19,14 @@ function reducedMotion(reduce: boolean) {
 function archive() {
   stubApi([
     { path: /^\/references$/u, handler: () => referencePage([PLATE]) },
+    // The front door's strip and counters: the public showcase of the whole archive.
+    {
+      path: /^\/showcase$/u,
+      handler: () => ({
+        references: [{ id: PLATE.id, title: PLATE.title, updatedAt: PLATE.updatedAt }],
+        counts: { plates: 11, motionStudies: 2, designTypes: 2 },
+      }),
+    },
     {
       path: /^\/stats$/u,
       handler: () => makeStats({
@@ -51,7 +59,8 @@ describe("the vault's front door", () => {
     archive();
     const { location } = renderRoute("/");
     const door = await screen.findByRole("dialog", { name: "Retr0Vault" });
-    expect(location().pathname).toBe("/all");
+    // The door stays up while the session is read, then the catalogue is put behind it.
+    await waitFor(() => expect(location().pathname).toBe("/all"));
     expect(within(door).getByRole("button", { name: /enter the vault/i })).toHaveFocus();
     // The catalogue is already there underneath, and out of reach until the doors open.
     expect(await screen.findByRole("link", { name: "Stillpage" })).toBeInTheDocument();
@@ -74,7 +83,8 @@ describe("the vault's front door", () => {
       expect(locked).toEqual(["11", "02", "02"]);
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
-    expect(location().pathname).toBe("/all");
+    // Entered before the session was read, the catalogue follows the doors.
+    await waitFor(() => expect(location().pathname).toBe("/all"));
     expect(location().state).toBeNull();
     expect(document.querySelector("[inert]")).toBeNull();
     expect(document.documentElement.style.overflow).toBe("");

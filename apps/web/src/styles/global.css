@@ -147,6 +147,29 @@ samp {
   text-decoration: none;
 }
 
+/* Back to the front door, from the strong room's foot: mono marginalia with a rule. */
+.rv-front-door-link {
+  padding: 0;
+  border: 0;
+  border-bottom: var(--rv-border) solid currentColor;
+  background: none;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  color: var(--rv-ink-muted);
+  cursor: pointer;
+}
+
+.rv-front-door-link:hover {
+  color: var(--rv-ink);
+}
+
+.rv-front-door-link:focus-visible {
+  outline: var(--rv-focus-ring);
+  outline-offset: 3px;
+}
+
 .rv-visually-hidden {
   position: absolute;
   width: 1px;

@@ -52,7 +52,12 @@ export function apiError(
   );
 }
 
+/** The account the routed tests are signed in as. */
+export const TEST_SESSION = { user: { id: "7e57a000-0000-4000-8000-000000000001", username: "tester" } };
+
 const DEFAULT_ROUTES: readonly StubRoute[] = [
+  { path: /^\/auth\/session$/u, handler: () => TEST_SESSION },
+  { path: /^\/showcase$/u, handler: () => ({ references: [], counts: { plates: 0, motionStudies: 0, designTypes: 0 } }) },
   { path: /^\/design-types$/u, handler: () => [] },
   { path: /^\/collections$/u, handler: () => [] },
   { path: /^\/stats$/u, handler: () => makeStats() },

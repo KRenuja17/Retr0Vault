@@ -1,0 +1,1071 @@
+/*
+ * The strong room. Printed matter like the front door (paper, ink, the one
+ * accent, rules, registration marks, hard offset shadows) with one machine in
+ * it: the dial and its watchman's lens.
+ *
+ * The lens, the pupil and the carriage move through registered custom
+ * properties, so every change of state glides rather than jumps. The resting
+ * styles are the finished room; the intro keyframes only run from a hidden
+ * state, so without animation the room is simply there.
+ */
+
+@property --open {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+@property --look-x {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --look-y {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --carriage {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+.scene {
+  --bar-h: 3.25rem;
+  --dial: clamp(15rem, min(46vh, 32vw), 28rem);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: var(--bar-h) minmax(0, 1fr) var(--bar-h);
+  padding-inline: var(--rv-shell-gutter);
+  overflow: hidden;
+  color: var(--rv-ink);
+  background-color: var(--rv-paper);
+  background-image: var(--rv-paper-grain);
+  background-size: var(--rv-paper-grain-size);
+  transition:
+    --open 640ms cubic-bezier(0.65, 0, 0.2, 1),
+    --look-x 420ms cubic-bezier(0.3, 0, 0.15, 1),
+    --look-y 420ms cubic-bezier(0.3, 0, 0.15, 1),
+    --carriage 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* --- marginalia (as on the front door) ------------------------------------ */
+.mono {
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono-wide);
+  text-transform: uppercase;
+  color: var(--rv-ink-muted);
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  border-bottom: var(--rv-border) solid var(--rv-rule-hairline);
+}
+
+.bar:last-child {
+  border-top: var(--rv-border) solid var(--rv-rule-hairline);
+  border-bottom: 0;
+}
+
+.barCentre {
+  justify-self: center;
+}
+
+.barEnd {
+  justify-self: end;
+}
+
+.registration {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: var(--rv-border) solid var(--rv-ink);
+}
+
+.registration::before,
+.registration::after {
+  content: "";
+  position: absolute;
+  background-color: var(--rv-ink);
+}
+
+.registration::before {
+  left: -6px;
+  right: -6px;
+  top: 3px;
+  height: 1px;
+}
+
+.registration::after {
+  top: -6px;
+  bottom: -6px;
+  left: 3px;
+  width: 1px;
+}
+
+.registrationTopLeft {
+  top: calc(var(--bar-h) + 14px);
+  left: 14px;
+}
+
+.registrationTopRight {
+  top: calc(var(--bar-h) + 14px);
+  right: 14px;
+}
+
+.registrationBottomLeft {
+  bottom: calc(var(--bar-h) + 14px);
+  left: 14px;
+}
+
+.registrationBottomRight {
+  bottom: calc(var(--bar-h) + 14px);
+  right: 14px;
+}
+
+.ruler {
+  position: absolute;
+  top: calc(var(--bar-h) + 44px);
+  bottom: calc(var(--bar-h) + 44px);
+  width: 12px;
+  background-image:
+    repeating-linear-gradient(to bottom, var(--rv-ink) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(to bottom, var(--rv-ink-faint) 0 1px, transparent 1px 8px);
+  background-size: 12px 100%, 6px 100%;
+  background-repeat: no-repeat;
+}
+
+.rulerLeft {
+  left: 17px;
+}
+
+.rulerRight {
+  right: 17px;
+  background-position: right top, right top;
+}
+
+/* --- the stage ------------------------------------------------------------ */
+.stage {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: clamp(2rem, 6vw, 6rem);
+  width: min(100%, 80rem);
+  margin-inline: auto;
+  padding: clamp(1rem, 3vh, 2.5rem) clamp(1.5rem, 4vw, 3rem);
+}
+
+/* --- the lock: index, dial, lens, tumblers --------------------------------- */
+.lock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.75rem, 2.2vh, 1.4rem);
+}
+
+.index {
+  width: 0;
+  height: 0;
+  margin-bottom: calc(var(--dial) * -0.03);
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 16px solid var(--rv-ink);
+  transition: border-top-color var(--rv-motion-base) var(--rv-easing);
+}
+
+.dial {
+  position: relative;
+  width: var(--dial);
+  height: var(--dial);
+}
+
+.dialSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.bezel {
+  fill: var(--rv-surface);
+  stroke: var(--rv-ink);
+  stroke-width: 2;
+}
+
+.dialFace {
+  transform: rotate(var(--dial-turn));
+  transform-origin: 120px 120px;
+  transform-box: view-box;
+}
+
+.tick {
+  stroke: var(--rv-ink);
+  stroke-width: 1.1;
+}
+
+.tickMajor {
+  stroke-width: 2.6;
+}
+
+.dialNumber {
+  fill: var(--rv-ink-muted);
+  font-family: var(--rv-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.ring {
+  fill: none;
+  stroke: var(--rv-accent);
+  stroke-width: 20;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+}
+
+.notch {
+  fill: var(--rv-surface);
+}
+
+/* The watchman's lens, set into the hub. */
+.lens {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36%;
+  height: 36%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+
+.glass {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #4d443a 0%, #221d17 42%, #0c0a07 100%);
+  transition: filter var(--rv-motion-base) var(--rv-easing);
+}
+
+.pupil {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 38%;
+  height: 38%;
+  margin: -19% 0 0 -19%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #000 0 55%, #2f2922 56% 100%);
+  box-shadow: 0 0 0 2px rgba(241, 236, 229, 0.08);
+  transform: translate(calc(var(--look-x) * 82%), calc(var(--look-y) * 82%));
+  transition: background var(--rv-motion-base) var(--rv-easing);
+}
+
+/* A catch-light: the lens is glass, and it is looking. */
+.pupil::after {
+  content: "";
+  position: absolute;
+  left: 22%;
+  top: 18%;
+  width: 22%;
+  height: 22%;
+  border-radius: 50%;
+  background-color: rgba(241, 236, 229, 0.85);
+}
+
+.iris {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+/*
+ * One leaf: a wedge from the centre to past the rim. Eight of them, a
+ * little over 45° each, meet in the middle when the iris is shut; opening
+ * slides each outward along its own axis and turns it, like a camera's.
+ */
+.leaf {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(50% 50%, 21% -8%, 79% -8%);
+  background: linear-gradient(100deg, #3b342b 0%, #1d1914 38%, #17140f 60%, #463e33 100%);
+  transform: rotate(calc(var(--i) * 45deg + (1 - var(--open)) * 22deg)) translateY(calc(var(--open) * -64%));
+}
+
+.lensRing {
+  position: absolute;
+  inset: -5%;
+  border-radius: 50%;
+  border: 3px solid var(--rv-ink);
+  transition:
+    border-color var(--rv-motion-base) var(--rv-easing),
+    border-width var(--rv-motion-base) var(--rv-easing),
+    box-shadow var(--rv-motion-base) var(--rv-easing);
+}
+
+.tumblers {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border: var(--rv-border) solid var(--rv-rule);
+  background-color: var(--rv-surface-sunken);
+}
+
+.slot {
+  position: relative;
+  width: 12px;
+  height: 30px;
+  overflow: hidden;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background-color: var(--rv-paper-deep);
+}
+
+.pin {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  height: 45%;
+  background-color: var(--rv-ink-faint);
+  transform: translateY(0);
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1.35),
+    height 260ms cubic-bezier(0.2, 0.9, 0.3, 1.35),
+    background-color var(--rv-motion-base) var(--rv-easing);
+}
+
+.pinSet {
+  height: 78%;
+  background-color: var(--rv-ink);
+}
+
+.readout {
+  letter-spacing: var(--rv-tracking-mono);
+}
+
+.readout b {
+  font-weight: 600;
+  color: var(--rv-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the access register ---------------------------------------------------- */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.9rem, 2.2vh, 1.35rem);
+  padding: clamp(1.4rem, 3.5vh, 2.4rem) clamp(1.4rem, 3vw, 2.6rem);
+  border: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-color: var(--rv-surface);
+  box-shadow: var(--rv-shadow-plate);
+}
+
+.overline {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-3);
+}
+
+.square {
+  width: 7px;
+  height: 7px;
+  background-color: var(--rv-accent);
+}
+
+.folio {
+  margin-left: auto;
+  color: var(--rv-ink-faint);
+}
+
+.heading {
+  margin: 0;
+  font-family: var(--rv-font-display);
+  font-size: clamp(1.9rem, 3.4vw, 3rem);
+  font-weight: 420;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--rv-font-display);
+  font-size: var(--rv-text-md);
+  color: var(--rv-ink-soft);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rv-space-2);
+}
+
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rv-space-3);
+}
+
+.input {
+  width: 100%;
+  padding: 0.28em 0 0.22em;
+  border: 0;
+  border-bottom: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--rv-font-display);
+  font-size: clamp(1.45rem, 2.3vw, 2rem);
+  color: var(--rv-ink);
+  caret-color: var(--rv-accent);
+  outline: none;
+  transition: border-color var(--rv-motion-base) var(--rv-easing);
+}
+
+.input:focus {
+  border-bottom-color: var(--rv-accent);
+}
+
+.input:disabled {
+  opacity: 1;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* The typewriter carriage: advances with the caret along a ruled line. */
+.carriage {
+  position: relative;
+  height: 9px;
+  background-image: repeating-linear-gradient(90deg, var(--rv-ink-faint) 0 1px, transparent 1px 8px);
+  background-size: 100% 5px;
+  background-repeat: no-repeat;
+}
+
+.carriageHead {
+  position: absolute;
+  top: -1px;
+  left: calc(var(--carriage) * (100% - 9px));
+  width: 9px;
+  height: 11px;
+  background-color: var(--rv-ink);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transition: background-color var(--rv-motion-base) var(--rv-easing);
+}
+
+.field:focus-within .carriageHead {
+  background-color: var(--rv-accent);
+}
+
+/* The combination: hidden text, drawn as tumbler pins in the same cells. */
+.combination {
+  position: relative;
+  display: block;
+  --cell: calc(1ch + 0.72em);
+}
+
+.secret {
+  font-family: var(--rv-font-mono);
+  font-size: clamp(1.2rem, 1.9vw, 1.55rem);
+  letter-spacing: 0.72em;
+  color: transparent;
+  caret-color: var(--rv-accent);
+}
+
+.secretShown {
+  color: var(--rv-ink);
+}
+
+.glyphs {
+  position: absolute;
+  inset: 0 0 var(--rv-rule-weight-heavy);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--rv-font-mono);
+  font-size: clamp(1.2rem, 1.9vw, 1.55rem);
+}
+
+.glyphsHidden {
+  visibility: hidden;
+}
+
+.glyphTrack {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.glyph {
+  position: relative;
+  flex: none;
+  width: var(--cell);
+  height: 1.05em;
+}
+
+.glyph::before {
+  content: "";
+  position: absolute;
+  left: calc(0.5ch - 0.18em);
+  bottom: 0;
+  width: 0.36em;
+  height: 100%;
+  background-color: var(--rv-ink);
+  box-shadow: 0 -0.22em 0 0 var(--rv-ink) inset;
+  animation: glyph-set 300ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+
+.glyph::after {
+  content: "";
+  position: absolute;
+  left: calc(0.5ch - 0.28em);
+  bottom: 42%;
+  width: 0.56em;
+  height: 2px;
+  background-color: var(--rv-surface);
+}
+
+.reveal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.2em 0.6em;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  background: none;
+  font: inherit;
+  color: var(--rv-ink-muted);
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color var(--rv-motion-hover) var(--rv-easing), border-color var(--rv-motion-hover) var(--rv-easing);
+}
+
+.reveal:hover,
+.reveal[aria-pressed="true"] {
+  color: var(--rv-ink);
+  border-color: var(--rv-ink);
+}
+
+.reveal:focus-visible {
+  outline: var(--rv-focus-ring);
+  outline-offset: 2px;
+}
+
+.revealEye {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.revealEye::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background-color: currentColor;
+  transform: scale(0.35);
+  transition: transform var(--rv-motion-base) var(--rv-easing);
+}
+
+.reveal[aria-pressed="true"] .revealEye::after {
+  transform: scale(1);
+}
+
+.actions {
+  display: flex;
+  margin-top: var(--rv-space-2);
+}
+
+.open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rv-space-4);
+  padding: var(--rv-space-4) var(--rv-space-6);
+  border: var(--rv-rule-weight-heavy) solid var(--rv-ink);
+  background-color: var(--rv-surface);
+  box-shadow: var(--rv-shadow-plate);
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-base);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--rv-ink);
+  cursor: pointer;
+  transition:
+    transform var(--rv-motion-hover) var(--rv-easing),
+    box-shadow var(--rv-motion-hover) var(--rv-easing),
+    background-color var(--rv-motion-base) var(--rv-easing),
+    color var(--rv-motion-base) var(--rv-easing);
+}
+
+.open:hover:not(:disabled) {
+  transform: translate(calc(var(--rv-lift) * -1), calc(var(--rv-lift) * -1));
+  box-shadow: 9px 9px 0 rgba(var(--rv-grid-ink), 0.9);
+}
+
+.open:active:not(:disabled) {
+  transform: translate(var(--rv-lift-pressed), var(--rv-lift-pressed));
+  box-shadow: var(--rv-shadow-plate-pressed);
+}
+
+.open:focus-visible {
+  outline: var(--rv-focus-ring);
+  outline-offset: 5px;
+}
+
+.open:disabled {
+  cursor: default;
+}
+
+.openSquare {
+  width: 9px;
+  height: 9px;
+  background-color: var(--rv-accent);
+}
+
+.openKey {
+  padding: 0 0.45em;
+  border: var(--rv-border) solid var(--rv-rule-soft);
+  color: var(--rv-ink-muted);
+}
+
+.message {
+  display: flex;
+  align-items: center;
+  gap: var(--rv-space-3);
+  min-height: 1.5em;
+  margin: 0;
+  font-family: var(--rv-font-mono);
+  font-size: var(--rv-text-xs);
+  letter-spacing: var(--rv-tracking-mono);
+  color: var(--rv-ink-muted);
+}
+
+.messageMark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: var(--rv-border) solid currentColor;
+}
+
+.messageAlert {
+  color: var(--rv-accent);
+}
+
+.messageAlert .messageMark {
+  background-color: currentColor;
+}
+
+/* --- the stamp -------------------------------------------------------------- */
+.stamp {
+  position: absolute;
+  right: 6%;
+  top: 14%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  padding: 0.45em 0.95em 0.4em;
+  border: 4px double currentColor;
+  font-family: var(--rv-font-mono);
+  font-size: clamp(1.1rem, 2vw, 1.65rem);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.88;
+  transform: rotate(-9deg);
+  animation: stamp-slam 560ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+.stamp-denied {
+  color: var(--rv-accent);
+}
+
+.stamp-granted {
+  color: var(--rv-ink);
+}
+
+.stamp-paused {
+  color: var(--rv-ink-soft);
+}
+
+.stampText {
+  line-height: 1;
+}
+
+.stampDetail {
+  font-size: 0.42em;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+}
+
+/* --- states --------------------------------------------------------------- */
+/* Guarding the combination: the lens darkens as its iris shuts. */
+.guarding .glass {
+  filter: brightness(0.7);
+}
+
+.verifying .lensRing {
+  border-style: dashed;
+  animation: lens-scan 1.6s linear infinite;
+}
+
+.verifying .pinSet {
+  animation: pin-shimmer 700ms ease-in-out infinite alternate;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.denied .lensRing {
+  border-color: var(--rv-accent);
+  box-shadow: 0 0 0 6px rgba(180, 71, 42, 0.18);
+  animation: lens-alarm 900ms ease-out both;
+}
+
+.denied .pupil {
+  background: radial-gradient(circle at 50% 50%, #3a0f06 0 55%, var(--rv-accent) 56% 100%);
+}
+
+.denied .index {
+  border-top-color: var(--rv-accent);
+}
+
+.denied .pinSet {
+  animation: pin-drop 520ms cubic-bezier(0.5, 0, 0.8, 0.3) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+.granted .index {
+  border-top-color: var(--rv-accent);
+}
+
+.granted .lensRing {
+  border-width: 5px;
+  box-shadow: 0 0 0 7px rgba(241, 236, 229, 0.9), 0 0 0 9px var(--rv-ink);
+}
+
+.granted .pinSet {
+  background-color: var(--rv-accent);
+}
+
+.granted .dial {
+  animation: dial-clunk 460ms cubic-bezier(0.2, 0.8, 0.3, 1.5) both;
+}
+
+.granted .open {
+  background-color: var(--rv-ink);
+  color: var(--rv-paper);
+}
+
+.joltA {
+  animation: jolt-a 560ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.joltB {
+  animation: jolt-b 560ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* --- the arrival ------------------------------------------------------------ */
+.playing .typeIn,
+.waiting .typeIn {
+  animation: room-type 700ms steps(14, end) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.playing .rise,
+.waiting .rise {
+  animation: room-rise 760ms var(--rv-easing-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+.playing .fade,
+.waiting .fade,
+.playing .ruler,
+.waiting .ruler,
+.playing .registration,
+.waiting .registration {
+  animation: room-fade 800ms linear both;
+  animation-delay: var(--d, 420ms);
+}
+
+.playing .card,
+.waiting .card {
+  animation: card-in 950ms cubic-bezier(0.2, 0, 0.1, 1) 360ms both;
+}
+
+.playing .dialSvg,
+.waiting .dialSvg {
+  animation: dial-in 1350ms cubic-bezier(0.2, 0, 0.1, 1) 160ms both;
+}
+
+.playing .ring,
+.waiting .ring {
+  animation: ring-draw 1150ms cubic-bezier(0.6, 0, 0.2, 1) 360ms both;
+}
+
+.playing .tick,
+.waiting .tick {
+  animation: room-fade 260ms linear both;
+  animation-delay: calc(480ms + var(--i, 0) * 8ms);
+}
+
+/* The lens wakes: its iris opens once the dial has come to rest. */
+.playing .iris,
+.waiting .iris {
+  animation: lens-wake 1000ms cubic-bezier(0.65, 0, 0.2, 1) 1150ms backwards;
+}
+
+.playing .index,
+.waiting .index {
+  animation: room-fade 420ms linear 1300ms both;
+}
+
+.playing .slot,
+.waiting .slot {
+  animation: slot-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(900ms + var(--i, 0) * 45ms);
+}
+
+.playing .readout,
+.waiting .readout {
+  animation: room-fade 500ms linear 1450ms both;
+}
+
+/* Behind the front door the arrival is set, not yet played. */
+.waiting,
+.waiting * {
+  animation-play-state: paused !important;
+}
+
+/* Still pictures and reduced motion: the finished room. */
+.settled *,
+.settled *::before,
+.settled *::after,
+.still *,
+.still *::before,
+.still *::after {
+  animation: none !important;
+}
+
+.still {
+  transition: none;
+}
+
+/* --- keyframes -------------------------------------------------------------- */
+@keyframes room-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+@keyframes room-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes room-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+    box-shadow: 0 0 0 rgba(var(--rv-grid-ink), 0.9);
+  }
+}
+
+@keyframes dial-in {
+  from {
+    transform: rotate(-150deg) scale(0.88);
+    opacity: 0;
+  }
+}
+
+@keyframes ring-draw {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+
+@keyframes lens-wake {
+  from {
+    --open: 0;
+  }
+}
+
+@keyframes slot-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes glyph-set {
+  from {
+    opacity: 0;
+    transform: translateY(70%) scaleY(0.2);
+  }
+}
+
+@keyframes lens-scan {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pin-shimmer {
+  to {
+    background-color: var(--rv-ink-soft);
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes lens-alarm {
+  0% {
+    box-shadow: 0 0 0 0 rgba(180, 71, 42, 0.55);
+  }
+  60% {
+    box-shadow: 0 0 0 16px rgba(180, 71, 42, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(180, 71, 42, 0.18);
+  }
+}
+
+@keyframes pin-drop {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-6px);
+  }
+  100% {
+    transform: translateY(140%);
+    opacity: 0.2;
+  }
+}
+
+@keyframes dial-clunk {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.045) rotate(0.6deg);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes stamp-slam {
+  0% {
+    opacity: 0;
+    transform: rotate(-16deg) scale(2.4);
+  }
+  55% {
+    opacity: 0.95;
+    transform: rotate(-8deg) scale(0.93);
+  }
+  72% {
+    transform: rotate(-9.5deg) scale(1.04);
+  }
+  100% {
+    transform: rotate(-9deg) scale(1);
+  }
+}
+
+@keyframes jolt-a {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  12% {
+    transform: translateX(-14px) rotate(-0.4deg);
+  }
+  28% {
+    transform: translateX(11px) rotate(0.3deg);
+  }
+  44% {
+    transform: translateX(-8px);
+  }
+  60% {
+    transform: translateX(5px);
+  }
+  78% {
+    transform: translateX(-2px);
+  }
+}
+
+@keyframes jolt-b {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  12% {
+    transform: translateX(-14px) rotate(-0.4deg);
+  }
+  28% {
+    transform: translateX(11px) rotate(0.3deg);
+  }
+  44% {
+    transform: translateX(-8px);
+  }
+  60% {
+    transform: translateX(5px);
+  }
+  78% {
+    transform: translateX(-2px);
+  }
+}
+
+@media (max-width: 859px) {
+  .scene {
+    --bar-h: 2.75rem;
+    --dial: clamp(10rem, 30vh, 14rem);
+    overflow-y: auto;
+  }
+
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--rv-space-6);
+  }
+
+  .barCentre,
+  .ruler,
+  .registration,
+  .folio {
+    display: none;
+  }
+
+  .bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .tumblers {
+    gap: 4px;
+  }
+
+  .slot {
+    width: 9px;
+    height: 24px;
+  }
+}
