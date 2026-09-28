@@ -60,6 +60,9 @@ export interface BuildAppOptions {
   readonly testUser?: SessionUser;
 }
 
+/** How many times startup tries an unreachable database (waits 2, 4 and 8 s between). */
+const STARTUP_ATTEMPTS = 4;
+
 /** Network-level failures reaching Postgres (postgres.js and Node error codes). */
 function isDatabaseUnreachable(error: unknown): boolean {
   const codes = new Set(["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "CONNECT_TIMEOUT", "CONNECTION_CLOSED", "CONNECTION_ENDED", "CONNECTION_DESTROYED"]);
@@ -124,11 +127,21 @@ export async function buildApp(
     ...(options.motionProcessor === undefined ? {} : { processor: options.motionProcessor }),
   });
 
-  try {
-    await connection.migrate(options.migrationsFolder);
-  } catch (error) {
-    if (ownsConnection) await connection.close().catch(() => undefined);
-    throw error;
+  // A cloud database can be briefly out of reach (a network blip, a project
+  // waking up): try a few times, waiting longer each time, before giving up.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await connection.migrate(options.migrationsFolder);
+      break;
+    } catch (error) {
+      if (ownsConnection && isDatabaseUnreachable(error) && attempt < STARTUP_ATTEMPTS) {
+        app.log.warn({ attempt }, "The database is not answering yet; trying again");
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * 2 ** (attempt - 1)));
+        continue;
+      }
+      if (ownsConnection) await connection.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   if (ownsConnection) {
