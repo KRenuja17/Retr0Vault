@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -16,11 +17,10 @@ import {
 
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { createDatabaseConnection } from "../src/database/connection.js";
 import { probeMedia, resolveMotionTools } from "../src/motion/ffmpeg.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
 import { maintainOrphanFiles } from "../src/storage/orphans.js";
-import { createMultipartPayload, createTestApp, disposeTestApp, type TestAppContext } from "./helpers.js";
+import { createMultipartPayload, createTestApp, disposeTestApp, queryRows, type TestAppContext } from "./helpers.js";
 
 const tools = resolveMotionTools();
 if (tools === undefined) throw new Error("The bundled ffmpeg/ffprobe must be installed to run motion tests");
@@ -289,12 +289,7 @@ describe("motion clip management", () => {
 
     expect((await context.app.inject({ method: "DELETE", url: `/api/v1/references/${second}` })).statusCode).toBe(204);
     expect(existsSync(join(context.storageRoot, "motion", second))).toBe(false);
-    const connection = createDatabaseConnection(context.databasePath);
-    try {
-      expect(connection.sqlite.prepare("SELECT count(*) AS count FROM motion_clips").get()).toEqual({ count: 0 });
-    } finally {
-      connection.sqlite.close();
-    }
+    expect(await queryRows(context.db, sql`SELECT count(*)::int AS count FROM motion_clips`)).toEqual([{ count: 0 }]);
   });
 
   it("resumes clips interrupted by a shutdown", async () => {
@@ -306,10 +301,10 @@ describe("motion clip management", () => {
     await uploadClip(context, referenceId, clip("moving.mp4"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await getStudy(context, referenceId)).clips[0]!.processingStatus).toBe("processing");
-    const directory = context.directory;
     await context.app.close();
 
-    context = await createTestApp("motion-recover", { directory, motionProcessor: instantProcessor });
+    // A restart: same database and files, new process.
+    context = await createTestApp("motion-recover", { reuse: context, motionProcessor: instantProcessor });
     await context.app.ready();
     await context.app.motionQueue.idle();
     expect((await getStudy(context, referenceId)).clips[0]!.processingStatus).toBe("ready");
@@ -329,19 +324,14 @@ describe("motion clip management", () => {
     const processed: string[] = [];
     const second = await buildApp({
       config: loadConfig({ ...process.env, ANALYSIS_DATA_DIR: join(context.directory, "data") }),
-      databasePath: context.databasePath, storageRoot: context.storageRoot, logger: false,
+      connection: context.connection, storageRoot: context.storageRoot, logger: false,
       motionProcessor: async (input) => { processed.push(input.clipId); return instantProcessor(input); },
     });
     try {
       await second.ready();
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(processed).toEqual([]);
-      const connection = createDatabaseConnection(context.databasePath);
-      try {
-        expect(connection.sqlite.prepare("SELECT processing_status AS status FROM motion_clips").get()).toEqual({ status: "processing" });
-      } finally {
-        connection.sqlite.close();
-      }
+      expect(await queryRows(context.db, sql`SELECT processing_status AS status FROM motion_clips`)).toEqual([{ status: "processing" }]);
       // Once it owns a port it recovers the interrupted clip.
       await second.listen({ host: "127.0.0.1", port: 0 });
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -350,7 +340,7 @@ describe("motion clip management", () => {
     } finally {
       await second.close();
     }
-    context = await createTestApp("motion-listen", { directory: context.directory, motionProcessor: instantProcessor });
+    context = await createTestApp("motion-listen", { reuse: context, motionProcessor: instantProcessor });
   });
 
   it("reports orphaned motion files but never a live clip's", async () => {
@@ -373,16 +363,11 @@ describe("motion clip management", () => {
     }
     utimesSync(join(context.storageRoot, "motion", referenceId, live!.id, "poster.webp"), old, old);
 
-    const connection = createDatabaseConnection(context.databasePath);
-    try {
-      const report = maintainOrphanFiles(connection, context.storageRoot);
-      expect(report.candidates).toEqual([`motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/clip.mp4`]);
-      expect(report.skipped).toEqual(expect.arrayContaining([
-        { path: `motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/notes.txt`, reason: "unrecognized filename" },
-        { path: `motion/${referenceId}/${live!.id}/poster.webp`, reason: "owned by a database reference" },
-      ]));
-    } finally {
-      connection.sqlite.close();
-    }
+    const report = await maintainOrphanFiles(context.db, context.storageRoot);
+    expect(report.candidates).toEqual([`motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/clip.mp4`]);
+    expect(report.skipped).toEqual(expect.arrayContaining([
+      { path: `motion/${referenceId}/00000000-0000-4000-8000-00000000abcd/notes.txt`, reason: "unrecognized filename" },
+      { path: `motion/${referenceId}/${live!.id}/poster.webp`, reason: "owned by a database reference" },
+    ]));
   });
 });

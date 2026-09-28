@@ -1,13 +1,8 @@
-import { loadConfig } from "../config.js";
-import { createDatabaseConnection } from "./connection.js";
-import { applyMigrations } from "./migrate.js";
+import { describeDatabase, openCliDatabase } from "./cli-connection.js";
 
-const config = loadConfig();
-const connection = createDatabaseConnection(config.databasePath);
-
+const { config, connection } = await openCliDatabase();
 try {
-  applyMigrations(connection);
-  process.stdout.write(`Migrations applied to ${config.databasePath}\n`);
+  process.stdout.write(`Migrations applied to ${describeDatabase(config.databaseUrl)}\n`);
 } finally {
-  connection.sqlite.close();
+  await connection.close();
 }

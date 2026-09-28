@@ -11,7 +11,7 @@ import {
   updateReferenceSchema,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import { ApiError } from "../errors.js";
 import { parseRequest } from "../http/validation.js";
 import {
@@ -100,7 +100,7 @@ async function readImageMultipart(
 
 export async function registerReferenceRoutes(
   app: FastifyInstance,
-  connection: DatabaseConnection,
+  db: Db,
   storage: ReferenceStorage,
   captureService: CaptureService,
   motionStorage: MotionStorage,
@@ -109,7 +109,7 @@ export async function registerReferenceRoutes(
     const input = parseRequest(createWebsiteReferenceSchema, request.body);
     parseRequest(z.object({}).strict(), request.query);
     validateCaptureUrl(input.url);
-    if (input.designTypeId !== undefined) getDesignTypeById(connection, input.designTypeId);
+    if (input.designTypeId !== undefined) await getDesignTypeById(db, input.designTypeId);
     const captured = await captureService.capture(input);
     const id = randomUUID();
     const stored = await storage.storeCapture(id, captured.frames).catch((error: unknown) => {
@@ -117,7 +117,7 @@ export async function registerReferenceRoutes(
       throw new ApiError(500, "CAPTURE_STORAGE_FAILED", "Could not store captured images; no reference was saved");
     });
     try {
-      return reply.status(201).send(createWebsiteReferenceRecord(connection, id, input, stored));
+      return reply.status(201).send(await createWebsiteReferenceRecord(db, id, input, stored));
     } catch (error) {
       const cleanup = await storage.deleteReferenceFiles(id, stored.originalPath, stored.thumbnailPath, stored.frames.map((frame) => frame.imagePath));
       if (cleanup.warnings.length > 0) request.log.warn({ referenceId: id, warnings: cleanup.warnings }, "Capture rollback warnings");
@@ -134,8 +134,8 @@ export async function registerReferenceRoutes(
     const storedImage = await storage.storeImage(id, buffer, metadata);
 
     try {
-      const reference = createImageReferenceRecord(
-        connection,
+      const reference = await createImageReferenceRecord(
+        db,
         id,
         input,
         storedImage,
@@ -158,14 +158,14 @@ export async function registerReferenceRoutes(
   app.put("/api/v1/references/:id/image", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
     parseRequest(z.object({}).strict(), request.query);
-    const current = getReferenceMediaPaths(connection, id);
+    const current = await getReferenceMediaPaths(db, id);
     const { fields, buffer } = await readImageMultipart(request);
     const input = parseRequest(replaceReferenceImageFieldsSchema, fields);
     const replacement = await storage.replaceImage(id, current, buffer);
 
     let reference;
     try {
-      reference = replaceReferenceImageRecord(connection, id, replacement.image, input.resetAnalysis);
+      reference = await replaceReferenceImageRecord(db, id, replacement.image, input.resetAnalysis);
     } catch (error) {
       const restored = await replacement.rollback();
       if (restored.warnings.length > 0) {
@@ -182,23 +182,23 @@ export async function registerReferenceRoutes(
 
   app.get("/api/v1/references", async (request) => {
     const query = parseRequest(referenceListQuerySchema, request.query);
-    return listReferences(connection, query);
+    return await listReferences(db, query);
   });
 
   app.get("/api/v1/references/:id", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
-    return getReference(connection, id);
+    return await getReference(db, id);
   });
 
   app.patch("/api/v1/references/:id", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
     const input = parseRequest(updateReferenceSchema, request.body);
-    return updateReference(connection, id, input);
+    return await updateReference(db, id, input);
   });
 
   app.delete("/api/v1/references/:id", async (request, reply) => {
     const { id } = parseRequest(idParametersSchema, request.params);
-    const deleted = deleteReferenceRecord(connection, id);
+    const deleted = await deleteReferenceRecord(db, id);
     const cleanup = await storage.deleteReferenceFiles(
       deleted.id,
       deleted.originalPath,

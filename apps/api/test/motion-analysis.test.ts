@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -17,12 +18,11 @@ import {
   type MotionAnalysis,
 } from "@retr0vault/shared";
 
-import { createDatabaseConnection } from "../src/database/connection.js";
 import { resolveMotionTools } from "../src/motion/ffmpeg.js";
 import { exportPendingMotion, importMotionFiles } from "../src/motion/cli.js";
 import type { ClipProcessor } from "../src/motion/queue.js";
 import { MotionStorage } from "../src/storage/motion-storage.js";
-import { createMultipartPayload, createTestApp, disposeTestApp, type TestAppContext } from "./helpers.js";
+import { createMultipartPayload, createTestApp, disposeTestApp, queryRows, type TestAppContext } from "./helpers.js";
 
 const tools = resolveMotionTools();
 if (tools === undefined) throw new Error("The bundled ffmpeg/ffprobe must be installed to run motion tests");
@@ -225,12 +225,7 @@ describe("motion section listing and search", () => {
     expect(stats.motionStudies).toMatchObject({ total: 2, analyzed: 1, pending: 1 });
 
     await context.app.inject({ method: "DELETE", url: `/api/v1/references/${lando.referenceId}` });
-    const connection = createDatabaseConnection(context.databasePath);
-    try {
-      expect(connection.sqlite.prepare("SELECT count(*) AS count FROM motion_search").get()).toEqual({ count: 1 });
-    } finally {
-      connection.sqlite.close();
-    }
+    expect(await queryRows(context.db, sql`SELECT count(*)::int AS count FROM motion_search`)).toEqual([{ count: 1 }]);
   });
 });
 
@@ -247,46 +242,41 @@ describe("motion curator export", () => {
       verifiedTech: [{ claim: "Page requests a WebGL2 context", source: "canvas getContext instrumentation" }],
     } });
     const waiting = await createReference(context, "Still processing");
-    const connection = createDatabaseConnection(context.databasePath);
-    try {
-      // A study whose only clip is still queued is reported, not exported.
-      const now = Date.now();
-      connection.sqlite.prepare("INSERT INTO motion_studies (id, reference_id, created_at, updated_at) VALUES ('11111111-1111-4111-8111-111111111111', ?, ?, ?)").run(waiting, now, now);
-      connection.sqlite.prepare(`INSERT INTO motion_clips (id, motion_study_id, label, sort_order, processing_status, created_at, updated_at)
-        VALUES ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'Queued', 0, 'queued', ?, ?)`).run(now, now);
+    const connection = context.db;
+    // A study whose only clip is still queued is reported, not exported.
+    await connection.execute(sql`INSERT INTO motion_studies (id, reference_id) VALUES ('11111111-1111-4111-8111-111111111111', ${waiting})`);
+    await connection.execute(sql`INSERT INTO motion_clips (id, motion_study_id, label, sort_order, processing_status)
+      VALUES ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'Queued', 0, 'queued')`);
 
-      const manifest = pendingMotionManifestSchema.parse((await context.app.inject({ url: "/api/v1/motion/pending" })).json());
-      expect(manifest.unavailable.map((entry) => entry.referenceId)).toEqual([waiting]);
-      const [exported] = manifest.studies;
-      expect(exported).toMatchObject({ referenceId, title: "Exported study", verifiedTech: [{ index: 0, claim: "Page requests a WebGL2 context" }] });
-      const [clip] = exported!.clips;
-      for (const path of [clip!.clipPath, clip!.posterPath, clip!.contactSheetPath, clip!.energyTimelinePath, clip!.regionSheetPath,
-        ...clip!.keyframes.map((keyframe) => keyframe.imagePath), ...clip!.bursts.map((burst) => burst.imagePath)]) {
-        expect(existsSync(path), path).toBe(true);
-      }
-      expect(clip!.keyframes.length).toBe(ready.keyframes.length);
-      expect(manifest.analysisSchema).toHaveProperty("properties.beats");
-
-      const dataDirectory = join(context.directory, "data");
-      const written = await exportPendingMotion(connection, new MotionStorage(context.storageRoot), dataDirectory);
-      expect(written.exported).toBe(1);
-      expect(readFileSync(join(dataDirectory, "motion-inbox", "instructions.md"), "utf8")).toContain("verifiedTechIndex");
-
-      const results = join(dataDirectory, "motion-results");
-      mkdirSync(results, { recursive: true });
-      writeFileSync(join(results, `${referenceId}.json`), JSON.stringify(analysis(referenceId, ready.id, {
-        beats: [{ clipId: ready.id, startMs: 0, endMs: 1_000, trigger: "time", label: "Pattern drifts", description: "Bars move." }],
-        implementation: [{ claim: "WebGL2", evidence: "verified", verifiedTechIndex: 0 }],
-      })));
-      writeFileSync(join(results, "broken.json"), "{");
-      const report = await importMotionFiles(connection, results);
-      // Files are read in name order, and the result's name is a random UUID, so compare per file.
-      expect(Object.fromEntries(report.results.map((result) => [result.source, result.status]))).toEqual({
-        [`${referenceId}.json`]: "imported", "broken.json": "failed",
-      });
-    } finally {
-      connection.sqlite.close();
+    const manifest = pendingMotionManifestSchema.parse((await context.app.inject({ url: "/api/v1/motion/pending" })).json());
+    expect(manifest.unavailable.map((entry) => entry.referenceId)).toEqual([waiting]);
+    const [exported] = manifest.studies;
+    expect(exported).toMatchObject({ referenceId, title: "Exported study", verifiedTech: [{ index: 0, claim: "Page requests a WebGL2 context" }] });
+    const [clip] = exported!.clips;
+    for (const path of [clip!.clipPath, clip!.posterPath, clip!.contactSheetPath, clip!.energyTimelinePath, clip!.regionSheetPath,
+      ...clip!.keyframes.map((keyframe) => keyframe.imagePath), ...clip!.bursts.map((burst) => burst.imagePath)]) {
+      expect(existsSync(path), path).toBe(true);
     }
+    expect(clip!.keyframes.length).toBe(ready.keyframes.length);
+    expect(manifest.analysisSchema).toHaveProperty("properties.beats");
+
+    const dataDirectory = join(context.directory, "data");
+    const written = await exportPendingMotion(connection, new MotionStorage(context.storageRoot), dataDirectory);
+    expect(written.exported).toBe(1);
+    expect(readFileSync(join(dataDirectory, "motion-inbox", "instructions.md"), "utf8")).toContain("verifiedTechIndex");
+
+    const results = join(dataDirectory, "motion-results");
+    mkdirSync(results, { recursive: true });
+    writeFileSync(join(results, `${referenceId}.json`), JSON.stringify(analysis(referenceId, ready.id, {
+      beats: [{ clipId: ready.id, startMs: 0, endMs: 1_000, trigger: "time", label: "Pattern drifts", description: "Bars move." }],
+      implementation: [{ claim: "WebGL2", evidence: "verified", verifiedTechIndex: 0 }],
+    })));
+    writeFileSync(join(results, "broken.json"), "{");
+    const report = await importMotionFiles(connection, results);
+    // Files are read in name order, and the result's name is a random UUID, so compare per file.
+    expect(Object.fromEntries(report.results.map((result) => [result.source, result.status]))).toEqual({
+      [`${referenceId}.json`]: "imported", "broken.json": "failed",
+    });
   }, 60_000);
 });
 

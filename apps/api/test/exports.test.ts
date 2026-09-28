@@ -11,11 +11,11 @@ import {
   type AuthoredDirection, type UpdateReferenceInput,
 } from "@retr0vault/shared";
 
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
+import type { Db } from "../src/database/connection.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createImageReferenceRecord, updateReference } from "../src/services/references.js";
 import {
-  createMultipartPayload, createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext,
+  createMultipartPayload, createTestApp, databaseSnapshot, disposeTestApp, validDesignTypeInput, type TestAppContext,
 } from "./helpers.js";
 
 function authored(referenceIds: string[]): AuthoredDirection {
@@ -39,25 +39,24 @@ function jsonBlocks(markdown: string): unknown[] {
 
 describe("export API", () => {
   let context: TestAppContext;
-  let connection: DatabaseConnection;
+  let connection: Db;
 
   beforeEach(async () => {
     context = await createTestApp("exports");
-    connection = createDatabaseConnection(context.databasePath);
+    connection = context.db;
   });
 
   afterEach(async () => {
-    connection.sqlite.close();
     await disposeTestApp(context);
   });
 
-  function createReference(title = "Study", patch: UpdateReferenceInput = {}) {
+  async function createReference(title = "Study", patch: UpdateReferenceInput = {}) {
     const id = randomUUID();
-    const reference = createImageReferenceRecord(connection, id, { title }, {
+    const reference = await createImageReferenceRecord(connection, id, { title }, {
       originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
       width: 1, height: 1, format: "png",
     });
-    return Object.keys(patch).length === 0 ? reference : updateReference(connection, id, patch);
+    return Object.keys(patch).length === 0 ? reference : await updateReference(connection, id, patch);
   }
 
   function post(payload: object | null, direction = false) {
@@ -66,8 +65,8 @@ describe("export API", () => {
   }
 
   it("exports one reference with its concise fields, dimensions, briefs and safe download headers", async () => {
-    const type = createDesignType(connection, validDesignTypeInput);
-    const reference = createReference("Paper Study", { designTypeId: type.id,
+    const type = await createDesignType(connection, validDesignTypeInput);
+    const reference = await createReference("Paper Study", { designTypeId: type.id,
       sourceUrl: "https://example.test/paper", designDNA: "paper × serif", designThesis: "Quiet type leads",
       designBrief: "Use a paper ground.", imageRecipe: "[SUBJECT] in fine grain", motionBrief: "Use slow reveals",
       assetBrief: "Prepare one illustration", tags: [{ type: "texture", value: "halftone" }],
@@ -87,9 +86,9 @@ describe("export API", () => {
   });
 
   it("preserves multi-reference selection order and excludes unselected records", async () => {
-    const first = createReference("First selected");
-    const second = createReference("Second selected");
-    createReference("Excluded");
+    const first = await createReference("First selected");
+    const second = await createReference("Second selected");
+    await createReference("Excluded");
     const response = await post({ mode: "references", referenceIds: [second.id, first.id] });
     expect(response.statusCode).toBe(200);
     expect(response.body.indexOf("## Second selected")).toBeLessThan(response.body.indexOf("## First selected"));
@@ -100,9 +99,9 @@ describe("export API", () => {
   });
 
   it("exports selected category mini-style-guides without exporting their references", async () => {
-    const first = createDesignType(connection, validDesignTypeInput);
-    const second = createDesignType(connection, { ...validDesignTypeInput, name: "Second Category", slug: "second" });
-    createReference("Not selected", { designTypeId: first.id });
+    const first = await createDesignType(connection, validDesignTypeInput);
+    const second = await createDesignType(connection, { ...validDesignTypeInput, name: "Second Category", slug: "second" });
+    await createReference("Not selected", { designTypeId: first.id });
     const response = await post({ mode: "category-brief", designTypeIds: [second.id, first.id] });
     expect(response.statusCode).toBe(200);
     for (const value of ["## Summary", "## Deploy For", "## Risk", "## Principles", "## Anti-patterns", "## Visual Vocabulary", first.briefBlock]) {
@@ -113,8 +112,8 @@ describe("export API", () => {
   });
 
   it("exports only vocabulary, deduplicating normalized terms in first-seen order", async () => {
-    const type = createDesignType(connection, { ...validDesignTypeInput, vocabulary: ["SERIF", "warm paper", "grain"] });
-    const reference = createReference("Do not export title", { designBrief: "Do not export brief", tags: [
+    const type = await createDesignType(connection, { ...validDesignTypeInput, vocabulary: ["SERIF", "warm paper", "grain"] });
+    const reference = await createReference("Do not export title", { designBrief: "Do not export brief", tags: [
       { type: "typography", value: "Serif" }, { type: "layout", value: "Ｓｅｒｉｆ" },
       { type: "texture", value: "Warm   Paper" },
     ] });
@@ -122,16 +121,16 @@ describe("export API", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toBe("# Retr0Vault Visual Vocabulary\n\n- Serif\n- Warm Paper\n- grain\n");
     expect((await post({ mode: "vocabulary", designTypeIds: [type.id] })).statusCode).toBe(200);
-    expect((await post({ mode: "vocabulary", referenceIds: [createReference().id] })).body).toContain("No vocabulary provided.");
+    expect((await post({ mode: "vocabulary", referenceIds: [(await createReference()).id] })).body).toContain("No vocabulary provided.");
   });
 
   it("exports a comparison snapshot with complete curator instructions and the authored-result schema", async () => {
-    const type = createDesignType(connection, validDesignTypeInput);
-    const first = createReference("Primary source", { designTypeId: type.id, designDNA: "editorial × paper",
+    const type = await createDesignType(connection, validDesignTypeInput);
+    const first = await createReference("Primary source", { designTypeId: type.id, designDNA: "editorial × paper",
       designThesis: "A calm subject", tags: [{ type: "texture", value: "grain" }], designBrief: "Retain one focal point",
       imageRecipe: "[SUBJECT] as linework", motionBrief: "No motion", assetBrief: "One drawing",
       analysisJson: { palette: ["warm white"], typography: ["serif"], custom: { useful: true } } });
-    const second = createReference("Supporting source");
+    const second = await createReference("Supporting source");
     const response = await post({ mode: "pending-combination", referenceIds: [first.id, second.id], intent: "A local portfolio" }, true);
     expect(response.statusCode, response.body).toBe(200);
     for (const value of ["pending-combination", "Compare design DNA", "what to borrow from each reference", "Identify conflicts",
@@ -155,7 +154,7 @@ describe("export API", () => {
   });
 
   it("accepts a reviewed authored result and exports every required direction section", async () => {
-    const ids = [createReference("Primary source").id, createReference("Supporting source").id];
+    const ids = [(await createReference("Primary source")).id, (await createReference("Supporting source")).id];
     const input = authoredDirectionExportRequestSchema.parse({ mode: "authored", referenceIds: ids, direction: authored(ids) });
     const response = await post(input, true);
     expect(response.statusCode, response.body).toBe(200);
@@ -173,7 +172,7 @@ describe("export API", () => {
   });
 
   it("supports a single authored source, absent conflicts, no generated images and explicit motion restraint", async () => {
-    const ids = [createReference().id];
+    const ids = [(await createReference()).id];
     const direction = { ...authored(ids), conflicts: [], imageRecipes: [] };
     const response = await post({ mode: "authored", referenceIds: ids, direction }, true);
     expect(response.statusCode, response.body).toBe(200);
@@ -183,11 +182,11 @@ describe("export API", () => {
   });
 
   it("keeps titles and source metadata out of filenames and safely fences embedded source markup", async () => {
-    const first = createReference('..\\CON/evil\r\nX-Injected: yes <script>alert(1)</script>', {
+    const first = await createReference('..\\CON/evil\r\nX-Injected: yes <script>alert(1)</script>', {
       designBrief: "```\n# close fence\n````", imageRecipe: "[SUBJECT] `texture`",
       sourceUrl: "javascript:alert(1)",
     });
-    const second = createReference("Other");
+    const second = await createReference("Other");
     const input = { mode: "references", referenceIds: [first.id] };
     const response = await post(input);
     expect(response.statusCode).toBe(200);
@@ -200,12 +199,12 @@ describe("export API", () => {
   });
 
   it("canonicalizes uppercase UUID selections", async () => {
-    const reference = createReference();
+    const reference = await createReference();
     expect((await post({ mode: "references", referenceIds: [reference.id.toUpperCase()] })).statusCode).toBe(200);
   });
 
   it("returns structured 404s for any missing selected reference or category without a partial file", async () => {
-    const reference = createReference();
+    const reference = await createReference();
     const missing = randomUUID();
     const cases = [
       { mode: "references", referenceIds: [reference.id, missing] },
@@ -223,7 +222,7 @@ describe("export API", () => {
   });
 
   it("rejects empty, ambiguous, oversized and malformed selections and unknown fields", async () => {
-    const id = createReference().id;
+    const id = (await createReference()).id;
     const cases = [null, {}, { mode: "unknown" }, { mode: "references", referenceIds: [] },
       { mode: "references", referenceIds: ["../outside"] }, { mode: "references", referenceIds: [id, id.toUpperCase()] },
       { mode: "references", referenceIds: Array.from({ length: 101 }, () => randomUUID()) },
@@ -245,7 +244,7 @@ describe("export API", () => {
   });
 
   it("validates authored provenance, dimension authority, recipes and nonempty content", async () => {
-    const ids = [createReference().id, createReference().id];
+    const ids = [(await createReference()).id, (await createReference()).id];
     const good = authored(ids);
     const directions = [
       { ...good, borrowings: good.borrowings.slice(0, 1) },
@@ -279,11 +278,11 @@ describe("export API", () => {
     const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).png().toBuffer();
     const uploaded = await context.app.inject({ method: "POST", url: "/api/v1/references/image", ...createMultipartPayload({ file: { buffer: image } }) });
     const reference = referenceResponseSchema.parse(uploaded.json());
-    updateReference(connection, reference.id, { designBrief: "Protected brief" });
-    const other = createReference();
-    const type = createDesignType(connection, validDesignTypeInput);
+    await updateReference(connection, reference.id, { designBrief: "Protected brief" });
+    const other = await createReference();
+    const type = await createDesignType(connection, validDesignTypeInput);
     const ids = [reference.id, other.id];
-    const beforeDatabase = connection.sqlite.serialize();
+    const beforeDatabase = await databaseSnapshot(connection);
     const originalPath = join(context.storageRoot, reference.originalPath);
     const thumbnailPath = join(context.storageRoot, reference.thumbnailPath);
     const original = readFileSync(originalPath);
@@ -294,7 +293,7 @@ describe("export API", () => {
     expect((await post({ mode: "vocabulary", referenceIds: ids })).statusCode).toBe(200);
     expect((await post({ mode: "pending-combination", referenceIds: ids }, true)).statusCode).toBe(200);
     expect((await post({ mode: "authored", referenceIds: ids, direction: authored(ids) }, true)).statusCode).toBe(200);
-    expect(connection.sqlite.serialize()).toEqual(beforeDatabase);
+    expect(await databaseSnapshot(connection)).toEqual(beforeDatabase);
     expect(readFileSync(originalPath)).toEqual(original);
     expect(readFileSync(thumbnailPath)).toEqual(thumbnail);
     expect(readdirSync(context.directory, { recursive: true }).sort()).toEqual(files);

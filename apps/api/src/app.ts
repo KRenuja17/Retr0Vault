@@ -8,8 +8,7 @@ import multipart from "@fastify/multipart";
 import type { ErrorResponse } from "@retr0vault/shared";
 
 import { type AppConfig, loadConfig } from "./config.js";
-import { createDatabaseConnection } from "./database/connection.js";
-import { applyMigrations, defaultMigrationsFolder } from "./database/migrate.js";
+import { openPostgres, type DatabaseConnection } from "./database/connection.js";
 import { registerCollectionRoutes } from "./routes/collections.js";
 import { registerAnalysisRoutes } from "./routes/analysis.js";
 import { registerDesignTypeRoutes } from "./routes/design-types.js";
@@ -19,7 +18,7 @@ import { registerReferenceRoutes } from "./routes/references.js";
 import { registerStatsRoute } from "./routes/stats.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerLocalAccess } from "./http/local-access.js";
-import { ApiError, sqliteErrorCode } from "./errors.js";
+import { ApiError, isTransientDatabaseError } from "./errors.js";
 import { ReferenceStorage } from "./storage/reference-storage.js";
 import { ChromiumCaptureService, type CaptureService } from "./capture/service.js";
 import { resolveMotionTools, type MotionTools } from "./motion/ffmpeg.js";
@@ -29,7 +28,11 @@ import { MotionStorage } from "./storage/motion-storage.js";
 
 export interface BuildAppOptions {
   readonly config?: AppConfig;
-  readonly databasePath?: string;
+  /**
+   * A database connection to use instead of opening `DATABASE_URL` (tests pass
+   * an in-process PGlite). The caller keeps ownership and closes it.
+   */
+  readonly connection?: DatabaseConnection;
   readonly migrationsFolder?: string;
   readonly logger?: FastifyServerOptions["logger"];
   readonly storageRoot?: string;
@@ -41,6 +44,18 @@ export interface BuildAppOptions {
   readonly maxMotionUploadBytes?: number;
   /** When the motion queue recovers and starts work: after listening (default), or on ready for inject-only apps. */
   readonly motionQueueStart?: "listen" | "ready";
+}
+
+/** Network-level failures reaching Postgres (postgres.js and Node error codes). */
+function isDatabaseUnreachable(error: unknown): boolean {
+  const codes = new Set(["ECONNREFUSED", "ENOTFOUND", "ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "CONNECT_TIMEOUT", "CONNECTION_CLOSED", "CONNECTION_ENDED", "CONNECTION_DESTROYED"]);
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 5 && typeof candidate === "object" && candidate !== null; depth += 1) {
+    const code = (candidate as { code?: unknown }).code;
+    if (typeof code === "string" && codes.has(code)) return true;
+    candidate = (candidate as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 function errorPayload(
@@ -74,9 +89,12 @@ export async function buildApp(
     requestTimeout: 120_000,
     bodyLimit: 1_048_576,
   });
-  const connection = createDatabaseConnection(
-    options.databasePath ?? config.databasePath,
-  );
+  const ownsConnection = options.connection === undefined;
+  if (ownsConnection && config.databaseUrl === undefined) {
+    throw new Error("DATABASE_URL is not set. Copy .env.example to .env and fill in the Supabase connection string.");
+  }
+  const connection = options.connection ?? openPostgres(config.databaseUrl!);
+  const db = connection.database;
   const storage = new ReferenceStorage(
     options.storageRoot ?? config.storageRoot,
   );
@@ -86,26 +104,21 @@ export async function buildApp(
   const motionTools = options.motionTools === null ? undefined :
     options.motionTools ?? resolveMotionTools({ ffmpegPath: config.ffmpegPath, ffprobePath: config.ffprobePath });
   const motionQueue = new MotionQueue({
-    connection, storage: motionStorage, tools: motionTools,
+    db, storage: motionStorage, tools: motionTools,
     timeoutMs: config.motionProcessTimeoutMs, logger: app.log,
     ...(options.motionProcessor === undefined ? {} : { processor: options.motionProcessor }),
   });
 
   try {
-    applyMigrations(
-      connection,
-      options.migrationsFolder ?? defaultMigrationsFolder,
-    );
+    await connection.migrate(options.migrationsFolder);
   } catch (error) {
-    connection.sqlite.close();
+    if (ownsConnection) await connection.close().catch(() => undefined);
     throw error;
   }
 
-  app.addHook("onClose", async () => {
-    if (connection.sqlite.open) {
-      connection.sqlite.close();
-    }
-  });
+  if (ownsConnection) {
+    app.addHook("onClose", async () => connection.close());
+  }
 
   app.setNotFoundHandler((request, reply) => {
     return reply.status(404).send(
@@ -119,27 +132,29 @@ export async function buildApp(
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
-    const busy = sqliteErrorCode(error)?.startsWith("SQLITE_BUSY") === true;
-    const statusCode = busy ? 503 :
+    const busy = isTransientDatabaseError(error);
+    const unavailable = !busy && isDatabaseUnreachable(error);
+    const statusCode = busy || unavailable ? 503 :
       typeof error.statusCode === "number" && Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599
         ? error.statusCode
         : 500;
     const internal = statusCode >= 500 && !(error instanceof ApiError);
-    const code = busy ? "DATABASE_BUSY" : internal ? "INTERNAL_SERVER_ERROR" :
+    const code = busy ? "DATABASE_BUSY" : unavailable ? "DATABASE_UNAVAILABLE" : internal ? "INTERNAL_SERVER_ERROR" :
       typeof error.code === "string"
         ? error.code
         : statusCode === 500
           ? "INTERNAL_SERVER_ERROR"
           : "REQUEST_ERROR";
     const message =
-      busy ? "The database is busy; retry the request shortly" : internal
+      busy ? "The database is busy; retry the request shortly" :
+      unavailable ? "The database cannot be reached; check the connection or whether the Supabase project is paused" : internal
         ? "An unexpected error occurred" : error.message;
 
     if (statusCode >= 500) {
       request.log.error({ err: error }, "Request failed");
     }
 
-    if (busy) reply.header("Retry-After", "1");
+    if (busy || unavailable) reply.header("Retry-After", busy ? "1" : "10");
     return reply.status(statusCode)
       .send(errorPayload(request.id, statusCode, code, message));
   });
@@ -157,16 +172,16 @@ export async function buildApp(
     throwFileSizeLimit: true,
   });
 
-  await registerHealthRoute(app, connection);
-  await registerStatsRoute(app, connection);
-  await registerDesignTypeRoutes(app, connection);
-  await registerCollectionRoutes(app, connection);
-  await registerReferenceRoutes(app, connection, storage, captureService, motionStorage);
-  await registerMediaRoutes(app, connection, storage);
-  await registerAnalysisRoutes(app, connection, storage, config.analysisDataDirectory);
-  await registerExportRoutes(app, connection);
+  await registerHealthRoute(app, db);
+  await registerStatsRoute(app, db);
+  await registerDesignTypeRoutes(app, db);
+  await registerCollectionRoutes(app, db);
+  await registerReferenceRoutes(app, db, storage, captureService, motionStorage);
+  await registerMediaRoutes(app, db, storage);
+  await registerAnalysisRoutes(app, db, storage, config.analysisDataDirectory);
+  await registerExportRoutes(app, db);
   await registerMotionRoutes(app, {
-    connection, storage: motionStorage, queue: motionQueue, tools: motionTools,
+    db, storage: motionStorage, queue: motionQueue, tools: motionTools,
     maxUploadBytes: options.maxMotionUploadBytes ?? config.maxMotionUploadBytes,
     dataDirectory: config.analysisDataDirectory,
   });
@@ -176,7 +191,7 @@ export async function buildApp(
    * the queue then would reset and re-run clips the live server is processing.
    * In-process test apps never listen, so they opt into starting on ready.
    */
-  app.addHook(options.motionQueueStart === "ready" ? "onReady" : "onListen", async () => motionQueue.start());
+  app.addHook(options.motionQueueStart === "ready" ? "onReady" : "onListen", async () => { await motionQueue.start(); });
   app.addHook("preClose", async () => motionQueue.close());
   app.decorate("motionQueue", motionQueue);
 

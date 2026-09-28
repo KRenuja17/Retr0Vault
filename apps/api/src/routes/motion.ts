@@ -14,7 +14,7 @@ import {
   updateMotionStudySchema,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import { ApiError } from "../errors.js";
 import { parseRequest } from "../http/validation.js";
 import { motionToolsUnavailable, probeMedia, UnsupportedMediaError, type MotionTools } from "../motion/ffmpeg.js";
@@ -45,7 +45,7 @@ const clipParameters = z.object({ clipId: z.uuid().toLowerCase() }).strict();
 const emptyQuery = z.object({}).strict();
 
 export interface MotionRouteOptions {
-  readonly connection: DatabaseConnection;
+  readonly db: Db;
   readonly storage: MotionStorage;
   readonly queue: MotionQueue;
   readonly tools: MotionTools | undefined;
@@ -123,14 +123,14 @@ async function mediaError(_request: FastifyRequest, reply: FastifyReply): Promis
 }
 
 export async function registerMotionRoutes(app: FastifyInstance, options: MotionRouteOptions): Promise<void> {
-  const { connection, storage, queue } = options;
+  const { db, storage, queue } = options;
 
   app.post("/api/v1/references/:id/motion/clips", async (request, reply) => {
     const { id: referenceId } = parseRequest(referenceParameters, request.params);
     parseRequest(emptyQuery, request.query);
     if (!request.isMultipart()) throw new ApiError(415, "MULTIPART_REQUIRED", "Recordings must be uploaded as multipart/form-data");
     if (options.tools === undefined || !queue.available) throw motionToolsUnavailable();
-    assertClipCapacity(connection, referenceId);
+    await assertClipCapacity(db, referenceId);
 
     const clipId = randomUUID();
     const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
@@ -163,7 +163,7 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
         if (error instanceof UnsupportedMediaError) throw new ApiError(415, "UNSUPPORTED_MEDIA", error.message);
         throw error;
       }
-      const study = createQueuedClip(connection, {
+      const study = await createQueuedClip(db, {
         referenceId, clipId, label: input.label, posterMs: input.posterMs,
         sourceFormat: `${probe.formatName.split(",")[0]}/${probe.codec}`.slice(0, 60),
         durationMs: probe.durationMs, width: probe.width, height: probe.height, fps: probe.fps,
@@ -184,12 +184,12 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
   app.get("/api/v1/references/:id/motion", async (request) => {
     const { id } = parseRequest(referenceParameters, request.params);
     parseRequest(emptyQuery, request.query);
-    return getMotionStudy(connection, id);
+    return await getMotionStudy(db, id);
   });
 
   app.delete("/api/v1/references/:id/motion", async (request, reply) => {
     const { id } = parseRequest(referenceParameters, request.params);
-    deleteStudyRecord(connection, id);
+    await deleteStudyRecord(db, id);
     const warnings = await storage.removeStudy(id);
     if (warnings.length > 0) request.log.warn({ referenceId: id, warnings }, "Motion study deleted with file cleanup warnings");
     return reply.status(204).send();
@@ -198,39 +198,39 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
   app.patch("/api/v1/references/:id/motion", async (request) => {
     const { id } = parseRequest(referenceParameters, request.params);
     const input = parseRequest(updateMotionStudySchema, request.body);
-    return updateMotionStudy(connection, id, input);
+    return await updateMotionStudy(db, id, input);
   });
 
   app.get("/api/v1/motion", async (request) => {
     const query = parseRequest(motionListQuerySchema, request.query);
-    return listMotion(connection, query);
+    return await listMotion(db, query);
   });
 
   app.get("/api/v1/motion/pending", async (request) => {
     parseRequest(emptyQuery, request.query);
-    return getPendingMotion(connection, storage, join(options.dataDirectory, "motion-results"));
+    return await getPendingMotion(db, storage, join(options.dataDirectory, "motion-results"));
   });
 
   app.post("/api/v1/motion/import", { bodyLimit: 2 * 1_024 * 1_024 }, async (request) => {
     const input = parseRequest(motionImportRequestSchema, request.body);
-    return importMotionAnalyses(connection, input.analyses.map((value, index) => ({ source: String(index), value })), input.overwriteProtected);
+    return await importMotionAnalyses(db, input.analyses.map((value, index) => ({ source: String(index), value })), input.overwriteProtected);
   });
 
   app.post("/api/v1/motion/:referenceId/reset", async (request) => {
     const { referenceId } = parseRequest(z.object({ referenceId: z.uuid() }).strict(), request.params);
     parseRequest(emptyQuery, request.body ?? {});
-    return resetMotionAnalysis(connection, referenceId);
+    return await resetMotionAnalysis(db, referenceId);
   });
 
   app.patch("/api/v1/motion/clips/:clipId", async (request) => {
     const { clipId } = parseRequest(clipParameters, request.params);
     const input = parseRequest(updateMotionClipSchema, request.body);
-    return updateClip(connection, clipId, input);
+    return await updateClip(db, clipId, input);
   });
 
   app.delete("/api/v1/motion/clips/:clipId", async (request, reply) => {
     const { clipId } = parseRequest(clipParameters, request.params);
-    const removed = deleteClipRecord(connection, clipId);
+    const removed = await deleteClipRecord(db, clipId);
     const warnings = await storage.removeClip(removed.referenceId, removed.clipId);
     if (warnings.length > 0) request.log.warn({ clipId, warnings }, "Motion clip deleted with file cleanup warnings");
     return reply.status(204).send();
@@ -240,20 +240,20 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
     const { clipId } = parseRequest(clipParameters, request.params);
     parseRequest(emptyQuery, request.body ?? {});
     if (options.tools === undefined || !queue.available) throw motionToolsUnavailable();
-    const { clip, study } = findClipContext(connection, clipId);
+    const { clip, study } = await findClipContext(db, clipId);
     if (clip.processingStatus !== "failed") throw new ApiError(409, "MOTION_CLIP_NOT_FAILED", "Only a failed clip can be retried");
     if (!await storage.exists(study.referenceId, clipId, "source.bin")) {
       throw new ApiError(409, "MOTION_SOURCE_MISSING", "The original upload is gone; remove this clip and upload it again");
     }
-    requeueClip(connection, clipId);
+    await requeueClip(db, clipId);
     queue.enqueue(clipId);
-    return reply.status(202).send(getMotionStudy(connection, study.referenceId));
+    return reply.status(202).send(await getMotionStudy(db, study.referenceId));
   });
 
   app.get("/api/v1/motion/clips/:clipId/energy", async (request) => {
     const { clipId } = parseRequest(clipParameters, request.params);
     parseRequest(emptyQuery, request.query);
-    const { referenceId } = readyClipForMedia(connection, clipId);
+    const { referenceId } = await readyClipForMedia(db, clipId);
     const path = await storage.existingPath(referenceId, clipId, "energy.json").catch(() => {
       throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
     });
@@ -271,7 +271,7 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
       handler: async (request, reply) => {
         const { clipId } = parseRequest(clipParameters, request.params);
         parseRequest(emptyQuery, request.query);
-        const { referenceId } = readyClipForMedia(connection, clipId);
+        const { referenceId } = await readyClipForMedia(db, clipId);
         const media = await storage.openMedia(referenceId, clipId, kind).catch(() => {
           throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
         });
@@ -291,7 +291,7 @@ export async function registerMotionRoutes(app: FastifyInstance, options: Motion
           request.params,
         );
         parseRequest(emptyQuery, request.query);
-        const clip = readyClipForMedia(connection, clipId);
+        const clip = await readyClipForMedia(db, clipId);
         if (index >= (kind === "keyframes" ? clip.keyframeCount : clip.burstCount)) {
           throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
         }

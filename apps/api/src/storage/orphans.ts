@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
-import type { DatabaseConnection } from "../database/connection.js";
+import { sql } from "drizzle-orm";
+import { rowsOf, type Db } from "../database/connection.js";
 import { motionFileNamePattern } from "./motion-storage.js";
 
 export const orphanGracePeriodMs = 24 * 60 * 60 * 1_000;
@@ -32,31 +33,45 @@ function safeDirectory(root: string, directory: string, create = false): void {
   }
 }
 
-export function maintainOrphanFiles(
-  connection: DatabaseConnection,
+interface CatalogueSnapshot {
+  references: Array<{ id: string; original_path: string; thumbnail_path: string }>;
+  frames: Array<{ image_path: string }>;
+  clips: Array<{ referenceId: string; clipId: string }>;
+}
+
+/** Every stored path the catalogue owns, read from one consistent snapshot. */
+function readCatalogue(db: Db): Promise<CatalogueSnapshot> {
+  return db.transaction(async (transaction) => ({
+    references: rowsOf<CatalogueSnapshot["references"][number]>(
+      await transaction.execute(sql`SELECT id::text AS id, original_path, thumbnail_path FROM "references"`),
+    ),
+    frames: rowsOf<CatalogueSnapshot["frames"][number]>(
+      await transaction.execute(sql`SELECT image_path FROM reference_frames`),
+    ),
+    clips: rowsOf<CatalogueSnapshot["clips"][number]>(await transaction.execute(
+      sql`SELECT s.reference_id::text AS "referenceId", c.id::text AS "clipId" FROM motion_clips c JOIN motion_studies s ON s.id = c.motion_study_id`,
+    )),
+  }), { isolationLevel: "repeatable read", accessMode: "read only" });
+}
+
+export async function maintainOrphanFiles(
+  db: Db,
   storageRoot: string,
   quarantine = false,
-): OrphanReport {
+): Promise<OrphanReport> {
   const root = resolve(storageRoot);
   const report: OrphanReport = { mode: quarantine ? "quarantine" : "report", candidates: [], quarantined: [], quarantineDirectory: null, skipped: [] };
-  // An exclusive writer reservation protects the DB snapshot during the moves.
-  // Stop API/import processes first: SQLite cannot lock their in-flight file writes.
-  return connection.sqlite.transaction(() => {
-    const integrity = connection.sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
-    if (integrity.some((row) => row.quick_check !== "ok") || (connection.sqlite.pragma("foreign_key_check") as unknown[]).length > 0) {
-      throw new Error("Database integrity check failed; storage was not touched");
-    }
-    const rows = connection.sqlite.prepare('SELECT id, original_path, thumbnail_path FROM "references"').all() as Array<{ id: string; original_path: string; thumbnail_path: string }>;
-    const frames = connection.sqlite.prepare("SELECT image_path FROM reference_frames").all() as Array<{ image_path: string }>;
+  // The grace period covers files an API or import process is still writing;
+  // stop those processes before quarantining anyway.
+  const { references: rows, frames, clips } = await readCatalogue(db);
+  {
     const liveIds = new Set(rows.map((row) => row.id.toLowerCase()));
     const livePaths = new Set([...rows.flatMap((row) => [row.original_path, row.thumbnail_path]), ...frames.map((row) => row.image_path)]
       .map((path) => resolve(root, path).toLowerCase()));
     if (!statIfPresent(root)) return report;
     safeDirectory(root, root);
     const cutoff = Date.now() - orphanGracePeriodMs;
-    const motionClipKeys = new Set((connection.sqlite.prepare(
-      "SELECT s.reference_id AS referenceId, c.id AS clipId FROM motion_clips c JOIN motion_studies s ON s.id = c.motion_study_id",
-    ).all() as Array<{ referenceId: string; clipId: string }>).map((row) => `${row.referenceId}/${row.clipId}`.toLowerCase()));
+    const motionClipKeys = new Set(clips.map((row) => `${row.referenceId}/${row.clipId}`.toLowerCase()));
     // `owned` overrides the reference-ID rule for motion files, which belong to a clip.
     const inspect = (path: string, id: string | undefined, known: boolean, owned?: boolean) => {
       const absolute = resolve(root, path);
@@ -128,5 +143,5 @@ export function maintainOrphanFiles(
       }
     }
     return report;
-  }).immediate();
+  }
 }

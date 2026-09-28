@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 
 import {
   clipEvidenceSchema,
@@ -20,30 +20,32 @@ import {
   type ReferenceMotionSummary,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import { rowsOf, type Db } from "../database/connection.js";
+import { renumber } from "../database/ordering.js";
 import { motionClips, motionKeyframes, motionStudies, motionStudyTags, references } from "../database/schema.js";
 import { ApiError } from "../errors.js";
 
 type StudyRow = typeof motionStudies.$inferSelect;
 type ClipRow = typeof motionClips.$inferSelect;
 
-function parseJson<T>(value: string | null, parse: (input: unknown) => T, fallback: T): T {
-  if (value === null) return fallback;
-  return parse(JSON.parse(value));
+function parseJson<T>(value: unknown, parse: (input: unknown) => T, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  return parse(value);
 }
 
-function studyRowForReference(connection: DatabaseConnection, referenceId: string): StudyRow | undefined {
-  return connection.database.select().from(motionStudies).where(eq(motionStudies.referenceId, referenceId)).get();
+async function studyRowForReference(db: Db, referenceId: string): Promise<StudyRow | undefined> {
+  const [row] = await db.select().from(motionStudies).where(eq(motionStudies.referenceId, referenceId));
+  return row;
 }
 
-export function assertReferenceExists(connection: DatabaseConnection, referenceId: string): void {
-  const row = connection.database.select({ id: references.id }).from(references).where(eq(references.id, referenceId)).get();
+export async function assertReferenceExists(db: Db, referenceId: string): Promise<void> {
+  const [row] = await db.select({ id: references.id }).from(references).where(eq(references.id, referenceId));
   if (row === undefined) throw new ApiError(404, "REFERENCE_NOT_FOUND", "Reference not found");
 }
 
-export function findStudyRow(connection: DatabaseConnection, referenceId: string): StudyRow {
-  assertReferenceExists(connection, referenceId);
-  const row = studyRowForReference(connection, referenceId);
+export async function findStudyRow(db: Db, referenceId: string): Promise<StudyRow> {
+  await assertReferenceExists(db, referenceId);
+  const row = await studyRowForReference(db, referenceId);
   if (row === undefined) throw new ApiError(404, "MOTION_STUDY_NOT_FOUND", "This reference has no motion study");
   return row;
 }
@@ -53,27 +55,27 @@ export interface ClipContext {
   readonly study: StudyRow;
 }
 
-export function findClipContext(connection: DatabaseConnection, clipId: string): ClipContext {
-  const clip = connection.database.select().from(motionClips).where(eq(motionClips.id, clipId)).get();
-  if (clip === undefined) throw new ApiError(404, "MOTION_CLIP_NOT_FOUND", "Motion clip not found");
-  const study = connection.database.select().from(motionStudies).where(eq(motionStudies.id, clip.motionStudyId)).get();
-  if (study === undefined) throw new ApiError(404, "MOTION_CLIP_NOT_FOUND", "Motion clip not found");
-  return { clip, study };
+export async function findClipContext(db: Db, clipId: string): Promise<ClipContext> {
+  const [row] = await db.select({ clip: motionClips, study: motionStudies }).from(motionClips)
+    .innerJoin(motionStudies, eq(motionClips.motionStudyId, motionStudies.id))
+    .where(eq(motionClips.id, clipId));
+  if (row === undefined) throw new ApiError(404, "MOTION_CLIP_NOT_FOUND", "Motion clip not found");
+  return row;
 }
 
-function hydrateStudies(connection: DatabaseConnection, rows: StudyRow[]): MotionStudy[] {
+async function hydrateStudies(db: Db, rows: StudyRow[]): Promise<MotionStudy[]> {
   if (rows.length === 0) return [];
   const studyIds = rows.map((row) => row.id);
-  const referenceRows = connection.database.select({
-    id: references.id, title: references.title, sourceUrl: references.sourceUrl,
-    designTypeId: references.designTypeId, designDNA: references.designDNA,
-  }).from(references).where(inArray(references.id, rows.map((row) => row.referenceId))).all();
-  const clipRows = connection.database.select().from(motionClips).where(inArray(motionClips.motionStudyId, studyIds))
-    .orderBy(asc(motionClips.sortOrder)).all();
-  const keyframeRows = clipRows.length === 0 ? [] : connection.database.select().from(motionKeyframes)
-    .where(inArray(motionKeyframes.motionClipId, clipRows.map((clip) => clip.id))).orderBy(asc(motionKeyframes.sortOrder)).all();
-  const tagRows = connection.database.select().from(motionStudyTags).where(inArray(motionStudyTags.motionStudyId, studyIds))
-    .orderBy(asc(motionStudyTags.sortOrder)).all();
+  const [referenceRows, clipRows, tagRows] = await Promise.all([
+    db.select({
+      id: references.id, title: references.title, sourceUrl: references.sourceUrl,
+      designTypeId: references.designTypeId, designDNA: references.designDNA,
+    }).from(references).where(inArray(references.id, rows.map((row) => row.referenceId))),
+    db.select().from(motionClips).where(inArray(motionClips.motionStudyId, studyIds)).orderBy(asc(motionClips.sortOrder)),
+    db.select().from(motionStudyTags).where(inArray(motionStudyTags.motionStudyId, studyIds)).orderBy(asc(motionStudyTags.sortOrder)),
+  ]);
+  const keyframeRows = clipRows.length === 0 ? [] : await db.select().from(motionKeyframes)
+    .where(inArray(motionKeyframes.motionClipId, clipRows.map((clip) => clip.id))).orderBy(asc(motionKeyframes.sortOrder));
 
   return rows.map((row) => {
     const reference = referenceRows.find((candidate) => candidate.id === row.referenceId);
@@ -94,7 +96,7 @@ function hydrateStudies(connection: DatabaseConnection, rows: StudyRow[]): Motio
       })),
       inspectionNotes: row.inspectionNotes,
       verifiedTech: parseJson(row.verifiedTechJson, (value) => verifiedTechSchema.parse(value), []),
-      protectedFields: motionProtectedFieldsSchema.parse(JSON.parse(row.protectedFields)),
+      protectedFields: motionProtectedFieldsSchema.parse(row.protectedFields),
       clips: clipRows.filter((clip) => clip.motionStudyId === row.id).map((clip) => ({
         id: clip.id,
         label: clip.label,
@@ -120,34 +122,29 @@ function hydrateStudies(connection: DatabaseConnection, rows: StudyRow[]): Motio
   });
 }
 
-export function getMotionStudy(connection: DatabaseConnection, referenceId: string): MotionStudy {
-  return hydrateStudies(connection, [findStudyRow(connection, referenceId)])[0]!;
+export async function getMotionStudy(db: Db, referenceId: string): Promise<MotionStudy> {
+  return (await hydrateStudies(db, [await findStudyRow(db, referenceId)]))[0]!;
 }
 
-export function getMotionStudiesById(connection: DatabaseConnection, studyIds: string[]): MotionStudy[] {
+export async function getMotionStudiesById(db: Db, studyIds: string[]): Promise<MotionStudy[]> {
   if (studyIds.length === 0) return [];
-  const rows = connection.database.select().from(motionStudies).where(inArray(motionStudies.id, studyIds)).all();
-  const studies = hydrateStudies(connection, rows);
+  const rows = await db.select().from(motionStudies).where(inArray(motionStudies.id, studyIds));
+  const studies = await hydrateStudies(db, rows);
   return studyIds.map((id) => studies.find((study) => study.id === id)).filter((study): study is MotionStudy => study !== undefined);
 }
 
 /** The small summary carried on reference responses. */
-export function motionSummaries(connection: DatabaseConnection, referenceIds: string[]): Map<string, ReferenceMotionSummary> {
+export async function motionSummaries(db: Db, referenceIds: string[]): Promise<Map<string, ReferenceMotionSummary>> {
   const summaries = new Map<string, ReferenceMotionSummary>();
   if (referenceIds.length === 0) return summaries;
-  // Reference reads must keep working on a database migrated only up to 0006
-  // (upgrade paths build legacy data with current service code). Not cached, so
-  // an in-process upgrade is seen immediately.
-  const migrated = connection.sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'motion_studies'").get();
-  if (migrated === undefined) return summaries;
-  const studies = connection.database.select({ id: motionStudies.id, referenceId: motionStudies.referenceId, status: motionStudies.motionStatus })
-    .from(motionStudies).where(inArray(motionStudies.referenceId, referenceIds)).all();
+  const studies = await db.select({ id: motionStudies.id, referenceId: motionStudies.referenceId, status: motionStudies.motionStatus })
+    .from(motionStudies).where(inArray(motionStudies.referenceId, referenceIds));
   if (studies.length === 0) return summaries;
-  const clips = connection.database.select({
+  const clips = await db.select({
     id: motionClips.id, studyId: motionClips.motionStudyId, sortOrder: motionClips.sortOrder,
     status: motionClips.processingStatus, durationMs: motionClips.durationMs,
   }).from(motionClips).where(inArray(motionClips.motionStudyId, studies.map((study) => study.id)))
-    .orderBy(asc(motionClips.sortOrder)).all();
+    .orderBy(asc(motionClips.sortOrder));
   for (const study of studies) {
     const own = clips.filter((clip) => clip.studyId === study.id);
     const primary = own[0];
@@ -177,23 +174,25 @@ export interface QueuedClipInput {
 }
 
 /** Creates the study on the first clip, then a queued clip in the next free slot. */
-export function createQueuedClip(connection: DatabaseConnection, input: QueuedClipInput): MotionStudy {
-  assertReferenceExists(connection, input.referenceId);
-  return connection.database.transaction((transaction) => {
+export async function createQueuedClip(db: Db, input: QueuedClipInput): Promise<MotionStudy> {
+  await assertReferenceExists(db, input.referenceId);
+  return db.transaction(async (transaction) => {
     const now = new Date();
-    let study = transaction.select().from(motionStudies).where(eq(motionStudies.referenceId, input.referenceId)).get();
-    if (study === undefined) {
-      transaction.insert(motionStudies).values({ id: randomUUID(), referenceId: input.referenceId, createdAt: now, updatedAt: now }).run();
-      study = transaction.select().from(motionStudies).where(eq(motionStudies.referenceId, input.referenceId)).get()!;
-    }
-    const existing = transaction.select({ sortOrder: motionClips.sortOrder }).from(motionClips)
-      .where(eq(motionClips.motionStudyId, study.id)).all();
+    await transaction.insert(motionStudies)
+      .values({ id: randomUUID(), referenceId: input.referenceId, createdAt: now, updatedAt: now })
+      .onConflictDoNothing({ target: motionStudies.referenceId });
+    // Lock the study row so two uploads to one study pick different slots.
+    const [study] = await transaction.select().from(motionStudies)
+      .where(eq(motionStudies.referenceId, input.referenceId)).for("update");
+    if (study === undefined) throw new Error("Motion study could not be created");
+    const existing = await transaction.select({ sortOrder: motionClips.sortOrder }).from(motionClips)
+      .where(eq(motionClips.motionStudyId, study.id));
     if (existing.length >= maximumMotionClips) {
       throw new ApiError(409, "MOTION_CLIP_LIMIT", `A motion study holds at most ${maximumMotionClips} clips`);
     }
     const used = new Set(existing.map((clip) => clip.sortOrder));
     const sortOrder = [0, 1, 2, 3].find((slot) => !used.has(slot))!;
-    transaction.insert(motionClips).values({
+    await transaction.insert(motionClips).values({
       id: input.clipId,
       motionStudyId: study.id,
       label: input.label ?? (sortOrder === 0 ? "Primary" : `Clip ${sortOrder + 1}`),
@@ -207,18 +206,18 @@ export function createQueuedClip(connection: DatabaseConnection, input: QueuedCl
       fps: input.fps,
       createdAt: now,
       updatedAt: now,
-    }).run();
-    transaction.update(motionStudies).set({ updatedAt: now }).where(eq(motionStudies.id, study.id)).run();
-    return getMotionStudy(connection, input.referenceId);
+    });
+    await transaction.update(motionStudies).set({ updatedAt: now }).where(eq(motionStudies.id, study.id));
+    return getMotionStudy(transaction, input.referenceId);
   });
 }
 
-export function assertClipCapacity(connection: DatabaseConnection, referenceId: string): void {
-  assertReferenceExists(connection, referenceId);
-  const study = studyRowForReference(connection, referenceId);
+export async function assertClipCapacity(db: Db, referenceId: string): Promise<void> {
+  await assertReferenceExists(db, referenceId);
+  const study = await studyRowForReference(db, referenceId);
   if (study === undefined) return;
-  const clips = connection.database.select({ id: motionClips.id }).from(motionClips).where(eq(motionClips.motionStudyId, study.id)).all();
-  if (clips.length >= maximumMotionClips) {
+  const [row] = await db.select({ value: count() }).from(motionClips).where(eq(motionClips.motionStudyId, study.id));
+  if ((row?.value ?? 0) >= maximumMotionClips) {
     throw new ApiError(409, "MOTION_CLIP_LIMIT", `A motion study holds at most ${maximumMotionClips} clips`);
   }
 }
@@ -234,30 +233,29 @@ export interface QueueEntry {
   readonly posterMs: number;
 }
 
-export function queueEntry(connection: DatabaseConnection, clipId: string): QueueEntry | undefined {
-  const row = connection.database.select({
-    clipId: motionClips.id, referenceId: motionStudies.referenceId, label: motionClips.label, posterMs: motionClips.posterMs,
-    status: motionClips.processingStatus,
-  }).from(motionClips).innerJoin(motionStudies, eq(motionClips.motionStudyId, motionStudies.id))
-    .where(eq(motionClips.id, clipId)).get();
-  if (row === undefined || row.status !== "queued") return undefined;
-  return { clipId: row.clipId, referenceId: row.referenceId, label: row.label, posterMs: row.posterMs };
-}
-
 /** Clips interrupted mid-run return to the queue; returns every queued clip id, oldest first. */
-export function recoverQueue(connection: DatabaseConnection): string[] {
-  connection.database.update(motionClips).set({ processingStatus: "queued", updatedAt: new Date() })
-    .where(eq(motionClips.processingStatus, "processing")).run();
-  return connection.database.select({ id: motionClips.id }).from(motionClips)
-    .where(eq(motionClips.processingStatus, "queued")).orderBy(asc(motionClips.createdAt), asc(motionClips.id)).all()
-    .map((row) => row.id);
+export async function recoverQueue(db: Db): Promise<string[]> {
+  await db.update(motionClips).set({ processingStatus: "queued", updatedAt: new Date() })
+    .where(eq(motionClips.processingStatus, "processing"));
+  const rows = await db.select({ id: motionClips.id }).from(motionClips)
+    .where(eq(motionClips.processingStatus, "queued")).orderBy(asc(motionClips.createdAt), asc(motionClips.id));
+  return rows.map((row) => row.id);
 }
 
-export function markClipProcessing(connection: DatabaseConnection, clipId: string): boolean {
-  const result = connection.database.update(motionClips)
+/**
+ * Claims a queued clip for processing: one statement moves it from `queued` to
+ * `processing`, so of two workers asking for the same clip exactly one gets it.
+ */
+export async function claimClip(db: Db, clipId: string): Promise<QueueEntry | undefined> {
+  const [claimed] = await db.update(motionClips)
     .set({ processingStatus: "processing", processingError: null, updatedAt: new Date() })
-    .where(and(eq(motionClips.id, clipId), eq(motionClips.processingStatus, "queued"))).run();
-  return result.changes === 1;
+    .where(and(eq(motionClips.id, clipId), eq(motionClips.processingStatus, "queued")))
+    .returning({ clipId: motionClips.id, studyId: motionClips.motionStudyId, label: motionClips.label, posterMs: motionClips.posterMs });
+  if (claimed === undefined) return undefined;
+  const [study] = await db.select({ referenceId: motionStudies.referenceId }).from(motionStudies)
+    .where(eq(motionStudies.id, claimed.studyId));
+  if (study === undefined) return undefined;
+  return { clipId: claimed.clipId, referenceId: study.referenceId, label: claimed.label, posterMs: claimed.posterMs };
 }
 
 export interface CompletedClip {
@@ -272,16 +270,18 @@ export interface CompletedClip {
 }
 
 /** Stores the evidence and keyframes; returns false if the clip vanished meanwhile. */
-export function completeClip(connection: DatabaseConnection, clipId: string, result: CompletedClip): boolean {
-  return connection.database.transaction((transaction) => {
-    const clip = transaction.select().from(motionClips).where(eq(motionClips.id, clipId)).get();
+export async function completeClip(db: Db, clipId: string, result: CompletedClip): Promise<boolean> {
+  return db.transaction(async (transaction) => {
+    const [clip] = await transaction.select().from(motionClips).where(eq(motionClips.id, clipId)).for("update");
     if (clip === undefined) return false;
     const now = new Date();
-    transaction.delete(motionKeyframes).where(eq(motionKeyframes.motionClipId, clipId)).run();
-    result.keyframes.forEach((keyframe, sortOrder) => {
-      transaction.insert(motionKeyframes).values({ id: randomUUID(), motionClipId: clipId, sortOrder, ...keyframe }).run();
-    });
-    transaction.update(motionClips).set({
+    await transaction.delete(motionKeyframes).where(eq(motionKeyframes.motionClipId, clipId));
+    if (result.keyframes.length > 0) {
+      await transaction.insert(motionKeyframes).values(result.keyframes.map((keyframe, sortOrder) => ({
+        id: randomUUID(), motionClipId: clipId, sortOrder, ...keyframe,
+      })));
+    }
+    await transaction.update(motionClips).set({
       processingStatus: "ready",
       processingError: null,
       sourceFormat: result.sourceFormat,
@@ -291,28 +291,28 @@ export function completeClip(connection: DatabaseConnection, clipId: string, res
       fps: result.fps,
       bytes: result.bytes,
       posterMs: Math.min(clip.posterMs, result.durationMs),
-      evidenceJson: JSON.stringify(clipEvidenceSchema.parse(result.evidence)),
+      evidenceJson: clipEvidenceSchema.parse(result.evidence),
       updatedAt: now,
-    }).where(eq(motionClips.id, clipId)).run();
+    }).where(eq(motionClips.id, clipId));
     // New evidence means an analysed study should be looked at again.
-    transaction.update(motionStudies).set({ motionStatus: "pending", updatedAt: now })
-      .where(and(eq(motionStudies.id, clip.motionStudyId), eq(motionStudies.motionStatus, "analyzed"))).run();
+    await transaction.update(motionStudies).set({ motionStatus: "pending", updatedAt: now })
+      .where(and(eq(motionStudies.id, clip.motionStudyId), eq(motionStudies.motionStatus, "analyzed")));
     return true;
   });
 }
 
-export function failClip(connection: DatabaseConnection, clipId: string, message: string): void {
-  connection.database.update(motionClips).set({ processingStatus: "failed", processingError: message.slice(0, 500), updatedAt: new Date() })
-    .where(eq(motionClips.id, clipId)).run();
+export async function failClip(db: Db, clipId: string, message: string): Promise<void> {
+  await db.update(motionClips).set({ processingStatus: "failed", processingError: message.slice(0, 500), updatedAt: new Date() })
+    .where(eq(motionClips.id, clipId));
 }
 
-export function requeueClip(connection: DatabaseConnection, clipId: string): ClipContext {
-  const context = findClipContext(connection, clipId);
+export async function requeueClip(db: Db, clipId: string): Promise<ClipContext> {
+  const context = await findClipContext(db, clipId);
   if (context.clip.processingStatus !== "failed") {
     throw new ApiError(409, "MOTION_CLIP_NOT_FAILED", "Only a failed clip can be retried");
   }
-  connection.database.update(motionClips).set({ processingStatus: "queued", processingError: null, updatedAt: new Date() })
-    .where(eq(motionClips.id, clipId)).run();
+  await db.update(motionClips).set({ processingStatus: "queued", processingError: null, updatedAt: new Date() })
+    .where(eq(motionClips.id, clipId));
   return context;
 }
 
@@ -320,79 +320,77 @@ export function requeueClip(connection: DatabaseConnection, clipId: string): Cli
 // Clip and study edits
 // ---------------------------------------------------------------------------
 
-export function updateClip(connection: DatabaseConnection, clipId: string, input: { label?: string | undefined; sortOrder?: number | undefined }): MotionStudy {
-  const { clip, study } = findClipContext(connection, clipId);
-  connection.database.transaction((transaction) => {
+function renumberClips(db: Db, studyId: string, clipIds: readonly string[]): Promise<void> {
+  return renumber(db, motionClips, motionClips.id, clipIds, sql`${motionClips.motionStudyId} = ${studyId}::uuid`);
+}
+
+export async function updateClip(
+  db: Db,
+  clipId: string,
+  input: { label?: string | undefined; sortOrder?: number | undefined },
+): Promise<MotionStudy> {
+  const { clip, study } = await findClipContext(db, clipId);
+  await db.transaction(async (transaction) => {
     const now = new Date();
     if (input.label !== undefined) {
-      transaction.update(motionClips).set({ label: input.label, updatedAt: now }).where(eq(motionClips.id, clipId)).run();
+      await transaction.update(motionClips).set({ label: input.label, updatedAt: now }).where(eq(motionClips.id, clipId));
     }
     if (input.sortOrder !== undefined && input.sortOrder !== clip.sortOrder) {
-      const ordered = transaction.select({ id: motionClips.id }).from(motionClips).where(eq(motionClips.motionStudyId, study.id))
-        .orderBy(asc(motionClips.sortOrder)).all().map((row) => row.id).filter((id) => id !== clipId);
+      const ordered = (await transaction.select({ id: motionClips.id }).from(motionClips).where(eq(motionClips.motionStudyId, study.id))
+        .orderBy(asc(motionClips.sortOrder))).map((row) => row.id).filter((id) => id !== clipId);
       ordered.splice(Math.min(input.sortOrder, ordered.length), 0, clipId);
-      // Park every row outside the 0–3 range first so the unique index never sees a collision.
-      ordered.forEach((id, index) => {
-        transaction.update(motionClips).set({ sortOrder: 100 + index }).where(eq(motionClips.id, id)).run();
-      });
-      ordered.forEach((id, index) => {
-        transaction.update(motionClips).set({ sortOrder: index, updatedAt: now }).where(eq(motionClips.id, id)).run();
-      });
+      await renumberClips(transaction, study.id, ordered);
+      await transaction.update(motionClips).set({ updatedAt: now }).where(inArray(motionClips.id, ordered));
     }
-    transaction.update(motionStudies).set({ updatedAt: now }).where(eq(motionStudies.id, study.id)).run();
+    await transaction.update(motionStudies).set({ updatedAt: now }).where(eq(motionStudies.id, study.id));
   });
-  return getMotionStudy(connection, study.referenceId);
+  return getMotionStudy(db, study.referenceId);
 }
 
 /** Removes one clip, compacts the order and drops beats that pointed at it. */
-export function deleteClipRecord(connection: DatabaseConnection, clipId: string): { referenceId: string; clipId: string } {
-  const { study } = findClipContext(connection, clipId);
-  connection.database.transaction((transaction) => {
+export async function deleteClipRecord(db: Db, clipId: string): Promise<{ referenceId: string; clipId: string }> {
+  const { study } = await findClipContext(db, clipId);
+  await db.transaction(async (transaction) => {
     const now = new Date();
-    transaction.delete(motionClips).where(eq(motionClips.id, clipId)).run();
-    const remaining = transaction.select({ id: motionClips.id }).from(motionClips).where(eq(motionClips.motionStudyId, study.id))
-      .orderBy(asc(motionClips.sortOrder)).all();
-    remaining.forEach((row, index) => {
-      transaction.update(motionClips).set({ sortOrder: 100 + index }).where(eq(motionClips.id, row.id)).run();
-    });
-    remaining.forEach((row, index) => {
-      transaction.update(motionClips).set({ sortOrder: index }).where(eq(motionClips.id, row.id)).run();
-    });
+    await transaction.delete(motionClips).where(eq(motionClips.id, clipId));
+    const remaining = await transaction.select({ id: motionClips.id }).from(motionClips).where(eq(motionClips.motionStudyId, study.id))
+      .orderBy(asc(motionClips.sortOrder));
+    await renumberClips(transaction, study.id, remaining.map((row) => row.id));
     const beats = parseJson(study.beatsJson, (value) => motionBeatSchema.array().parse(value), []);
     const kept = beats.filter((beat) => beat.clipId !== clipId);
-    transaction.update(motionStudies).set({
-      beatsJson: study.beatsJson === null ? null : JSON.stringify(kept),
+    await transaction.update(motionStudies).set({
+      beatsJson: study.beatsJson === null ? null : kept,
       motionStatus: study.motionStatus === "analyzed" ? "pending" : study.motionStatus,
       updatedAt: now,
-    }).where(eq(motionStudies.id, study.id)).run();
+    }).where(eq(motionStudies.id, study.id));
   });
   return { referenceId: study.referenceId, clipId };
 }
 
-export function deleteStudyRecord(connection: DatabaseConnection, referenceId: string): void {
-  const study = findStudyRow(connection, referenceId);
-  connection.database.delete(motionStudies).where(eq(motionStudies.id, study.id)).run();
+export async function deleteStudyRecord(db: Db, referenceId: string): Promise<void> {
+  const study = await findStudyRow(db, referenceId);
+  await db.delete(motionStudies).where(eq(motionStudies.id, study.id));
 }
 
-export function clipIdsOfReference(connection: DatabaseConnection, referenceId: string): string[] {
-  return connection.database.select({ id: motionClips.id }).from(motionClips)
+export async function clipIdsOfReference(db: Db, referenceId: string): Promise<string[]> {
+  const rows = await db.select({ id: motionClips.id }).from(motionClips)
     .innerJoin(motionStudies, eq(motionClips.motionStudyId, motionStudies.id))
-    .where(eq(motionStudies.referenceId, referenceId)).all().map((row) => row.id);
+    .where(eq(motionStudies.referenceId, referenceId));
+  return rows.map((row) => row.id);
 }
 
 /** Resolves a ready clip for media serving: its reference id and keyframe/burst counts. */
-export function readyClipForMedia(connection: DatabaseConnection, clipId: string): { referenceId: string; keyframeCount: number; burstCount: number } {
-  const { clip, study } = findClipContext(connection, clipId);
+export async function readyClipForMedia(db: Db, clipId: string): Promise<{ referenceId: string; keyframeCount: number; burstCount: number }> {
+  const { clip, study } = await findClipContext(db, clipId);
   if (clip.processingStatus !== "ready") throw new ApiError(404, "MEDIA_NOT_FOUND", "Requested motion media is unavailable");
   const evidence = parseJson(clip.evidenceJson, (value) => clipEvidenceSchema.parse(value), null);
-  const keyframeCount = connection.database.select({ id: motionKeyframes.id }).from(motionKeyframes)
-    .where(eq(motionKeyframes.motionClipId, clipId)).all().length;
-  return { referenceId: study.referenceId, keyframeCount, burstCount: evidence?.bursts.length ?? 0 };
+  const [keyframes] = await db.select({ value: count() }).from(motionKeyframes).where(eq(motionKeyframes.motionClipId, clipId));
+  return { referenceId: study.referenceId, keyframeCount: keyframes?.value ?? 0, burstCount: evidence?.bursts.length ?? 0 };
 }
 
 /** Clips with a poster available, for serving a poster while a re-run is queued. */
-export function clipOwner(connection: DatabaseConnection, clipId: string): { referenceId: string; status: ClipRow["processingStatus"] } {
-  const { clip, study } = findClipContext(connection, clipId);
+export async function clipOwner(db: Db, clipId: string): Promise<{ referenceId: string; status: ClipRow["processingStatus"] }> {
+  const { clip, study } = await findClipContext(db, clipId);
   return { referenceId: study.referenceId, status: clip.processingStatus };
 }
 
@@ -400,11 +398,15 @@ export function clipOwner(connection: DatabaseConnection, clipId: string): { ref
  * Studies per beat trigger, in the fixed trigger order. A study counts once per
  * trigger however many of its beats use it; every trigger is listed, even at 0.
  */
-export function motionTriggerCounts(connection: DatabaseConnection): Array<{ trigger: MotionTrigger; count: number }> {
-  const rows = connection.sqlite.prepare(`
-    SELECT json_extract(beat.value, '$.trigger') AS trigger, count(DISTINCT s.id) AS count
-    FROM motion_studies s, json_each(CASE WHEN json_valid(s.beats_json) THEN s.beats_json ELSE '[]' END) beat
-    GROUP BY 1
-  `).all() as Array<{ trigger: string; count: number }>;
-  return motionTriggerSchema.options.map((trigger) => ({ trigger, count: rows.find((row) => row.trigger === trigger)?.count ?? 0 }));
+export async function motionTriggerCounts(db: Db): Promise<Array<{ trigger: MotionTrigger; count: number }>> {
+  const rows = rowsOf<{ trigger: string; count: number | string }>(await db.execute(sql`
+    select beat ->> 'trigger' as trigger, count(distinct s.id)::integer as count
+    from motion_studies s,
+      jsonb_array_elements(case when jsonb_typeof(s.beats_json) = 'array' then s.beats_json else '[]'::jsonb end) as beat
+    group by 1
+  `));
+  return motionTriggerSchema.options.map((trigger) => ({
+    trigger,
+    count: Number(rows.find((row) => row.trigger === trigger)?.count ?? 0),
+  }));
 }

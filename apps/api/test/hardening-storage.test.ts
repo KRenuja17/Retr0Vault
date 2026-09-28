@@ -4,32 +4,34 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PGlite } from "@electric-sql/pglite";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { referenceListQuerySchema } from "@retr0vault/shared";
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
-import { applyMigrations } from "../src/database/migrate.js";
+import { openPglite, type DatabaseConnection, type Db } from "../src/database/connection.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { maintainOrphanFiles, orphanGracePeriodMs } from "../src/storage/orphans.js";
 import { createImageReferenceRecord, getReference, listReferences, updateReference } from "../src/services/references.js";
 import { getStats } from "../src/services/stats.js";
+import { createIsolatedTestDatabase, createTestDatabase } from "./helpers.js";
 
 describe("storage hardening and recovery", () => {
   let directory: string;
   let root: string;
-  let connection: DatabaseConnection;
+  let database: DatabaseConnection;
+  let connection: Db;
   let storage: ReferenceStorage;
   let image: Buffer;
   beforeEach(async () => {
     directory = mkdtempSync(join(tmpdir(), "retr0vault-storage-hardening-"));
     root = join(directory, "storage");
-    connection = createDatabaseConnection(join(directory, "test.db"));
-    applyMigrations(connection);
+    database = await createTestDatabase();
+    connection = database.database;
     storage = new ReferenceStorage(root);
     image = await sharp({ create: { width: 16, height: 8, channels: 3, background: "red" } }).png().toBuffer();
   });
-  afterEach(() => {
-    if (connection.sqlite.open) connection.sqlite.close();
+  afterEach(async () => {
+    await database.close();
     rmSync(directory, { recursive: true, force: true, maxRetries: 5 });
   });
   async function store(id = randomUUID()) {
@@ -67,7 +69,7 @@ describe("storage hardening and recovery", () => {
     symlinkSync(outside, join(root, kind), "junction");
     await expect(store()).rejects.toThrow(/symbolic link/);
     expect(readdirSync(outside)).toEqual(["sentinel"]);
-    expect(() => maintainOrphanFiles(connection, root, true)).toThrow(/links/);
+    await expect(maintainOrphanFiles(connection, root, true)).rejects.toThrow(/links/);
   });
 
   it("rejects a linked storage root and traversal reads", async () => {
@@ -87,7 +89,7 @@ describe("storage hardening and recovery", () => {
 
   it("reports only old, recognized, unowned files and quarantines them recoverably", async () => {
     const stored = await store();
-    createImageReferenceRecord(connection, stored.id, { title: "Live" }, stored);
+    await createImageReferenceRecord(connection, stored.id, { title: "Live" }, stored);
     oldFile(stored.originalPath, "live");
     const orphanId = randomUUID();
     const captureId = randomUUID();
@@ -99,12 +101,12 @@ describe("storage hardening and recovery", () => {
     writeFileSync(join(root, recent), "recent");
     const extraForLiveId = `originals/${stored.id}.jpg`;
     oldFile(extraForLiveId, "keep");
-    const report = maintainOrphanFiles(connection, root);
+    const report = await maintainOrphanFiles(connection, root);
     expect(report.candidates.sort()).toEqual(candidates.sort());
     expect(report.quarantined).toEqual([]);
     expect(existsSync(join(root, "quarantine"))).toBe(false);
     for (const path of candidates) expect(existsSync(join(root, path))).toBe(true);
-    const applied = maintainOrphanFiles(connection, root, true);
+    const applied = await maintainOrphanFiles(connection, root, true);
     expect(applied.quarantined.sort()).toEqual(candidates.sort());
     for (const path of candidates) {
       expect(existsSync(join(root, path))).toBe(false);
@@ -113,74 +115,72 @@ describe("storage hardening and recovery", () => {
     expect(readFileSync(join(root, stored.originalPath), "utf8")).toBe("live");
     expect(readFileSync(join(root, extraForLiveId), "utf8")).toBe("keep");
     expect(existsSync(join(root, recent))).toBe(true);
-    expect(maintainOrphanFiles(connection, root, true).quarantined).toEqual([]);
-    expect(getStats(connection).totalReferences).toBe(1);
+    expect((await maintainOrphanFiles(connection, root, true)).quarantined).toEqual([]);
+    expect((await getStats(connection)).totalReferences).toBe(1);
   });
 
   it("retains any database-referenced path even if its filename uses another UUID", async () => {
     const stored = await store();
     const other = `originals/${randomUUID()}.png`;
     oldFile(other);
-    createImageReferenceRecord(connection, stored.id, { title: "Legacy" }, { ...stored, originalPath: other });
-    expect(maintainOrphanFiles(connection, root, true).candidates).not.toContain(other);
+    await createImageReferenceRecord(connection, stored.id, { title: "Legacy" }, { ...stored, originalPath: other });
+    expect((await maintainOrphanFiles(connection, root, true)).candidates).not.toContain(other);
     expect(existsSync(join(root, other))).toBe(true);
   });
 
-  it("fails closed on database integrity errors before moving anything", () => {
+  it("fails closed when the catalogue cannot be read, before moving anything", async () => {
     const path = `originals/${randomUUID()}.png`; oldFile(path);
-    connection.sqlite.pragma("foreign_keys = OFF");
-    connection.sqlite.prepare("INSERT INTO reference_frames(id, reference_id, frame_type, image_path, sort_order) VALUES (?, ?, 'viewport', ?, 0)")
-      .run(randomUUID(), randomUUID(), "bad/path");
-    expect(() => maintainOrphanFiles(connection, root, true)).toThrow(/integrity check/);
+    const unavailable = await createIsolatedTestDatabase();
+    await unavailable.close();
+    await expect(maintainOrphanFiles(unavailable.database, root, true)).rejects.toThrow();
     expect(existsSync(join(root, path))).toBe(true);
     expect(existsSync(join(root, "quarantine"))).toBe(false);
   });
 
-  it("runs maintenance CLI in report mode and refuses absent databases or unknown flags", () => {
+  it("refuses unknown flags and an unreachable database in the maintenance CLI without touching storage", () => {
     const repository = fileURLToPath(new URL("../../../", import.meta.url));
     const path = `originals/${randomUUID()}.png`; oldFile(path);
-    const run = (database: string, ...args: string[]) => spawnSync(process.execPath, [
+    const run = (...args: string[]) => spawnSync(process.execPath, [
       join(repository, "node_modules/tsx/dist/cli.mjs"), "--tsconfig", join(repository, "tsconfig.typecheck.json"),
       join(repository, "apps/api/src/storage/orphans-cli.ts"), ...args,
-    ], { cwd: repository, encoding: "utf8", timeout: 15_000, env: { ...process.env, DATABASE_PATH: database, STORAGE_ROOT: root } });
-    const report = run(join(directory, "test.db"));
-    expect(report.status, report.stderr).toBe(0);
-    expect(JSON.parse(report.stdout)).toMatchObject({ mode: "report", candidates: [path], quarantined: [] });
-    const invalid = run(join(directory, "test.db"), "--delete");
-    expect(invalid.status).toBe(1);
-    const absent = join(directory, "absent.db");
-    expect(run(absent, "--quarantine").status).toBe(1);
-    expect(existsSync(absent)).toBe(false);
+    ], { cwd: repository, encoding: "utf8", timeout: 15_000, env: {
+      // Unreachable on purpose: the repository .env never overrides what is already set.
+      ...process.env, DATABASE_URL: "postgres://nobody@127.0.0.1:9/none", STORAGE_ROOT: root,
+    } });
+    expect(run("--delete").status).toBe(1);
+    expect(run("--quarantine").status).toBe(1);
     expect(existsSync(join(root, path))).toBe(true);
+    expect(existsSync(join(root, "quarantine"))).toBe(false);
   }, 30_000);
 
-  it("restores a closed database, storage and analysis directory without losing search or metadata", async () => {
+  it("restores a database backup, storage and analysis directory without losing search or metadata", async () => {
     const stored = await store();
-    createImageReferenceRecord(connection, stored.id, { title: "Restorableword" }, stored);
-    updateReference(connection, stored.id, { designDNA: "Archivedword", analysisJson: { palette: ["ochreword"] },
+    await createImageReferenceRecord(connection, stored.id, { title: "Restorableword" }, stored);
+    await updateReference(connection, stored.id, { designDNA: "Archivedword", analysisJson: { palette: ["ochreword"] },
       tags: [{ type: "texture", value: "grainword" }], analysisStatus: "analyzed" });
-    const before = getReference(connection, stored.id);
-    const totals = getStats(connection);
+    const before = await getReference(connection, stored.id);
+    const totals = await getStats(connection);
     const analysis = join(directory, "analysis-results"); mkdirSync(analysis);
     writeFileSync(join(analysis, "result.json"), JSON.stringify({ referenceId: stored.id }));
-    connection.sqlite.close(); // Cold backup: all writers have stopped.
+    // A full database backup (in production, pg_dump of Supabase).
+    const backup = await (connection as unknown as { $client: PGlite }).$client.dumpDataDir("none");
+    await database.close();
     const restored = join(directory, "restored"); mkdirSync(restored);
-    cpSync(join(directory, "test.db"), join(restored, "vault.db"));
     cpSync(root, join(restored, "storage"), { recursive: true });
     cpSync(analysis, join(restored, "analysis-results"), { recursive: true });
-    const reopened = createDatabaseConnection(join(restored, "vault.db"));
+    const reopenedConnection = await openPglite({ loadDataDir: backup });
+    const reopened = reopenedConnection.database;
     try {
-      applyMigrations(reopened);
-      expect(getReference(reopened, stored.id)).toEqual(before);
-      expect(getStats(reopened)).toEqual(totals);
+      await reopenedConnection.migrate();
+      expect(await getReference(reopened, stored.id)).toEqual(before);
+      expect(await getStats(reopened)).toEqual(totals);
       for (const q of ["Restorableword", "Archivedword", "ochreword", "grainword"]) {
-        expect(listReferences(reopened, referenceListQuerySchema.parse({ q })).items[0]?.id).toBe(stored.id);
+        expect((await listReferences(reopened, referenceListQuerySchema.parse({ q }))).items[0]?.id).toBe(stored.id);
       }
       const safePath = await new ReferenceStorage(join(restored, "storage")).getOriginalImagePath(stored.id, stored.originalPath);
       expect(readFileSync(safePath)).toEqual(image);
       expect(readFileSync(join(restored, "storage", stored.thumbnailPath))).toEqual(readFileSync(join(root, stored.thumbnailPath)));
       expect(JSON.parse(readFileSync(join(restored, "analysis-results/result.json"), "utf8"))).toEqual({ referenceId: stored.id });
-      expect(reopened.sqlite.pragma("foreign_key_check")).toEqual([]);
-    } finally { reopened.sqlite.close(); }
+    } finally { await reopenedConnection.close(); }
   });
 });

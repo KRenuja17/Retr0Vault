@@ -14,15 +14,15 @@ import {
   referenceResponseSchema,
 } from "@retr0vault/shared";
 
-import { exportPendingAnalysis, importAnalysisFiles, maximumAnalysisFileBytes } from "../src/analysis/files.js";
-import { loadConfig } from "../src/config.js";
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
-import { applyMigrations, defaultMigrationsFolder } from "../src/database/migrate.js";
+import {
+  analysisCommandSchema, exportPendingAnalysis, importAnalysisFiles, maximumAnalysisFileBytes, runAnalysisCommand,
+} from "../src/analysis/files.js";
+import type { Db } from "../src/database/connection.js";
 import { references } from "../src/database/schema.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createImageReferenceRecord, getReference } from "../src/services/references.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
-import { createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createTestApp, disposeTestApp, rejectWrites, validDesignTypeInput, type TestAppContext } from "./helpers.js";
 
 const fixtureDirectory = fileURLToPath(new URL("./fixtures/analysis/", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -31,27 +31,26 @@ const analysisFor = (referenceId: string) => referenceAnalysisSchema.parse({ ...
 
 describe("external-curator analysis", () => {
   let context: TestAppContext;
-  let connection: DatabaseConnection;
+  let connection: Db;
   let storage: ReferenceStorage;
   let image: Buffer;
 
   beforeEach(async () => {
     context = await createTestApp("analysis");
-    connection = createDatabaseConnection(context.databasePath);
+    connection = context.db;
     storage = new ReferenceStorage(context.storageRoot);
-    createDesignType(connection, validDesignTypeInput);
+    await createDesignType(connection, validDesignTypeInput);
     image = await sharp({ create: { width: 8, height: 6, channels: 3, background: "#eeeecc" } }).png().toBuffer();
   });
 
   afterEach(async () => {
-    connection.sqlite.close();
     await disposeTestApp(context);
   });
 
   async function createReference(title = "Uncurated") {
     const id = randomUUID();
     const stored = await storage.storeImage(id, image, await storage.inspectImage(image));
-    return createImageReferenceRecord(connection, id, { title }, stored);
+    return await createImageReferenceRecord(connection, id, { title }, stored);
   }
 
   async function importViaApi(analyses: unknown[], overwriteProtected = false) {
@@ -82,7 +81,7 @@ describe("external-curator analysis", () => {
     const analysis = analysisFor(reference.id);
     const first = await importViaApi([analysis]);
     expect(first).toMatchObject({ imported: 1, failed: 0 });
-    const updated = getReference(connection, reference.id);
+    const updated = await getReference(connection, reference.id);
     expect(updated).toMatchObject({
       title: analysis.title, designDNA: analysis.designDNA, designThesis: analysis.designThesis,
       designBrief: analysis.designBrief, imageRecipe: analysis.imageRecipe,
@@ -95,7 +94,7 @@ describe("external-curator analysis", () => {
     ]);
     const second = await importViaApi([analysis]);
     expect(second.imported).toBe(1);
-    expect(getReference(connection, reference.id).tags).toEqual(updated.tags);
+    expect((await getReference(connection, reference.id)).tags).toEqual(updated.tags);
     expect(readFileSync(join(context.storageRoot, reference.originalPath))).toEqual(image);
   });
 
@@ -114,20 +113,19 @@ describe("external-curator analysis", () => {
     expect(report.results.map((result) => result.error?.code)).toEqual([
       undefined, "INVALID_ANALYSIS", "REFERENCE_NOT_FOUND", "INVALID_DESIGN_TYPE", "DUPLICATE_REFERENCE",
     ]);
-    expect(getReference(connection, good.id).title).toBe("Paper Signals");
-    expect(getReference(connection, bad.id)).toEqual(bad);
-    expect(getReference(connection, unknownType.id)).toEqual(unknownType);
+    expect((await getReference(connection, good.id)).title).toBe("Paper Signals");
+    expect(await getReference(connection, bad.id)).toEqual(bad);
+    expect(await getReference(connection, unknownType.id)).toEqual(unknownType);
   });
 
   it("rolls back metadata, status and tags together after a database failure", async () => {
     const blocked = await createReference("Protected by DB");
     const allowed = await createReference("Allowed");
-    connection.sqlite.exec(`CREATE TRIGGER reject_test_tags BEFORE INSERT ON reference_tags
-      WHEN new.reference_id = '${blocked.id}' BEGIN SELECT RAISE(ABORT, 'test constraint'); END`);
+    await rejectWrites(connection, "reference_tags", "INSERT", { when: `NEW.reference_id = '${blocked.id}'` });
     const report = await importViaApi([analysisFor(blocked.id), analysisFor(allowed.id)]);
     expect(report).toMatchObject({ imported: 1, failed: 1 });
-    expect(getReference(connection, blocked.id)).toEqual(blocked);
-    expect(getReference(connection, allowed.id).analysisStatus).toBe("analyzed");
+    expect(await getReference(connection, blocked.id)).toEqual(blocked);
+    expect((await getReference(connection, allowed.id)).analysisStatus).toBe("analyzed");
   });
 
   it("rejects duplicate normalized tags without mutating the reference", async () => {
@@ -136,7 +134,7 @@ describe("external-curator analysis", () => {
       { type: "texture", value: "Fine Grain" }, { type: "TEXTURE", value: "fine   grain" },
     ] }]);
     expect(report.failed).toBe(1);
-    expect(getReference(connection, reference.id)).toEqual(reference);
+    expect(await getReference(connection, reference.id)).toEqual(reference);
   });
 
   it("preserves manually edited fields and tags unless explicitly overridden", async () => {
@@ -149,17 +147,17 @@ describe("external-curator analysis", () => {
     expect(referenceResponseSchema.parse(patch.json()).protectedFields).toEqual(["title", "designDNA", "tags"]);
     const report = await importViaApi([analysisFor(reference.id)]);
     expect(report.results[0]?.preservedFields).toEqual(["title", "designDNA", "tags"]);
-    expect(getReference(connection, reference.id)).toMatchObject({
+    expect(await getReference(connection, reference.id)).toMatchObject({
       title: "My title", designDNA: "My DNA", analysisStatus: "analyzed",
       tags: [{ value: "My texture" }], designBrief: fixture.designBrief,
     });
     const override = await importViaApi([analysisFor(reference.id)], true);
     expect(override.results[0]?.preservedFields).toEqual([]);
-    expect(getReference(connection, reference.id)).toMatchObject({
+    expect(await getReference(connection, reference.id)).toMatchObject({
       title: "Paper Signals", protectedFields: ["title", "designDNA", "tags"],
     });
     await importViaApi([{ ...analysisFor(reference.id), title: "Must remain locked" }]);
-    expect(getReference(connection, reference.id).title).toBe("Paper Signals");
+    expect((await getReference(connection, reference.id)).title).toBe("Paper Signals");
   });
 
   it("keeps manual protections through reset and supports deliberate unlocking", async () => {
@@ -175,13 +173,13 @@ describe("external-curator analysis", () => {
     expect({ ...after, updatedAt: before.updatedAt, analysisStatus: before.analysisStatus }).toEqual(before);
     expect(after.analysisStatus).toBe("pending");
     await importViaApi([analysisFor(reference.id)]);
-    expect(getReference(connection, reference.id).designBrief).toBe("Hand authored");
+    expect((await getReference(connection, reference.id)).designBrief).toBe("Hand authored");
     const unlock = await context.app.inject({
       method: "PATCH", url: `/api/v1/references/${reference.id}`, payload: { protectedFields: [] },
     });
     expect(unlock.statusCode).toBe(200);
     await importViaApi([analysisFor(reference.id)]);
-    expect(getReference(connection, reference.id).designBrief).toBe(fixture.designBrief);
+    expect((await getReference(connection, reference.id)).designBrief).toBe(fixture.designBrief);
     expect(readFileSync(join(context.storageRoot, reference.originalPath))).toEqual(image);
   });
 
@@ -190,9 +188,9 @@ describe("external-curator analysis", () => {
     await importViaApi([analysisFor(reference.id)]);
     const { assetBrief: _assetBrief, motionBrief: _motionBrief, ...withoutOptional } = analysisFor(reference.id);
     await importViaApi([withoutOptional]);
-    expect(getReference(connection, reference.id).assetBrief).toBe(fixture.assetBrief);
+    expect((await getReference(connection, reference.id)).assetBrief).toBe(fixture.assetBrief);
     await importViaApi([{ ...withoutOptional, assetBrief: null }]);
-    expect(getReference(connection, reference.id).assetBrief).toBeNull();
+    expect((await getReference(connection, reference.id)).assetBrief).toBeNull();
   });
 
   it("returns only pending references with schema and safe absolute image paths without writing files", async () => {
@@ -214,8 +212,8 @@ describe("external-curator analysis", () => {
     const good = await createReference();
     const unsafe = await createReference();
     const missing = await createReference();
-    connection.database.update(references).set({ originalPath: "../../private.png" }).where(eq(references.id, unsafe.id)).run();
-    connection.database.update(references).set({ originalPath: `originals/${missing.id}.jpg` }).where(eq(references.id, missing.id)).run();
+    await connection.update(references).set({ originalPath: "../../private.png" }).where(eq(references.id, unsafe.id));
+    await connection.update(references).set({ originalPath: `originals/${missing.id}.jpg` }).where(eq(references.id, missing.id));
     const dataDirectory = join(context.directory, "data");
     const result = await exportPendingAnalysis(connection, storage, dataDirectory);
     expect(result.exported).toBe(1);
@@ -227,7 +225,7 @@ describe("external-curator analysis", () => {
     await exportPendingAnalysis(connection, storage, dataDirectory);
     expect(readdirSync(join(dataDirectory, "analysis-inbox")).sort()).toEqual(["instructions.md", "manifest.json"]);
     expect(readFileSync(join(context.storageRoot, good.originalPath))).toEqual(image);
-    expect(getReference(connection, missing.id).analysisStatus).toBe("pending");
+    expect((await getReference(connection, missing.id)).analysisStatus).toBe("pending");
   });
 
   it("does not expose an image through an out-of-root directory junction", async () => {
@@ -261,40 +259,49 @@ describe("external-curator analysis", () => {
     ]);
     expect(readFileSync(goodFile, "utf8")).toBe(goodContents);
     expect(readdirSync(results)).toHaveLength(6);
-    expect(getReference(connection, reference.id).analysisStatus).toBe("analyzed");
+    expect((await getReference(connection, reference.id)).analysisStatus).toBe("analyzed");
     expect(await importAnalysisFiles(connection, join(context.directory, "missing-results"))).toEqual({ imported: 0, failed: 0, results: [] });
   });
 
-  it("runs the CLI export/import and explicit override against isolated runtime directories", async () => {
+  it("runs the curator commands' export/import and explicit override against isolated runtime directories", async () => {
     const reference = await createReference();
     const dataDirectory = join(context.directory, "cli-data");
-    const run = (...args: string[]) => spawnSync(process.execPath, [
-      join(repositoryRoot, "node_modules", "tsx", "dist", "cli.mjs"),
-      "--tsconfig", join(repositoryRoot, "tsconfig.typecheck.json"),
-      join(repositoryRoot, "apps", "api", "src", "analysis", "cli.ts"), ...args,
-    ], { cwd: repositoryRoot, encoding: "utf8", timeout: 15_000, env: {
-      ...process.env, DATABASE_PATH: context.databasePath, STORAGE_ROOT: context.storageRoot,
-      ANALYSIS_DATA_DIR: dataDirectory,
-    } });
-    const exported = run("export");
-    expect(exported.status, exported.stderr).toBe(0);
-    expect(JSON.parse(exported.stdout).exported).toBe(1);
+    const run = async (...args: string[]) => {
+      const { result, ok } = await runAnalysisCommand(analysisCommandSchema.parse(args), connection,
+        { storageRoot: context.storageRoot, analysisDataDirectory: dataDirectory });
+      return { ok, result: result as { exported?: number; imported?: number; failed?: number } };
+    };
+    const exported = await run("export");
+    expect(exported.ok).toBe(true);
+    expect(exported.result.exported).toBe(1);
     const results = join(dataDirectory, "analysis-results");
     mkdirSync(results);
     writeFileSync(join(results, "valid.json"), JSON.stringify(analysisFor(reference.id)));
     await context.app.inject({ method: "PATCH", url: `/api/v1/references/${reference.id}`, payload: { title: "Manual" } });
-    const imported = run("import");
-    expect(imported.status, imported.stderr).toBe(0);
-    expect(JSON.parse(imported.stdout).imported).toBe(1);
-    expect(getReference(connection, reference.id).title).toBe("Manual");
-    const forced = run("import", "--overwrite-protected");
-    expect(forced.status, forced.stderr).toBe(0);
-    expect(getReference(connection, reference.id).title).toBe("Paper Signals");
+    const imported = await run("import");
+    expect(imported.ok).toBe(true);
+    expect(imported.result.imported).toBe(1);
+    expect((await getReference(connection, reference.id)).title).toBe("Manual");
+    const forced = await run("import", "--overwrite-protected");
+    expect(forced.ok).toBe(true);
+    expect((await getReference(connection, reference.id)).title).toBe("Paper Signals");
     writeFileSync(join(results, "bad.json"), "{}");
-    const partial = run("import");
-    expect(partial.status).toBe(1);
-    expect(JSON.parse(partial.stdout)).toMatchObject({ imported: 1, failed: 1 });
-    const invalidArgs = run("import", "--unexpected");
+    const partial = await run("import");
+    expect(partial.ok).toBe(false);
+    expect(partial.result).toMatchObject({ imported: 1, failed: 1 });
+    expect(analysisCommandSchema.safeParse(["import", "--unexpected"]).success).toBe(false);
+    expect(analysisCommandSchema.safeParse(["export", "--overwrite-protected"]).success).toBe(false);
+  });
+
+  it("rejects invalid CLI arguments before touching any database", () => {
+    const invalidArgs = spawnSync(process.execPath, [
+      join(repositoryRoot, "node_modules", "tsx", "dist", "cli.mjs"),
+      "--tsconfig", join(repositoryRoot, "tsconfig.typecheck.json"),
+      join(repositoryRoot, "apps", "api", "src", "analysis", "cli.ts"), "import", "--unexpected",
+    ], { cwd: repositoryRoot, encoding: "utf8", timeout: 15_000, env: {
+      // An unreachable database: the repository .env never overrides what is already set.
+      ...process.env, DATABASE_URL: "postgres://nobody@127.0.0.1:9/none",
+    } });
     expect(invalidArgs.status).toBe(1);
     expect(invalidArgs.stderr).toContain("Invalid analysis command");
   }, 30_000);
@@ -308,34 +315,5 @@ describe("external-curator analysis", () => {
     expect((await context.app.inject({ method: "POST", url: `/api/v1/analysis/${reference.id}/reset`, payload: { clearFiles: true } })).statusCode).toBe(400);
     expect((await context.app.inject({ method: "POST", url: `/api/v1/analysis/${randomUUID()}/reset` })).statusCode).toBe(404);
     expect((await context.app.inject({ method: "POST", url: "/api/v1/analysis/not-a-uuid/reset" })).statusCode).toBe(400);
-  });
-
-  it("upgrades existing manual references with protections without changing their metadata", () => {
-    const oldFolder = join(context.directory, "old-migrations");
-    mkdirSync(join(oldFolder, "meta"), { recursive: true });
-    const journal = JSON.parse(readFileSync(join(defaultMigrationsFolder, "meta", "_journal.json"), "utf8")) as {
-      entries: Array<{ tag: string }>;
-    };
-    journal.entries = journal.entries.slice(0, 3);
-    for (const entry of journal.entries) copyFileSync(join(defaultMigrationsFolder, `${entry.tag}.sql`), join(oldFolder, `${entry.tag}.sql`));
-    writeFileSync(join(oldFolder, "meta", "_journal.json"), JSON.stringify(journal));
-    const legacy = createDatabaseConnection(join(context.directory, "legacy.db"));
-    try {
-      applyMigrations(legacy, oldFolder);
-      const manualId = randomUUID();
-      const pendingId = randomUUID();
-      for (const [id, status] of [[manualId, "manual"], [pendingId, "pending"]]) {
-        legacy.sqlite.prepare(`INSERT INTO "references"
-          (id, title, source_type, original_path, thumbnail_path, image_width, image_height, image_format, analysis_status, design_brief)
-          VALUES (?, 'Legacy title', 'image', 'original.png', 'thumb.webp', 1, 1, 'png', ?, 'Legacy brief')`).run(id, status);
-      }
-      applyMigrations(legacy);
-      applyMigrations(legacy);
-      expect(getReference(legacy, manualId)).toMatchObject({ title: "Legacy title", designBrief: "Legacy brief", analysisStatus: "manual" });
-      expect(getReference(legacy, manualId).protectedFields).toEqual(protectedFieldSchema.options);
-      expect(getReference(legacy, pendingId).protectedFields).toEqual([]);
-    } finally {
-      legacy.sqlite.close();
-    }
   });
 });

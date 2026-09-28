@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { errorResponseSchema, statsResponseSchema } from "@retr0vault/shared";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { createDatabaseConnection } from "../src/database/connection.js";
 import { createImageReferenceRecord, updateReference } from "../src/services/references.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createCollection } from "../src/services/collections.js";
@@ -29,33 +28,31 @@ describe("backend hardening and statistics", () => {
   });
 
   it("counts all statuses, zero-count groups and overlapping collections live", async () => {
-    const connection = createDatabaseConnection(context.databasePath);
-    try {
-      const type = createDesignType(connection, validDesignTypeInput);
-      const empty = createDesignType(connection, { ...validDesignTypeInput, name: "Empty", slug: "empty" });
-      const first = createCollection(connection, { name: "First", slug: "first", description: "", isPinned: false });
-      const second = createCollection(connection, { name: "Second", slug: "second", description: "", isPinned: false });
-      const third = createCollection(connection, { name: "Empty", slug: "empty", description: "", isPinned: false });
-      const ids: string[] = [];
-      for (const status of ["pending", "analyzed", "manual", "failed"] as const) {
-        const id = randomUUID(); ids.push(id);
-        createImageReferenceRecord(connection, id, { title: status }, { originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 2, height: 2, format: "png" });
-        updateReference(connection, id, { analysisStatus: status, ...(status === "failed" ? {} : { designTypeId: type.id }),
-          collectionIds: status === "pending" ? [first.id, second.id] : status === "analyzed" ? [first.id] : [] });
-      }
-      const result = statsResponseSchema.parse((await context.app.inject("/api/v1/stats")).json());
-      expect(result).toMatchObject({ totalReferences: 4, pendingReferences: 1, analyzedReferences: 1, unassignedReferences: 1 });
-      expect(result.countsByDesignType.map(({ id, referenceCount }) => ({ id, referenceCount }))).toEqual([
-        { id: type.id, referenceCount: 3 }, { id: empty.id, referenceCount: 0 },
-      ]);
-      expect(result.countsByCollection.map(({ id, referenceCount }) => ({ id, referenceCount }))).toEqual([
-        { id: first.id, referenceCount: 2 }, { id: second.id, referenceCount: 1 }, { id: third.id, referenceCount: 0 },
-      ]);
-      expect((await context.app.inject({ method: "DELETE", url: `/api/v1/references/${ids[0]}` })).statusCode).toBe(204);
-      const after = statsResponseSchema.parse((await context.app.inject("/api/v1/stats")).json());
-      expect(after).toMatchObject({ totalReferences: 3, pendingReferences: 0, analyzedReferences: 1 });
-      expect(after.countsByCollection.map((group) => group.referenceCount)).toEqual([1, 0, 0]);
-    } finally { connection.sqlite.close(); }
+    const connection = context.db;
+    const type = await createDesignType(connection, validDesignTypeInput);
+    const empty = await createDesignType(connection, { ...validDesignTypeInput, name: "Empty", slug: "empty" });
+    const first = await createCollection(connection, { name: "First", slug: "first", description: "", isPinned: false });
+    const second = await createCollection(connection, { name: "Second", slug: "second", description: "", isPinned: false });
+    const third = await createCollection(connection, { name: "Empty", slug: "empty", description: "", isPinned: false });
+    const ids: string[] = [];
+    for (const status of ["pending", "analyzed", "manual", "failed"] as const) {
+      const id = randomUUID(); ids.push(id);
+      await createImageReferenceRecord(connection, id, { title: status }, { originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 2, height: 2, format: "png" });
+      await updateReference(connection, id, { analysisStatus: status, ...(status === "failed" ? {} : { designTypeId: type.id }),
+        collectionIds: status === "pending" ? [first.id, second.id] : status === "analyzed" ? [first.id] : [] });
+    }
+    const result = statsResponseSchema.parse((await context.app.inject("/api/v1/stats")).json());
+    expect(result).toMatchObject({ totalReferences: 4, pendingReferences: 1, analyzedReferences: 1, unassignedReferences: 1 });
+    expect(result.countsByDesignType.map(({ id, referenceCount }) => ({ id, referenceCount }))).toEqual([
+      { id: type.id, referenceCount: 3 }, { id: empty.id, referenceCount: 0 },
+    ]);
+    expect(result.countsByCollection.map(({ id, referenceCount }) => ({ id, referenceCount }))).toEqual([
+      { id: first.id, referenceCount: 2 }, { id: second.id, referenceCount: 1 }, { id: third.id, referenceCount: 0 },
+    ]);
+    expect((await context.app.inject({ method: "DELETE", url: `/api/v1/references/${ids[0]}` })).statusCode).toBe(204);
+    const after = statsResponseSchema.parse((await context.app.inject("/api/v1/stats")).json());
+    expect(after).toMatchObject({ totalReferences: 3, pendingReferences: 0, analyzedReferences: 1 });
+    expect(after.countsByCollection.map((group) => group.referenceCount)).toEqual([1, 0, 0]);
   });
 
   it.each(["http://127.0.0.1:4610", "http://localhost:4610", "http://127.0.0.1:4611"])("permits the exact local origin %s", async (origin) => {
@@ -99,7 +96,7 @@ describe("backend hardening and statistics", () => {
   it("does not leak SQL, paths, URLs or secrets through errors or logs", async () => {
     const chunks: string[] = [];
     const stream = new Writable({ write(chunk, _encoding, callback) { chunks.push(String(chunk)); callback(); } });
-    const app = await buildApp({ databasePath: join(context.directory, "log.db"), logger: { stream } });
+    const app = await buildApp({ connection: context.connection, storageRoot: join(context.directory, "log-storage"), logger: { stream } });
     app.get("/failure", async () => { throw new Error("private SQL VALUES ('secret-token') D:\\private\\vault.db"); });
     app.get("/invalid-status", async () => { throw Object.assign(new Error("secret-token"), { statusCode: 999 }); });
     try {
@@ -113,15 +110,26 @@ describe("backend hardening and statistics", () => {
     } finally { await app.close(); }
   });
 
-  it("maps a locked database to a bounded, retryable response", async () => {
-    const blocker = createDatabaseConnection(context.databasePath);
+  it("maps database contention and an unreachable database to bounded, retryable responses", async () => {
+    const app = await buildApp({ connection: context.connection, storageRoot: join(context.directory, "busy-storage"), logger: false });
+    // Shaped as Drizzle wraps driver errors: the SQLSTATE or network code sits on the cause.
+    const failure = (code: string) => Object.assign(new Error("Failed query: insert into secret"), { cause: Object.assign(new Error("driver"), { code }) });
+    app.get("/deadlock", async () => { throw failure("40P01"); });
+    app.get("/serialization", async () => { throw failure("40001"); });
+    app.get("/refused", async () => { throw failure("ECONNREFUSED"); });
     try {
-      blocker.sqlite.exec("BEGIN IMMEDIATE");
-      const response = await context.app.inject({ method: "POST", url: "/api/v1/design-types", payload: validDesignTypeInput });
-      expect(response.statusCode, response.body).toBe(503);
-      expect(response.headers["retry-after"]).toBe("1");
-      expect(response.json().error.code).toBe("DATABASE_BUSY");
-    } finally { if (blocker.sqlite.inTransaction) blocker.sqlite.exec("ROLLBACK"); blocker.sqlite.close(); }
+      for (const url of ["/deadlock", "/serialization"]) {
+        const response = await app.inject(url);
+        expect(response.statusCode, response.body).toBe(503);
+        expect(response.headers["retry-after"]).toBe("1");
+        expect(response.json().error.code).toBe("DATABASE_BUSY");
+      }
+      const refused = await app.inject("/refused");
+      expect(refused.statusCode).toBe(503);
+      expect(refused.headers["retry-after"]).toBe("10");
+      expect(refused.json().error.code).toBe("DATABASE_UNAVAILABLE");
+      expect(refused.body).not.toMatch(/secret/u);
+    } finally { await app.close(); }
   });
 
   it.each(["javascript:alert(1)", "file:///C:/secret", "https://user:password@example.com/", "https://example.com/" + "a".repeat(2_049)])("rejects unsafe metadata URLs", async (sourceUrl) => {

@@ -1,4 +1,4 @@
-import BetterSqlite3 from "better-sqlite3";
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -210,23 +210,15 @@ describe("design type API", () => {
     const created = designTypeResponseSchema.parse(
       (await createDesignType(context)).json(),
     );
-    const sqlite = new BetterSqlite3(context.databasePath);
-    try {
-      sqlite.pragma("foreign_keys = ON");
-      sqlite.exec(`
-        create table future_references (
-          id text primary key not null,
-          design_type_id text not null references design_types(id) on delete restrict
-        )
-      `);
-      sqlite
-        .prepare(
-          "insert into future_references (id, design_type_id) values (?, ?)",
-        )
-        .run("future-reference", created.id);
-    } finally {
-      sqlite.close();
-    }
+    await context.db.execute(sql`
+      create table future_references (
+        id text primary key not null,
+        design_type_id uuid not null references design_types(id) on delete restrict
+      )
+    `);
+    await context.db.execute(
+      sql`insert into future_references (id, design_type_id) values ('future-reference', ${created.id})`,
+    );
 
     const deleteResponse = await context.app.inject({
       method: "DELETE",

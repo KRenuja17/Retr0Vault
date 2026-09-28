@@ -1,11 +1,10 @@
 import type { FastifyBaseLogger } from "fastify";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import {
+  claimClip,
   completeClip,
   failClip,
-  markClipProcessing,
-  queueEntry,
   recoverQueue,
 } from "../services/motion.js";
 import type { MotionStorage } from "../storage/motion-storage.js";
@@ -14,14 +13,16 @@ import { processClip, type ProcessClipInput, type ProcessedClip } from "./pipeli
 
 /*
  * One clip at a time, in the API process. Upload returns as soon as the file is
- * on disk; this queue turns it into playable media and evidence. A clip left
+ * stored; this queue turns it into playable media and evidence. A clip left
  * `processing` by a crash or shutdown goes back to `queued` on the next start.
+ * Clips are claimed in the database (queued → processing in one statement), so
+ * a second process can never work on the same clip.
  */
 
 export type ClipProcessor = (input: ProcessClipInput) => Promise<ProcessedClip>;
 
 export interface MotionQueueOptions {
-  readonly connection: DatabaseConnection;
+  readonly db: Db;
   readonly storage: MotionStorage;
   readonly tools: MotionTools | undefined;
   readonly timeoutMs: number;
@@ -63,13 +64,13 @@ export class MotionQueue {
    * Requeues interrupted work and starts processing. Never blocks startup: if the
    * database is busy (another process holds the write lock) it retries shortly.
    */
-  public start(): void {
+  public async start(): Promise<void> {
     if (this.#closed) return;
     try {
-      for (const clipId of recoverQueue(this.#options.connection)) this.enqueue(clipId);
+      for (const clipId of await recoverQueue(this.#options.db)) this.enqueue(clipId);
     } catch (error) {
       this.#options.logger.warn({ err: error }, "Motion queue recovery deferred; retrying");
-      this.#retry = setTimeout(() => this.start(), 2_000);
+      this.#retry = setTimeout(() => void this.start(), 2_000);
       this.#retry.unref();
     }
   }
@@ -107,12 +108,15 @@ export class MotionQueue {
   }
 
   async #process(clipId: string): Promise<void> {
-    const { connection, storage, logger } = this.#options;
-    const entry = queueEntry(connection, clipId);
-    if (entry === undefined || !markClipProcessing(connection, clipId)) return;
+    const { db, storage, logger } = this.#options;
+    const entry = await claimClip(db, clipId).catch((error: unknown) => {
+      logger.warn({ err: error, clipId }, "Motion clip could not be claimed");
+      return undefined;
+    });
+    if (entry === undefined) return;
     const tools = this.#options.tools;
     if (tools === undefined && this.#options.processor === undefined) {
-      failClip(connection, clipId, "ffmpeg/ffprobe are unavailable; install them and retry the clip");
+      await failClip(db, clipId, "ffmpeg/ffprobe are unavailable; install them and retry the clip");
       return;
     }
     try {
@@ -127,7 +131,7 @@ export class MotionQueue {
         signal: this.#controller.signal,
       });
       if (this.#closed) return;
-      const stored = completeClip(connection, clipId, result);
+      const stored = await completeClip(db, clipId, result);
       if (stored) {
         await storage.removeFile(entry.referenceId, clipId, "source.bin").catch(() => undefined);
       } else {
@@ -139,7 +143,7 @@ export class MotionQueue {
       logger.warn({ err: error, clipId }, "Motion clip processing failed");
       await storage.clearGenerated(entry.referenceId, clipId).catch(() => undefined);
       try {
-        failClip(connection, clipId, safeMessage(error));
+        await failClip(db, clipId, safeMessage(error));
       } catch {
         // The clip may have been deleted meanwhile; nothing left to record.
       }

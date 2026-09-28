@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -14,8 +14,7 @@ import {
   type UpdateReferenceInput,
 } from "@retr0vault/shared";
 
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
-import { applyMigrations, defaultMigrationsFolder } from "../src/database/migrate.js";
+import { defaultMigrationsFolder, openPglite, type Db } from "../src/database/connection.js";
 import { references, referenceTags, tags } from "../src/database/schema.js";
 import { createCollection, updateCollection } from "../src/services/collections.js";
 import { createDesignType, updateDesignType } from "../src/services/design-types.js";
@@ -23,30 +22,29 @@ import {
   addReferenceToCollection, createImageReferenceRecord, deleteReferenceRecord,
   listReferences, removeReferenceFromCollection, updateReference,
 } from "../src/services/references.js";
-import { createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createTestApp, disposeTestApp, queryRows, validDesignTypeInput, type TestAppContext } from "./helpers.js";
 
 describe("reference search and catalogue queries", () => {
   let context: TestAppContext;
-  let connection: DatabaseConnection;
+  let connection: Db;
 
   beforeEach(async () => {
     context = await createTestApp("search");
-    connection = createDatabaseConnection(context.databasePath);
+    connection = context.db;
   });
 
   afterEach(async () => {
-    connection.sqlite.close();
     await disposeTestApp(context);
   });
 
-  function createReference(title = "Neutral study", patch: UpdateReferenceInput = {}) {
+  async function createReference(title = "Neutral study", patch: UpdateReferenceInput = {}) {
     const id = randomUUID();
-    const reference = createImageReferenceRecord(connection, id, { title }, {
+    const reference = await createImageReferenceRecord(connection, id, { title }, {
       originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
       width: 1, height: 1, format: "png",
     });
     return Object.keys(patch).length === 0 ? reference :
-      updateReference(connection, id, patch, { protectEditedFields: false });
+      await updateReference(connection, id, patch, { protectEditedFields: false });
   }
 
   async function list(parameters: Record<string, string> = {}) {
@@ -69,42 +67,42 @@ describe("reference search and catalogue queries", () => {
   ];
 
   it.each(searchableFields)("searches $name", async ({ q, patch }) => {
-    const expected = createReference("Target", patch);
-    createReference("Unrelated");
+    const expected = await createReference("Target", patch);
+    await createReference("Unrelated");
     const response = await list({ q });
     expect(response.total).toBe(1);
     expect(response.items.map((item) => item.id)).toEqual([expected.id]);
   });
 
   it("searches design-type names, slugs, descriptions and vocabulary", async () => {
-    const designType = createDesignType(connection, {
+    const designType = await createDesignType(connection, {
       ...validDesignTypeInput, name: "Print Tech", slug: "print-tech",
       description: "Mechanical composition", vocabulary: ["halftone", "technical mono"],
     });
-    const target = createReference("Assigned", { designTypeId: designType.id });
-    createReference("Unassigned");
+    const target = await createReference("Assigned", { designTypeId: designType.id });
+    await createReference("Unassigned");
     for (const q of ["Print Tech", "print-tech", "mechanical", "halftone", "technical mono"]) {
       expect((await list({ q })).items.map((item) => item.id)).toEqual([target.id]);
     }
   });
 
   it("requires all query words, including matches spread across fields", async () => {
-    const target = createReference("Dark study", { tags: [{ type: "layout", value: "editorial" }] });
-    createReference("Dark only");
-    createReference("Editorial only");
+    const target = await createReference("Dark study", { tags: [{ type: "layout", value: "editorial" }] });
+    await createReference("Dark only");
+    await createReference("Editorial only");
     expect((await list({ q: "dark editorial" })).items.map((item) => item.id)).toEqual([target.id]);
     expect((await list({ q: "dark dark editorial" })).total).toBe(1);
     expect((await list({ q: "darker" })).total).toBe(0);
   });
 
   it("uses weighted relevance by default while honoring explicit date/title sorting", async () => {
-    const title = createReference("grain", { designBrief: "neutral" });
-    const dna = createReference("neutral", { designDNA: "grain" });
-    const brief = createReference("neutral", { designBrief: "grain" });
-    [title, dna, brief].forEach((reference, index) => {
-      connection.database.update(references).set({ createdAt: new Date(1_700_000_000_000 + index * 1_000) })
-        .where(eq(references.id, reference.id)).run();
-    });
+    const title = await createReference("grain", { designBrief: "neutral" });
+    const dna = await createReference("neutral", { designDNA: "grain" });
+    const brief = await createReference("neutral", { designBrief: "grain" });
+    for (const [index, reference] of [title, dna, brief].entries()) {
+      await connection.update(references).set({ createdAt: new Date(1_700_000_000_000 + index * 1_000) })
+        .where(eq(references.id, reference.id));
+    }
     expect((await list({ q: "grain" })).items.map((item) => item.id)).toEqual([title.id, dna.id, brief.id]);
     expect((await list({ q: "grain", sort: "relevance" })).items.map((item) => item.id)).toEqual([title.id, dna.id, brief.id]);
     expect((await list({ q: "grain", sort: "newest" })).items.map((item) => item.id)).toEqual([brief.id, dna.id, title.id]);
@@ -115,14 +113,14 @@ describe("reference search and catalogue queries", () => {
   });
 
   it("combines search, type, collection and status before counting and paging", async () => {
-    const designType = createDesignType(connection, validDesignTypeInput);
-    const collection = createCollection(connection, { name: "Keepers", slug: "keepers", description: "", isPinned: false });
-    const first = createReference("Alpha grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id] });
-    const second = createReference("Bravo grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id], tags: [{ type: "texture", value: "grain" }] });
-    createReference("Wrong type grain", { analysisStatus: "analyzed", collectionIds: [collection.id] });
-    createReference("Wrong collection grain", { designTypeId: designType.id, analysisStatus: "analyzed" });
-    createReference("Wrong status grain", { designTypeId: designType.id, collectionIds: [collection.id] });
-    createReference("No match", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id] });
+    const designType = await createDesignType(connection, validDesignTypeInput);
+    const collection = await createCollection(connection, { name: "Keepers", slug: "keepers", description: "", isPinned: false });
+    const first = await createReference("Alpha grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id] });
+    const second = await createReference("Bravo grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id], tags: [{ type: "texture", value: "grain" }] });
+    await createReference("Wrong type grain", { analysisStatus: "analyzed", collectionIds: [collection.id] });
+    await createReference("Wrong collection grain", { designTypeId: designType.id, analysisStatus: "analyzed" });
+    await createReference("Wrong status grain", { designTypeId: designType.id, collectionIds: [collection.id] });
+    await createReference("No match", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id] });
     const query = { q: "grain", designType: designType.slug, collection: collection.slug, status: "analyzed", sort: "title-asc", limit: "1", includeCatalogueIndex: "true" };
     const page1 = await list(query);
     const page2 = await list({ ...query, page: "2" });
@@ -135,9 +133,10 @@ describe("reference search and catalogue queries", () => {
   });
 
   it("keeps catalogue indexes stable across pages and tied sort values", async () => {
-    const created = Array.from({ length: 5 }, () => createReference("Same grain"));
+    const created = [];
+    for (let index = 0; index < 5; index += 1) created.push(await createReference("Same grain"));
     for (const reference of created) {
-      connection.database.update(references).set({ createdAt: new Date(1_700_000_000_000) }).where(eq(references.id, reference.id)).run();
+      await connection.update(references).set({ createdAt: new Date(1_700_000_000_000) }).where(eq(references.id, reference.id));
     }
     const ids = created.map((reference) => reference.id).sort();
     for (const sort of ["newest", "oldest", "title-asc", "title-desc", "relevance"]) {
@@ -154,60 +153,59 @@ describe("reference search and catalogue queries", () => {
   });
 
   it("sorts titles case-insensitively with UUID as the final tie-breaker", async () => {
-    const lower = createReference("alpha");
-    const upper = createReference("Alpha");
-    const beta = createReference("beta");
+    const lower = await createReference("alpha");
+    const upper = await createReference("Alpha");
+    const beta = await createReference("beta");
     const tied = [lower.id, upper.id].sort();
     expect((await list({ sort: "title-asc" })).items.map((item) => item.id)).toEqual([...tied, beta.id]);
     expect((await list({ sort: "title-desc" })).items.map((item) => item.id)).toEqual([beta.id, ...tied]);
   });
 
   it("updates the index for edits, shared tag changes, removals and deletion", async () => {
-    const first = createReference("Oldtoken", { tags: [{ type: "texture", value: "woodcut" }] });
-    const second = createReference("Second", { tags: [{ type: "texture", value: "woodcut" }] });
-    updateReference(connection, first.id, { title: "Newtoken" });
+    const first = await createReference("Oldtoken", { tags: [{ type: "texture", value: "woodcut" }] });
+    const second = await createReference("Second", { tags: [{ type: "texture", value: "woodcut" }] });
+    await updateReference(connection, first.id, { title: "Newtoken" });
     expect((await list({ q: "oldtoken" })).total).toBe(0);
     expect((await list({ q: "newtoken" })).items[0]?.id).toBe(first.id);
     const tagId = first.tags[0]!.id;
-    connection.database.update(tags).set({ value: "linocut", normalizedValue: "linocut" }).where(eq(tags.id, tagId)).run();
+    await connection.update(tags).set({ value: "linocut", normalizedValue: "linocut" }).where(eq(tags.id, tagId));
     expect((await list({ q: "woodcut" })).total).toBe(0);
     expect((await list({ q: "linocut" })).total).toBe(2);
-    updateReference(connection, first.id, { tags: [] });
+    await updateReference(connection, first.id, { tags: [] });
     expect((await list({ q: "linocut" })).items.map((item) => item.id)).toEqual([second.id]);
-    deleteReferenceRecord(connection, second.id);
+    await deleteReferenceRecord(connection, second.id);
     expect((await list({ q: "linocut" })).total).toBe(0);
-    expect(connection.sqlite.prepare("SELECT count(*) AS value FROM reference_search").get()).toEqual({ value: 1 });
-    connection.sqlite.exec("INSERT INTO reference_search(reference_search) VALUES('integrity-check')");
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS value FROM reference_search`)).toEqual([{ value: 1 }]);
   });
 
   it("refreshes both references when a tag association moves and handles tag cascade deletion", async () => {
-    const first = createReference("First", { tags: [{ type: "texture", value: "etching" }] });
-    const second = createReference("Second");
-    connection.database.update(referenceTags).set({ referenceId: second.id }).where(eq(referenceTags.referenceId, first.id)).run();
+    const first = await createReference("First", { tags: [{ type: "texture", value: "etching" }] });
+    const second = await createReference("Second");
+    await connection.update(referenceTags).set({ referenceId: second.id }).where(eq(referenceTags.referenceId, first.id));
     expect((await list({ q: "etching" })).items.map((item) => item.id)).toEqual([second.id]);
-    connection.database.delete(tags).where(eq(tags.id, first.tags[0]!.id)).run();
+    await connection.delete(tags).where(eq(tags.id, first.tags[0]!.id));
     expect((await list({ q: "etching" })).total).toBe(0);
   });
 
   it("refreshes category names and vocabulary, including reference reassignment", async () => {
-    const oldType = createDesignType(connection, { ...validDesignTypeInput, name: "Ochre", slug: "ochre", vocabulary: ["woodblock"] });
-    const newType = createDesignType(connection, { ...validDesignTypeInput, name: "Linen", slug: "linen", vocabulary: ["letterpress"] });
-    const reference = createReference("Study", { designTypeId: oldType.id });
+    const oldType = await createDesignType(connection, { ...validDesignTypeInput, name: "Ochre", slug: "ochre", vocabulary: ["woodblock"] });
+    const newType = await createDesignType(connection, { ...validDesignTypeInput, name: "Linen", slug: "linen", vocabulary: ["letterpress"] });
+    const reference = await createReference("Study", { designTypeId: oldType.id });
     expect((await list({ q: "woodblock" })).total).toBe(1);
-    updateDesignType(connection, oldType.id, { name: "Indigo", slug: "indigo", vocabulary: ["cyanotype"] });
+    await updateDesignType(connection, oldType.id, { name: "Indigo", slug: "indigo", vocabulary: ["cyanotype"] });
     for (const q of ["ochre", "woodblock"]) expect((await list({ q })).total).toBe(0);
     for (const q of ["indigo", "cyanotype"]) expect((await list({ q })).items[0]?.id).toBe(reference.id);
-    updateReference(connection, reference.id, { designTypeId: newType.id });
+    await updateReference(connection, reference.id, { designTypeId: newType.id });
     expect((await list({ q: "cyanotype" })).total).toBe(0);
     expect((await list({ q: "letterpress" })).total).toBe(1);
-    updateReference(connection, reference.id, { designTypeId: null });
+    await updateReference(connection, reference.id, { designTypeId: null });
     expect((await list({ q: "letterpress" })).total).toBe(0);
   });
 
   it("indexes successful analysis imports without leaking protected or rolled-back values", async () => {
-    createDesignType(connection, validDesignTypeInput);
-    const reference = createReference("Handcrafted");
-    updateReference(connection, reference.id, { title: "Protectedword" });
+    await createDesignType(connection, validDesignTypeInput);
+    const reference = await createReference("Handcrafted");
+    await updateReference(connection, reference.id, { title: "Protectedword" });
     const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/analysis/valid.json", import.meta.url)), "utf8")) as Record<string, unknown>;
     const imported = await context.app.inject({ method: "POST", url: "/api/v1/analysis/import", payload: {
       analyses: [{ ...fixture, referenceId: reference.id, title: "Unappliedword" }],
@@ -216,20 +214,20 @@ describe("reference search and catalogue queries", () => {
     expect((await list({ q: "protectedword", status: "analyzed" })).total).toBe(1);
     expect((await list({ q: "unappliedword" })).total).toBe(0);
     expect((await list({ q: "fine grain" })).total).toBe(1);
-    expect(() => connection.database.transaction(() => {
-      updateReference(connection, reference.id, { title: "Rolledbackword" });
+    await expect(connection.transaction(async (transaction) => {
+      await updateReference(transaction, reference.id, { title: "Rolledbackword" });
       throw new Error("rollback");
-    })).toThrow("rollback");
+    })).rejects.toThrow("rollback");
     expect((await list({ q: "rolledbackword" })).total).toBe(0);
     expect((await list({ q: "protectedword" })).total).toBe(1);
   });
 
   it("returns live counts after membership changes, reassignment, collection edits and reference deletion", async () => {
-    const firstType = createDesignType(connection, validDesignTypeInput);
-    const secondType = createDesignType(connection, { ...validDesignTypeInput, name: "Second", slug: "second" });
-    const collection = createCollection(connection, { name: "Keepers", description: "", isPinned: false });
-    const first = createReference("First", { designTypeId: firstType.id, collectionIds: [collection.id] });
-    const second = createReference("Second", { designTypeId: firstType.id, analysisStatus: "analyzed" });
+    const firstType = await createDesignType(connection, validDesignTypeInput);
+    const secondType = await createDesignType(connection, { ...validDesignTypeInput, name: "Second", slug: "second" });
+    const collection = await createCollection(connection, { name: "Keepers", description: "", isPinned: false });
+    const first = await createReference("First", { designTypeId: firstType.id, collectionIds: [collection.id] });
+    const second = await createReference("Second", { designTypeId: firstType.id, analysisStatus: "analyzed" });
     const counts = async () => {
       const typeResponse = await context.app.inject({ method: "GET", url: "/api/v1/design-types" });
       const collectionResponse = await context.app.inject({ method: "GET", url: "/api/v1/collections" });
@@ -239,19 +237,19 @@ describe("reference search and catalogue queries", () => {
       };
     };
     expect(await counts()).toEqual({ types: [2, 0], collections: [1] });
-    addReferenceToCollection(connection, collection.id, second.id);
-    addReferenceToCollection(connection, collection.id, second.id);
-    expect(updateCollection(connection, collection.id, { name: "Selected" }).referenceCount).toBe(2);
-    updateReference(connection, second.id, { designTypeId: secondType.id });
+    await addReferenceToCollection(connection, collection.id, second.id);
+    await addReferenceToCollection(connection, collection.id, second.id);
+    expect((await updateCollection(connection, collection.id, { name: "Selected" })).referenceCount).toBe(2);
+    await updateReference(connection, second.id, { designTypeId: secondType.id });
     expect(await counts()).toEqual({ types: [1, 1], collections: [2] });
-    removeReferenceFromCollection(connection, collection.id, first.id);
-    deleteReferenceRecord(connection, second.id);
+    await removeReferenceFromCollection(connection, collection.id, first.id);
+    await deleteReferenceRecord(connection, second.id);
     expect(await counts()).toEqual({ types: [1, 0], collections: [0] });
   });
 
   it("handles literal punctuation, blank input and Latin accents without query injection", async () => {
-    const target = createReference("Café grain");
-    createReference("Silk");
+    const target = await createReference("Café grain");
+    await createReference("Silk");
     for (const q of ["cafe", "CAFÉ", '"grain"']) expect((await list({ q })).items[0]?.id).toBe(target.id);
     for (const q of ["grain OR silk", "' OR 1=1 --", "title:grain", "\"*%_():-"]) expect((await list({ q })).total).toBe(0);
     expect((await list({ q: "" })).total).toBe(2);
@@ -269,49 +267,53 @@ describe("reference search and catalogue queries", () => {
     }
   });
 
-  it("persists searchable UUIDs across database reopen and VACUUM", async () => {
-    const deleted = createReference("Deleted");
-    const retained = createReference("Retainedword");
-    deleteReferenceRecord(connection, deleted.id);
-    connection.sqlite.exec("VACUUM");
-    connection.sqlite.close();
-    connection = createDatabaseConnection(context.databasePath);
+  it("persists searchable UUIDs across an app restart and VACUUM", async () => {
+    const deleted = await createReference("Deleted");
+    const retained = await createReference("Retainedword");
+    await deleteReferenceRecord(connection, deleted.id);
+    await connection.execute(sql`VACUUM "references", reference_search`);
+    await context.app.close();
+    context = await createTestApp("search", { reuse: context });
     expect((await list({ q: "retainedword" })).items[0]?.id).toBe(retained.id);
-    updateReference(connection, retained.id, { title: "Aftervacuum" });
+    await updateReference(connection, retained.id, { title: "Aftervacuum" });
     expect((await list({ q: "retainedword" })).total).toBe(0);
     expect((await list({ q: "aftervacuum" })).total).toBe(1);
-    expect(connection.sqlite.prepare("SELECT count(*) AS value FROM reference_search").get()).toEqual({ value: 1 });
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS value FROM reference_search`)).toEqual([{ value: 1 }]);
   });
 
-  it("backfills existing references and relations when upgrading from the previous migration", () => {
+  it("backfills existing references and relations when upgrading from the previous migration", async () => {
     const oldFolder = join(context.directory, "old-migrations");
     mkdirSync(join(oldFolder, "meta"), { recursive: true });
     const journal = JSON.parse(readFileSync(join(defaultMigrationsFolder, "meta", "_journal.json"), "utf8")) as { entries: Array<{ tag: string }> };
-    journal.entries = journal.entries.slice(0, 4);
+    journal.entries = journal.entries.slice(0, 2); // Before 0002_search.
     for (const entry of journal.entries) copyFileSync(join(defaultMigrationsFolder, `${entry.tag}.sql`), join(oldFolder, `${entry.tag}.sql`));
     writeFileSync(join(oldFolder, "meta", "_journal.json"), JSON.stringify(journal));
-    const legacy = createDatabaseConnection(join(context.directory, "legacy.db"));
+    const legacyConnection = await openPglite();
+    const legacy = legacyConnection.database;
     try {
-      applyMigrations(legacy, oldFolder);
-      const designType = createDesignType(legacy, validDesignTypeInput);
+      await legacyConnection.migrate(oldFolder);
+      // Seed the historical schema directly; the services also maintain search tables.
+      const designType = { id: randomUUID() };
+      await legacy.execute(sql`INSERT INTO design_types (id, slug, name, description, deploy_for, risk, brief_block, sort_order)
+        VALUES (${designType.id}, 'editorial-signal', 'Editorial Signal', 'd', 'f', 'r', 'b', 0)`);
+      await legacy.execute(sql`INSERT INTO design_type_vocabulary (id, design_type_id, term, sort_order)
+        VALUES (${randomUUID()}, ${designType.id}, 'editorial grid', 0)`);
       const id = randomUUID();
-      // Seed the historical schema directly; current hydration also reads newer tables.
-      legacy.database.insert(references).values({ id, title: "Legacyword", designTypeId: designType.id,
+      await legacy.insert(references).values({ id, title: "Legacyword", designTypeId: designType.id,
         sourceType: "image", originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
-        imageWidth: 1, imageHeight: 1, imageFormat: "png", analysisJson: JSON.stringify({ palette: ["Oldorange"] }),
-      }).run();
+        imageWidth: 1, imageHeight: 1, imageFormat: "png", analysisJson: { palette: ["Oldorange"] },
+      });
       const tagId = randomUUID();
-      legacy.database.insert(tags).values({ id: tagId, type: "texture", value: "Oldgrain", normalizedValue: "oldgrain" }).run();
-      legacy.database.insert(referenceTags).values({ referenceId: id, tagId, sortOrder: 0 }).run();
-      applyMigrations(legacy);
-      applyMigrations(legacy);
+      await legacy.insert(tags).values({ id: tagId, type: "texture", value: "Oldgrain", normalizedValue: "oldgrain" });
+      await legacy.insert(referenceTags).values({ referenceId: id, tagId, sortOrder: 0 });
+      await legacyConnection.migrate();
+      await legacyConnection.migrate();
       for (const q of ["legacyword", "oldgrain", "oldorange", "editorial grid"]) {
-        expect(listReferences(legacy, referenceListQuerySchema.parse({ q })).items[0]?.id).toBe(id);
+        expect((await listReferences(legacy, referenceListQuerySchema.parse({ q }))).items[0]?.id).toBe(id);
       }
-      expect(legacy.sqlite.prepare("SELECT count(*) AS value FROM reference_search").get()).toEqual({ value: 1 });
-      legacy.sqlite.exec("INSERT INTO reference_search(reference_search) VALUES('integrity-check')");
+      expect(await queryRows(legacy, sql`SELECT count(*)::int AS value FROM reference_search`)).toEqual([{ value: 1 }]);
     } finally {
-      legacy.sqlite.close();
+      await legacyConnection.close();
     }
   });
 });

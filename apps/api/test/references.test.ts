@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import BetterSqlite3 from "better-sqlite3";
+import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -25,6 +25,7 @@ import {
   createMultipartPayload,
   createTestApp,
   disposeTestApp,
+  queryRows,
   type TestAppContext,
   validDesignTypeInput,
 } from "./helpers.js";
@@ -348,15 +349,9 @@ describe("reference image ingestion and CRUD", () => {
     expect(clearTags.statusCode).toBe(200);
     expect(referenceResponseSchema.parse(clearTags.json()).tags).toEqual([]);
 
-    const sqlite = new BetterSqlite3(context.databasePath, { readonly: true });
-    try {
-      const tagCount = sqlite.prepare("select count(*) as value from tags").get() as {
-        value: number;
-      };
-      expect(tagCount.value).toBe(0);
-    } finally {
-      sqlite.close();
-    }
+    expect(
+      await queryRows(context.db, sql`select count(*)::int as value from tags`),
+    ).toEqual([{ value: 0 }]);
   });
 
   it("paginates and filters by design type, collection, status, and sort", async () => {
@@ -483,21 +478,14 @@ describe("reference image ingestion and CRUD", () => {
       ).statusCode,
     ).toBe(204);
 
-    const sqlite = new BetterSqlite3(context.databasePath, { readonly: true });
-    try {
-      const rows = sqlite
-        .prepare(
-          "select reference_id as id, sort_order as sortOrder from collection_references where collection_id = ? order by sort_order",
-        )
-        .all(collection.id) as Array<{ id: string; sortOrder: number }>;
-      expect(rows).toEqual([
-        { id: second.id, sortOrder: 0 },
-        { id: first.id, sortOrder: 1 },
-      ]);
-    } finally {
-      sqlite.close();
-    }
-
+    const rows = await queryRows(
+      context.db,
+      sql`select reference_id as id, sort_order as "sortOrder" from collection_references where collection_id = ${collection.id} order by sort_order`,
+    );
+    expect(rows).toEqual([
+      { id: second.id, sortOrder: 0 },
+      { id: first.id, sortOrder: 1 },
+    ]);
     const removeResponse = await context.app.inject({
       method: "DELETE",
       url: `/api/v1/collections/${collection.id}/references/${second.id}`,
@@ -565,23 +553,15 @@ describe("reference image ingestion and CRUD", () => {
     );
     const originalPath = join(context.storageRoot, reference.originalPath);
     const thumbnailPath = join(context.storageRoot, reference.thumbnailPath);
-    const sqlite = new BetterSqlite3(context.databasePath);
-    try {
-      sqlite.pragma("foreign_keys = ON");
-      sqlite.exec(`
-        create table future_protected_reference (
-          id text primary key not null,
-          reference_id text not null references "references"(id) on delete restrict
-        )
-      `);
-      sqlite
-        .prepare(
-          "insert into future_protected_reference (id, reference_id) values (?, ?)",
-        )
-        .run("protected", reference.id);
-    } finally {
-      sqlite.close();
-    }
+    await context.db.execute(sql`
+      create table future_protected_reference (
+        id text primary key not null,
+        reference_id uuid not null references "references"(id) on delete restrict
+      )
+    `);
+    await context.db.execute(
+      sql`insert into future_protected_reference (id, reference_id) values ('protected', ${reference.id})`,
+    );
 
     const deleteResponse = await context.app.inject({
       method: "DELETE",
@@ -604,14 +584,9 @@ describe("reference image ingestion and CRUD", () => {
     mkdirSync(unrelatedDirectory, { recursive: true });
     writeFileSync(unrelatedPath, "must survive");
 
-    const sqlite = new BetterSqlite3(context.databasePath);
-    try {
-      sqlite
-        .prepare('update "references" set original_path = ? where id = ?')
-        .run("originals/unrelated.png", reference.id);
-    } finally {
-      sqlite.close();
-    }
+    await context.db.execute(
+      sql`update "references" set original_path = 'originals/unrelated.png' where id = ${reference.id}`,
+    );
 
     const deleteResponse = await context.app.inject({
       method: "DELETE",

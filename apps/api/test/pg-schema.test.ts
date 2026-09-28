@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { openPglite, type PgConnection } from "../src/database/pg/connection.js";
+import { openPglite, type DatabaseConnection } from "../src/database/connection.js";
 import {
   designTypes,
   motionClips,
@@ -11,7 +11,7 @@ import {
   referenceTags,
   references,
   tags,
-} from "../src/database/pg/schema.js";
+} from "../src/database/schema.js";
 
 /*
  * Phase C1: the Postgres schema, applied by its migrations to an in-process
@@ -19,7 +19,7 @@ import {
  * (with CHECKs and, for JSON, triggers) to the same standard on Postgres.
  */
 
-let connection: PgConnection;
+let connection: DatabaseConnection;
 const designTypeId = "10000000-0000-4000-8000-000000000001";
 
 function reference(overrides: Partial<typeof references.$inferInsert> = {}): typeof references.$inferInsert {
@@ -73,8 +73,8 @@ describe("the Postgres schema", () => {
     const names = (result as unknown as { rows: Array<{ table_name: string }> }).rows.map((row) => row.table_name);
     expect(names).toEqual([
       "app_metadata", "collection_references", "collections", "design_type_rules", "design_type_vocabulary",
-      "design_types", "motion_clips", "motion_keyframes", "motion_studies", "motion_study_tags",
-      "reference_frames", "reference_tags", "references", "tags",
+      "design_types", "motion_clips", "motion_keyframes", "motion_search", "motion_studies", "motion_study_tags",
+      "reference_frames", "reference_search", "reference_tags", "references", "tags",
     ]);
   });
 

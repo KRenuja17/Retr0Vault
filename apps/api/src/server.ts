@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, loadRepositoryEnvironment } from "./config.js";
 
+loadRepositoryEnvironment();
 const config = loadConfig();
 const app = await buildApp({ config });
 let shutdownStarted = false;

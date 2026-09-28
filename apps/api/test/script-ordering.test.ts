@@ -49,18 +49,22 @@ describe("backend npm build ordering", () => {
 
   function runNpm(...args: string[]) {
     const npmCli = process.env["npm_execpath"];
+    // No database: this private workspace has no .env, and none may leak in from the
+    // environment. A seed that runs therefore stops at "DATABASE_URL is not set",
+    // which is how these tests see that it ran (after its prerequisites) or not.
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      STORAGE_ROOT: join(directory, "runtime/storage"),
+      ANALYSIS_DATA_DIR: join(directory, "runtime/analysis"),
+    };
+    delete env["DATABASE_URL"];
     const result = spawnSync(
       npmCli === undefined ? (process.platform === "win32" ? "npm.cmd" : "npm") : process.execPath,
       npmCli === undefined ? args : [npmCli, ...args],
       {
         cwd: directory,
         encoding: "utf8",
-        env: {
-          ...process.env,
-          DATABASE_PATH: join(directory, "runtime/library.db"),
-          STORAGE_ROOT: join(directory, "runtime/storage"),
-          ANALYSIS_DATA_DIR: join(directory, "runtime/analysis"),
-        },
+        env,
         shell: npmCli === undefined && process.platform === "win32",
         windowsHide: true,
         timeout: 45_000,
@@ -73,17 +77,14 @@ describe("backend npm build ordering", () => {
   it("builds shared before root seed, including repeat runs", () => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const result = runNpm("run", "seed");
-      expect(result.status, result.output).toBe(0);
-      expect(result.output).toContain("Seeded 7 design types and 1 collections");
+      expect(result.output).toContain("DATABASE_URL is not set");
       expect(existsSync(join(directory, "packages/shared/dist/index.js"))).toBe(true);
-      expect(existsSync(join(directory, "runtime/library.db"))).toBe(true);
     }
   }, 60_000);
 
   it("builds shared before seed:clear invoked directly in the API workspace", () => {
     const result = runNpm("run", "seed:clear", "--workspace", "@retr0vault/api");
-    expect(result.status, result.output).toBe(0);
-    expect(result.output).toContain("Removed 0 design types and 0 collections");
+    expect(result.output).toContain("DATABASE_URL is not set");
     expect(existsSync(join(directory, "packages/shared/dist/index.js"))).toBe(true);
   }, 60_000);
 
@@ -92,7 +93,7 @@ describe("backend npm build ordering", () => {
     const result = runNpm("run", command);
     expect(result.status, result.output).not.toBe(0);
     expect(result.output).toContain("error TS2322");
-    expect(existsSync(join(directory, "runtime/library.db"))).toBe(false);
+    expect(result.output).not.toContain("DATABASE_URL is not set");
   }, 60_000);
 
   it.each([
@@ -103,6 +104,5 @@ describe("backend npm build ordering", () => {
     expect(result.status, result.output).toBe(0);
     expect(existsSync(join(directory, "packages/shared/dist/index.js"))).toBe(true);
     expect(existsSync(join(directory, outputPath))).toBe(true);
-    expect(existsSync(join(directory, "runtime/library.db"))).toBe(false);
   }, 60_000);
 });

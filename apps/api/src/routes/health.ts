@@ -1,24 +1,23 @@
 import type { FastifyInstance } from "fastify";
+import { sql } from "drizzle-orm";
 
 import {
   healthResponseSchema,
   type HealthResponse,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import { rowsOf, type Db } from "../database/connection.js";
 
 const apiVersion = "0.1.0";
 
 export async function registerHealthRoute(
   app: FastifyInstance,
-  connection: DatabaseConnection,
+  db: Db,
 ): Promise<void> {
   app.get("/api/v1/health", async (): Promise<HealthResponse> => {
-    const row = connection.sqlite
-      .prepare("select 1 as healthy")
-      .get() as { healthy: number } | undefined;
+    const [row] = rowsOf<{ healthy: number }>(await db.execute(sql`select 1 as healthy`));
 
-    if (row?.healthy !== 1) {
+    if (Number(row?.healthy) !== 1) {
       throw new Error("Database readiness check failed");
     }
 

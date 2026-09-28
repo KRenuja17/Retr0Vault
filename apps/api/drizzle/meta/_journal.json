@@ -1,68 +1,26 @@
 {
   "version": "7",
-  "dialect": "sqlite",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "6",
-      "when": 1788294367067,
-      "tag": "0000_b1_foundation",
+      "version": "7",
+      "when": 1790534074508,
+      "tag": "0000_baseline",
       "breakpoints": true
     },
     {
       "idx": 1,
-      "version": "6",
-      "when": 1788295587556,
-      "tag": "0001_design_types_and_collections",
+      "version": "7",
+      "when": 1790534085259,
+      "tag": "0001_json_guards",
       "breakpoints": true
     },
     {
       "idx": 2,
-      "version": "6",
-      "when": 1788296837191,
-      "tag": "0002_reference_image_ingestion",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1788328192099,
-      "tag": "0003_analysis_protection",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1788329404806,
-      "tag": "0004_reference_search",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1788331971379,
-      "tag": "0005_website_capture",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1788333972685,
-      "tag": "0006_backend_json_guards",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1790339073134,
-      "tag": "0007_motion_studies",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1790340334830,
-      "tag": "0008_motion_search",
+      "version": "7",
+      "when": 1790537138275,
+      "tag": "0002_search",
       "breakpoints": true
     }
   ]

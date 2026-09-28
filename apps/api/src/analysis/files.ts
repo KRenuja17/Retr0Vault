@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { AnalysisImportResult } from "@retr0vault/shared";
+import { z } from "zod";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import {
   analysisReport, failedAnalysisResult, getPendingAnalysis, importAnalyses,
 } from "../services/analysis.js";
-import type { ReferenceStorage } from "../storage/reference-storage.js";
+import type { AppConfig } from "../config.js";
+import { ReferenceStorage } from "../storage/reference-storage.js";
 
 const guidePath = fileURLToPath(new URL("../../../../docs/analysis-schema.md", import.meta.url));
 export const maximumAnalysisFileBytes = 2 * 1_024 * 1_024;
@@ -27,11 +29,11 @@ export async function writeGeneratedFile(directory: string, name: string, conten
 }
 
 export async function exportPendingAnalysis(
-  connection: DatabaseConnection,
+  db: Db,
   storage: ReferenceStorage,
   dataDirectory: string,
 ) {
-  const manifest = await getPendingAnalysis(connection, storage, join(dataDirectory, "analysis-results"));
+  const manifest = await getPendingAnalysis(db, storage, join(dataDirectory, "analysis-results"));
   const guide = await readFile(guidePath, "utf8");
   const inbox = join(dataDirectory, "analysis-inbox");
   await mkdir(inbox, { recursive: true });
@@ -66,7 +68,7 @@ export async function readBoundedJson(path: string): Promise<unknown> {
 }
 
 export async function importAnalysisFiles(
-  connection: DatabaseConnection,
+  db: Db,
   resultsDirectory: string,
   overwriteProtected = false,
 ) {
@@ -86,11 +88,34 @@ export async function importAnalysisFiles(
       // Keep only one bounded JSON document in memory. The shared set preserves
       // duplicate detection across the entire directory, including failed imports.
       const value = await readBoundedJson(join(resultsDirectory, entry.name));
-      results.push(...importAnalyses(connection, [{ source: entry.name, value }], overwriteProtected, seen).results);
+      results.push(...(await importAnalyses(db, [{ source: entry.name, value }], overwriteProtected, seen)).results);
     } catch (error) {
       results.push(failedAnalysisResult(entry.name, null, "INVALID_RESULT_FILE",
         error instanceof Error ? error.message : "Result file could not be read"));
     }
   }
   return analysisReport(results);
+}
+
+/** `analysis:export-pending` and `analysis:import [--overwrite-protected]`. */
+export const analysisCommandSchema = z.union([
+  z.tuple([z.literal("export")]),
+  z.tuple([z.literal("import")]),
+  z.tuple([z.literal("import"), z.literal("--overwrite-protected")]),
+]);
+
+export type AnalysisCommand = z.infer<typeof analysisCommandSchema>;
+
+/** Runs a curator command; `ok` is false when something was left unexported or unimported. */
+export async function runAnalysisCommand(
+  command: AnalysisCommand,
+  db: Db,
+  config: Pick<AppConfig, "storageRoot" | "analysisDataDirectory">,
+): Promise<{ result: unknown; ok: boolean }> {
+  if (command[0] === "export") {
+    const result = await exportPendingAnalysis(db, new ReferenceStorage(config.storageRoot), config.analysisDataDirectory);
+    return { result, ok: result.unavailable.length === 0 };
+  }
+  const result = await importAnalysisFiles(db, join(config.analysisDataDirectory, "analysis-results"), command.length === 2);
+  return { result, ok: result.failed === 0 };
 }

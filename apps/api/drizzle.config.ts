@@ -1,12 +1,13 @@
 import { defineConfig } from "drizzle-kit";
 
+/*
+ * Phase C: the Postgres schema and its migrations. Generating migrations needs
+ * no database connection; they are applied by the API's migration runner.
+ */
 export default defineConfig({
-  dialect: "sqlite",
+  dialect: "postgresql",
   schema: "./src/database/schema.ts",
   out: "./drizzle",
-  dbCredentials: {
-    url: process.env["DATABASE_PATH"] ?? "../../data/retr0vault.db",
-  },
   strict: true,
   verbose: true,
 });

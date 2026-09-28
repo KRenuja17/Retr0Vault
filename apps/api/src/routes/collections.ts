@@ -7,7 +7,7 @@ import {
   updateCollectionSchema,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import { parseRequest } from "../http/validation.js";
 import {
   addReferenceToCollection,
@@ -27,25 +27,25 @@ const membershipParametersSchema = z
 
 export async function registerCollectionRoutes(
   app: FastifyInstance,
-  connection: DatabaseConnection,
+  db: Db,
 ): Promise<void> {
-  app.get("/api/v1/collections", async () => listCollections(connection));
+  app.get("/api/v1/collections", async () => await listCollections(db));
 
   app.post("/api/v1/collections", async (request, reply) => {
     const input = parseRequest(createCollectionSchema, request.body);
-    const collection = createCollection(connection, input);
+    const collection = await createCollection(db, input);
     return reply.status(201).send(collection);
   });
 
   app.patch("/api/v1/collections/:id", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
     const input = parseRequest(updateCollectionSchema, request.body);
-    return updateCollection(connection, id, input);
+    return await updateCollection(db, id, input);
   });
 
   app.delete("/api/v1/collections/:id", async (request, reply) => {
     const { id } = parseRequest(idParametersSchema, request.params);
-    deleteCollection(connection, id);
+    await deleteCollection(db, id);
     return reply.status(204).send();
   });
 
@@ -60,7 +60,7 @@ export async function registerCollectionRoutes(
         collectionMembershipInputSchema,
         request.body ?? {},
       );
-      addReferenceToCollection(connection, id, referenceId, input.sortOrder);
+      await addReferenceToCollection(db, id, referenceId, input.sortOrder);
       return reply.status(204).send();
     },
   );
@@ -72,7 +72,7 @@ export async function registerCollectionRoutes(
         membershipParametersSchema,
         request.params,
       );
-      removeReferenceFromCollection(connection, id, referenceId);
+      await removeReferenceFromCollection(db, id, referenceId);
       return reply.status(204).send();
     },
   );

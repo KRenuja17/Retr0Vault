@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import { ApiError } from "../errors.js";
 import { parseRequest } from "../http/validation.js";
 import { getReferenceMediaPaths } from "../services/references.js";
@@ -21,7 +21,7 @@ function matchesEtag(header: string | undefined, etag: string): boolean {
 
 export async function registerMediaRoutes(
   app: FastifyInstance,
-  connection: DatabaseConnection,
+  db: Db,
   storage: ReferenceStorage,
 ): Promise<void> {
   for (const kind of ["thumbnail", "original"] as const) {
@@ -40,7 +40,7 @@ export async function registerMediaRoutes(
       handler: async (request, reply) => {
         const { referenceId } = parseRequest(parametersSchema, request.params);
         parseRequest(querySchema, request.query);
-        const reference = getReferenceMediaPaths(connection, referenceId);
+        const reference = await getReferenceMediaPaths(db, referenceId);
         const path = kind === "thumbnail" ? reference.thumbnailPath : reference.originalPath;
         const media = await storage.openReferenceImage(reference.id, path, kind).catch(() => {
           // Missing, unreadable and unsafe paths are indistinguishable over HTTP.

@@ -1,4 +1,4 @@
-import type { DatabaseConnection } from "./connection.js";
+import type { Db } from "./connection.js";
 import {
   developmentDesignTypes,
   referenceStylesCollection,
@@ -22,18 +22,16 @@ export interface SeedResult {
   readonly collections: number;
 }
 
-function seedRecords(
-  connection: DatabaseConnection,
-): SeedResult {
-  developmentDesignTypes.forEach((designType, sortOrder) => {
+async function seedRecords(db: Db): Promise<SeedResult> {
+  for (const [sortOrder, designType] of developmentDesignTypes.entries()) {
     const { id, ...designTypeInput } = designType;
     const input = { ...designTypeInput, sortOrder };
-    const existing = findDesignTypeBySlug(connection, designType.slug);
+    const existing = await findDesignTypeBySlug(db, designType.slug);
 
     if (existing === undefined) {
-      createDesignType(connection, input, id);
+      await createDesignType(db, input, id);
     } else if (existing.id === id) {
-      updateDesignType(connection, existing.id, input);
+      await updateDesignType(db, existing.id, input);
     } else {
       throw new ApiError(
         409,
@@ -41,17 +39,14 @@ function seedRecords(
         `Development seed slug '${designType.slug}' belongs to non-seed data`,
       );
     }
-  });
+  }
 
-  const existingCollection = findCollectionBySlug(
-    connection,
-    referenceStylesCollection.slug,
-  );
+  const existingCollection = await findCollectionBySlug(db, referenceStylesCollection.slug);
   const { id: collectionId, ...collectionInput } = referenceStylesCollection;
   if (existingCollection === undefined) {
-    createCollection(connection, collectionInput, collectionId);
+    await createCollection(db, collectionInput, collectionId);
   } else if (existingCollection.id === collectionId) {
-    updateCollection(connection, existingCollection.id, collectionInput);
+    await updateCollection(db, existingCollection.id, collectionInput);
   } else {
     throw new ApiError(
       409,
@@ -66,26 +61,21 @@ function seedRecords(
   };
 }
 
-function clearSeedRecords(
-  connection: DatabaseConnection,
-): SeedResult {
+async function clearSeedRecords(db: Db): Promise<SeedResult> {
   let removedDesignTypes = 0;
   let removedCollections = 0;
 
   for (const designType of developmentDesignTypes) {
-    const existing = findDesignTypeBySlug(connection, designType.slug);
+    const existing = await findDesignTypeBySlug(db, designType.slug);
     if (existing?.id === designType.id) {
-      deleteDesignType(connection, existing.id);
+      await deleteDesignType(db, existing.id);
       removedDesignTypes += 1;
     }
   }
 
-  const existingCollection = findCollectionBySlug(
-    connection,
-    referenceStylesCollection.slug,
-  );
+  const existingCollection = await findCollectionBySlug(db, referenceStylesCollection.slug);
   if (existingCollection?.id === referenceStylesCollection.id) {
-    deleteCollection(connection, existingCollection.id);
+    await deleteCollection(db, existingCollection.id);
     removedCollections += 1;
   }
 
@@ -95,10 +85,10 @@ function clearSeedRecords(
   };
 }
 
-export function seedDevelopmentData(connection: DatabaseConnection): SeedResult {
-  return connection.database.transaction(() => seedRecords(connection));
+export function seedDevelopmentData(db: Db): Promise<SeedResult> {
+  return db.transaction((transaction) => seedRecords(transaction));
 }
 
-export function clearDevelopmentData(connection: DatabaseConnection): SeedResult {
-  return connection.database.transaction(() => clearSeedRecords(connection));
+export function clearDevelopmentData(db: Db): Promise<SeedResult> {
+  return db.transaction((transaction) => clearSeedRecords(transaction));
 }

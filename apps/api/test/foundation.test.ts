@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import BetterSqlite3 from "better-sqlite3";
+import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -12,25 +12,33 @@ import {
 
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { createDatabaseConnection } from "../src/database/connection.js";
-import { applyMigrations } from "../src/database/migrate.js";
+import { openPglite, type DatabaseConnection } from "../src/database/connection.js";
+import { createTestDatabase, queryRows } from "./helpers.js";
 
 describe("B1 backend foundation", () => {
   let temporaryDirectory: string;
+  let connection: DatabaseConnection;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "retr0vault-b1-"));
+    connection = await createTestDatabase();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await connection.close();
     rmSync(temporaryDirectory, { force: true, recursive: true });
   });
 
-  it("starts the API on a local ephemeral port", async () => {
-    const app = await buildApp({
-      databasePath: join(temporaryDirectory, "starts.db"),
+  function build() {
+    return buildApp({
+      connection,
+      storageRoot: join(temporaryDirectory, "storage"),
       logger: false,
     });
+  }
+
+  it("starts the API on a local ephemeral port", async () => {
+    const app = await build();
 
     try {
       const address = await app.listen({ host: "127.0.0.1", port: 0 });
@@ -42,10 +50,7 @@ describe("B1 backend foundation", () => {
   });
 
   it("returns the expected health structure", async () => {
-    const app = await buildApp({
-      databasePath: join(temporaryDirectory, "health.db"),
-      logger: false,
-    });
+    const app = await build();
 
     try {
       const response = await app.inject({
@@ -67,57 +72,47 @@ describe("B1 backend foundation", () => {
     }
   });
 
-  it("initializes the configured SQLite database", async () => {
-    const databasePath = join(temporaryDirectory, "initializes.db");
-    const app = await buildApp({ databasePath, logger: false });
-
-    await app.ready();
-    await app.close();
-
-    expect(existsSync(databasePath)).toBe(true);
-
-    const sqlite = new BetterSqlite3(databasePath, { readonly: true });
+  it("migrates an empty database on startup and leaves the connection to its owner", async () => {
+    const empty = await openPglite();
     try {
-      const table = sqlite
-        .prepare(
-          "select name from sqlite_master where type = 'table' and name = 'app_metadata'",
-        )
-        .get() as { name: string } | undefined;
-      expect(table?.name).toBe("app_metadata");
+      const app = await buildApp({
+        connection: empty,
+        storageRoot: join(temporaryDirectory, "storage"),
+        logger: false,
+      });
+      await app.close();
+
+      expect(
+        await queryRows(empty.database, sql`select to_regclass('public.app_metadata')::text as name`),
+      ).toEqual([{ name: "app_metadata" }]);
     } finally {
-      sqlite.close();
+      await empty.close();
     }
   });
 
-  it("applies committed migrations to a clean database idempotently", () => {
-    const connection = createDatabaseConnection(
-      join(temporaryDirectory, "migrations.db"),
-    );
+  it("refuses to start without DATABASE_URL", async () => {
+    await expect(
+      buildApp({ config: loadConfig({}), logger: false }),
+    ).rejects.toThrow(/DATABASE_URL/);
+  });
+
+  it("applies committed migrations to a clean database idempotently", async () => {
+    const clean = await openPglite();
 
     try {
-      applyMigrations(connection);
-      applyMigrations(connection);
+      await clean.migrate();
+      await clean.migrate();
 
-      const applicationTable = connection.sqlite
-        .prepare(
-          "select name from sqlite_master where type = 'table' and name = 'app_metadata'",
-        )
-        .get() as { name: string } | undefined;
-      const migrationTable = connection.sqlite
-        .prepare(
-          "select name from sqlite_master where type = 'table' and name = '__drizzle_migrations'",
-        )
-        .get() as { name: string } | undefined;
-
-      expect(applicationTable?.name).toBe("app_metadata");
-      expect(migrationTable?.name).toBe("__drizzle_migrations");
-
-      const coreTables = connection.sqlite
-        .prepare(
-          "select name from sqlite_master where type = 'table' and name in ('design_types', 'design_type_rules', 'design_type_vocabulary', 'collections', 'references', 'tags', 'reference_tags', 'collection_references') order by name",
-        )
-        .all() as Array<{ name: string }>;
+      expect(
+        await queryRows(clean.database, sql`select count(*)::int as applied from drizzle.__drizzle_migrations`),
+      ).toEqual([{ applied: 3 }]);
+      const coreTables = await queryRows<{ name: string }>(clean.database, sql`
+        select table_name as name from information_schema.tables
+        where table_schema = 'public' and table_name in ('app_metadata', 'design_types', 'design_type_rules',
+          'design_type_vocabulary', 'collections', 'references', 'tags', 'reference_tags', 'collection_references')
+        order by table_name`);
       expect(coreTables.map(({ name }) => name)).toEqual([
+        "app_metadata",
         "collection_references",
         "collections",
         "design_type_rules",
@@ -128,15 +123,12 @@ describe("B1 backend foundation", () => {
         "tags",
       ]);
     } finally {
-      connection.sqlite.close();
+      await clean.close();
     }
   });
 
   it("returns a structured response for an invalid route", async () => {
-    const app = await buildApp({
-      databasePath: join(temporaryDirectory, "not-found.db"),
-      logger: false,
-    });
+    const app = await build();
 
     try {
       const response = await app.inject({

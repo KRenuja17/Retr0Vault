@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { designDirectionExportRequestSchema, referenceExportRequestSchema } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import type { MarkdownFile } from "../export/markdown.js";
 import { parseRequest } from "../http/validation.js";
 import { exportDesignDirection, exportReferences } from "../services/exports.js";
@@ -16,16 +16,16 @@ function sendMarkdown(reply: FastifyReply, file: MarkdownFile) {
     .send(file.content);
 }
 
-export async function registerExportRoutes(app: FastifyInstance, connection: DatabaseConnection): Promise<void> {
+export async function registerExportRoutes(app: FastifyInstance, db: Db): Promise<void> {
   const options = { bodyLimit: 2 * 1_024 * 1_024 };
   app.post("/api/v1/export/references", options, async (request, reply) => {
     parseRequest(z.object({}).strict(), request.query);
     const input = parseRequest(referenceExportRequestSchema, request.body);
-    return sendMarkdown(reply, exportReferences(connection, input));
+    return sendMarkdown(reply, await exportReferences(db, input));
   });
   app.post("/api/v1/export/design-direction", options, async (request, reply) => {
     parseRequest(z.object({}).strict(), request.query);
     const input = parseRequest(designDirectionExportRequestSchema, request.body);
-    return sendMarkdown(reply, exportDesignDirection(connection, input));
+    return sendMarkdown(reply, await exportDesignDirection(db, input));
   });
 }

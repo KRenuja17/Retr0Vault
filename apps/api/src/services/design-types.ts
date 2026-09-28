@@ -9,14 +9,15 @@ import {
   type UpdateDesignTypeInput,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
+import { renumber } from "../database/ordering.js";
 import {
   designTypeRules,
   designTypes,
   designTypeVocabulary,
   references,
 } from "../database/schema.js";
-import { ApiError, sqliteErrorCode } from "../errors.js";
+import { ApiError, databaseErrorCode, PgCode } from "../errors.js";
 import { slugFromName } from "../lib/slug.js";
 
 type DesignTypeRow = typeof designTypes.$inferSelect;
@@ -25,53 +26,27 @@ function insertPosition(requested: number | undefined, count: number): number {
   return requested === undefined ? count : Math.min(requested, count);
 }
 
-function assertUniqueSlug(
-  connection: DatabaseConnection,
-  slug: string,
-  excludedId?: string,
-): void {
-  const existing = connection.database
-    .select({ id: designTypes.id })
-    .from(designTypes)
-    .where(eq(designTypes.slug, slug))
-    .get();
-
+async function assertUniqueSlug(db: Db, slug: string, excludedId?: string): Promise<void> {
+  const [existing] = await db.select({ id: designTypes.id }).from(designTypes).where(eq(designTypes.slug, slug));
   if (existing !== undefined && existing.id !== excludedId) {
-    throw new ApiError(
-      409,
-      "DESIGN_TYPE_SLUG_CONFLICT",
-      `A design type with slug '${slug}' already exists`,
-    );
+    throw new ApiError(409, "DESIGN_TYPE_SLUG_CONFLICT", `A design type with slug '${slug}' already exists`);
   }
 }
 
-function hydrateDesignTypes(
-  connection: DatabaseConnection,
-  rows: DesignTypeRow[],
-): DesignTypeResponse[] {
+async function hydrateDesignTypes(db: Db, rows: DesignTypeRow[]): Promise<DesignTypeResponse[]> {
   if (rows.length === 0) {
     return [];
   }
 
   const ids = rows.map((row) => row.id);
-  const rules = connection.database
-    .select()
-    .from(designTypeRules)
-    .where(inArray(designTypeRules.designTypeId, ids))
-    .orderBy(asc(designTypeRules.sortOrder))
-    .all();
-  const vocabulary = connection.database
-    .select()
-    .from(designTypeVocabulary)
-    .where(inArray(designTypeVocabulary.designTypeId, ids))
-    .orderBy(asc(designTypeVocabulary.sortOrder))
-    .all();
-  const referenceCounts = connection.database
-    .select({ designTypeId: references.designTypeId, value: count() })
-    .from(references)
-    .where(inArray(references.designTypeId, ids))
-    .groupBy(references.designTypeId)
-    .all();
+  const [rules, vocabulary, referenceCounts] = await Promise.all([
+    db.select().from(designTypeRules).where(inArray(designTypeRules.designTypeId, ids)).orderBy(asc(designTypeRules.sortOrder)),
+    db.select().from(designTypeVocabulary).where(inArray(designTypeVocabulary.designTypeId, ids)).orderBy(asc(designTypeVocabulary.sortOrder)),
+    db.select({ designTypeId: references.designTypeId, value: count() })
+      .from(references)
+      .where(inArray(references.designTypeId, ids))
+      .groupBy(references.designTypeId),
+  ]);
 
   const principlesByType = new Map<string, string[]>();
   const avoidByType = new Map<string, string[]>();
@@ -79,8 +54,7 @@ function hydrateDesignTypes(
   const referenceCountByType = new Map<string, number>();
 
   for (const rule of rules) {
-    const target =
-      rule.kind === "principle" ? principlesByType : avoidByType;
+    const target = rule.kind === "principle" ? principlesByType : avoidByType;
     const entries = target.get(rule.designTypeId) ?? [];
     entries.push(rule.text);
     target.set(rule.designTypeId, entries);
@@ -118,178 +92,110 @@ function hydrateDesignTypes(
   );
 }
 
-function findDesignTypeRowById(
-  connection: DatabaseConnection,
-  id: string,
-): DesignTypeRow {
-  const row = connection.database
-    .select()
-    .from(designTypes)
-    .where(eq(designTypes.id, id))
-    .get();
-
+async function findDesignTypeRowById(db: Db, id: string): Promise<DesignTypeRow> {
+  const [row] = await db.select().from(designTypes).where(eq(designTypes.id, id));
   if (row === undefined) {
     throw new ApiError(404, "DESIGN_TYPE_NOT_FOUND", "Design type not found");
   }
-
   return row;
 }
 
-export function listDesignTypes(
-  connection: DatabaseConnection,
-): DesignTypeResponse[] {
-  const rows = connection.database
-    .select()
-    .from(designTypes)
-    .orderBy(asc(designTypes.sortOrder), asc(designTypes.name))
-    .all();
-
-  return hydrateDesignTypes(connection, rows);
+async function orderedDesignTypeIds(db: Db, excluding?: string): Promise<string[]> {
+  const rows = await db.select({ id: designTypes.id }).from(designTypes)
+    .where(excluding === undefined ? undefined : ne(designTypes.id, excluding))
+    .orderBy(asc(designTypes.sortOrder), asc(designTypes.name));
+  return rows.map((row) => row.id);
 }
 
-export function getDesignTypeById(
-  connection: DatabaseConnection,
-  id: string,
-): DesignTypeResponse {
-  return hydrateDesignTypes(connection, [findDesignTypeRowById(connection, id)])[0]!;
+async function insertRules(db: Db, designTypeId: string, kind: "principle" | "avoid", texts: readonly string[]): Promise<void> {
+  if (texts.length === 0) return;
+  await db.insert(designTypeRules).values(texts.map((text, sortOrder) => ({ id: randomUUID(), designTypeId, kind, text, sortOrder })));
 }
 
-export function findDesignTypeBySlug(
-  connection: DatabaseConnection,
-  slug: string,
-): DesignTypeResponse | undefined {
-  const row = connection.database
-    .select()
-    .from(designTypes)
-    .where(eq(designTypes.slug, slug))
-    .get();
-
-  return row === undefined
-    ? undefined
-    : hydrateDesignTypes(connection, [row])[0]!;
+async function insertVocabulary(db: Db, designTypeId: string, terms: readonly string[]): Promise<void> {
+  if (terms.length === 0) return;
+  await db.insert(designTypeVocabulary).values(terms.map((term, sortOrder) => ({ id: randomUUID(), designTypeId, term, sortOrder })));
 }
 
-export function getDesignTypeBySlug(
-  connection: DatabaseConnection,
-  slug: string,
-): DesignTypeResponse {
-  const designType = findDesignTypeBySlug(connection, slug);
+export async function listDesignTypes(db: Db): Promise<DesignTypeResponse[]> {
+  const rows = await db.select().from(designTypes).orderBy(asc(designTypes.sortOrder), asc(designTypes.name));
+  return hydrateDesignTypes(db, rows);
+}
 
+export async function getDesignTypeById(db: Db, id: string): Promise<DesignTypeResponse> {
+  return (await hydrateDesignTypes(db, [await findDesignTypeRowById(db, id)]))[0]!;
+}
+
+export async function findDesignTypeBySlug(db: Db, slug: string): Promise<DesignTypeResponse | undefined> {
+  const [row] = await db.select().from(designTypes).where(eq(designTypes.slug, slug));
+  return row === undefined ? undefined : (await hydrateDesignTypes(db, [row]))[0]!;
+}
+
+export async function getDesignTypeBySlug(db: Db, slug: string): Promise<DesignTypeResponse> {
+  const designType = await findDesignTypeBySlug(db, slug);
   if (designType === undefined) {
     throw new ApiError(404, "DESIGN_TYPE_NOT_FOUND", "Design type not found");
   }
-
   return designType;
 }
 
-export function createDesignType(
-  connection: DatabaseConnection,
+export async function createDesignType(
+  db: Db,
   input: CreateDesignTypeInput,
   id: string = randomUUID(),
-): DesignTypeResponse {
+): Promise<DesignTypeResponse> {
   const slug = input.slug ?? slugFromName(input.name);
   const now = new Date();
 
-  assertUniqueSlug(connection, slug);
+  await assertUniqueSlug(db, slug);
 
   try {
-    connection.database.transaction((transaction) => {
-      const orderedIds = transaction
-        .select({ id: designTypes.id })
-        .from(designTypes)
-        .orderBy(asc(designTypes.sortOrder), asc(designTypes.name))
-        .all()
-        .map((row) => row.id);
+    await db.transaction(async (transaction) => {
+      const orderedIds = await orderedDesignTypeIds(transaction);
       const position = insertPosition(input.sortOrder, orderedIds.length);
 
-      transaction
-        .insert(designTypes)
-        .values({
-          id,
-          slug,
-          name: input.name,
-          description: input.description,
-          deployFor: input.deployFor,
-          risk: input.risk,
-          briefBlock: input.briefBlock,
-          sortOrder: position,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      await transaction.insert(designTypes).values({
+        id,
+        slug,
+        name: input.name,
+        description: input.description,
+        deployFor: input.deployFor,
+        risk: input.risk,
+        briefBlock: input.briefBlock,
+        sortOrder: position,
+        createdAt: now,
+        updatedAt: now,
+      });
 
       orderedIds.splice(position, 0, id);
-      orderedIds.forEach((designTypeId, sortOrder) => {
-        transaction
-          .update(designTypes)
-          .set({ sortOrder })
-          .where(eq(designTypes.id, designTypeId))
-          .run();
-      });
-
-      input.principles.forEach((text, sortOrder) => {
-        transaction
-          .insert(designTypeRules)
-          .values({
-            id: randomUUID(),
-            designTypeId: id,
-            kind: "principle",
-            text,
-            sortOrder,
-          })
-          .run();
-      });
-      input.avoid.forEach((text, sortOrder) => {
-        transaction
-          .insert(designTypeRules)
-          .values({
-            id: randomUUID(),
-            designTypeId: id,
-            kind: "avoid",
-            text,
-            sortOrder,
-          })
-          .run();
-      });
-      input.vocabulary.forEach((term, sortOrder) => {
-        transaction
-          .insert(designTypeVocabulary)
-          .values({
-            id: randomUUID(),
-            designTypeId: id,
-            term,
-            sortOrder,
-          })
-          .run();
-      });
+      await renumber(transaction, designTypes, designTypes.id, orderedIds);
+      await insertRules(transaction, id, "principle", input.principles);
+      await insertRules(transaction, id, "avoid", input.avoid);
+      await insertVocabulary(transaction, id, input.vocabulary);
     });
   } catch (error) {
-    if (sqliteErrorCode(error) === "SQLITE_CONSTRAINT_UNIQUE") {
-      throw new ApiError(
-        409,
-        "DESIGN_TYPE_SLUG_CONFLICT",
-        `A design type with slug '${slug}' already exists`,
-      );
+    if (databaseErrorCode(error) === PgCode.uniqueViolation) {
+      throw new ApiError(409, "DESIGN_TYPE_SLUG_CONFLICT", `A design type with slug '${slug}' already exists`);
     }
     throw error;
   }
 
-  return hydrateDesignTypes(connection, [findDesignTypeRowById(connection, id)])[0]!;
+  return getDesignTypeById(db, id);
 }
 
-export function updateDesignType(
-  connection: DatabaseConnection,
+export async function updateDesignType(
+  db: Db,
   id: string,
   input: UpdateDesignTypeInput,
-): DesignTypeResponse {
-  findDesignTypeRowById(connection, id);
+): Promise<DesignTypeResponse> {
+  await findDesignTypeRowById(db, id);
 
   if (input.slug !== undefined) {
-    assertUniqueSlug(connection, input.slug, id);
+    await assertUniqueSlug(db, input.slug, id);
   }
 
   try {
-    connection.database.transaction((transaction) => {
+    await db.transaction(async (transaction) => {
       const values: Partial<typeof designTypes.$inferInsert> = {
         updatedAt: new Date(),
       };
@@ -301,144 +207,50 @@ export function updateDesignType(
       if (input.risk !== undefined) values.risk = input.risk;
       if (input.briefBlock !== undefined) values.briefBlock = input.briefBlock;
 
-      transaction
-        .update(designTypes)
-        .set(values)
-        .where(eq(designTypes.id, id))
-        .run();
+      await transaction.update(designTypes).set(values).where(eq(designTypes.id, id));
 
       if (input.sortOrder !== undefined) {
-        const orderedIds = transaction
-          .select({ id: designTypes.id })
-          .from(designTypes)
-          .where(ne(designTypes.id, id))
-          .orderBy(asc(designTypes.sortOrder), asc(designTypes.name))
-          .all()
-          .map((row) => row.id);
-        orderedIds.splice(
-          insertPosition(input.sortOrder, orderedIds.length),
-          0,
-          id,
-        );
-        orderedIds.forEach((designTypeId, sortOrder) => {
-          transaction
-            .update(designTypes)
-            .set({ sortOrder })
-            .where(eq(designTypes.id, designTypeId))
-            .run();
-        });
+        const orderedIds = await orderedDesignTypeIds(transaction, id);
+        orderedIds.splice(insertPosition(input.sortOrder, orderedIds.length), 0, id);
+        await renumber(transaction, designTypes, designTypes.id, orderedIds);
       }
 
       if (input.principles !== undefined) {
-        transaction
-          .delete(designTypeRules)
-          .where(
-            and(
-              eq(designTypeRules.designTypeId, id),
-              eq(designTypeRules.kind, "principle"),
-            ),
-          )
-          .run();
-        input.principles.forEach((text, sortOrder) => {
-          transaction
-            .insert(designTypeRules)
-            .values({
-              id: randomUUID(),
-              designTypeId: id,
-              kind: "principle",
-              text,
-              sortOrder,
-            })
-            .run();
-        });
+        await transaction.delete(designTypeRules).where(and(eq(designTypeRules.designTypeId, id), eq(designTypeRules.kind, "principle")));
+        await insertRules(transaction, id, "principle", input.principles);
       }
 
       if (input.avoid !== undefined) {
-        transaction
-          .delete(designTypeRules)
-          .where(
-            and(
-              eq(designTypeRules.designTypeId, id),
-              eq(designTypeRules.kind, "avoid"),
-            ),
-          )
-          .run();
-        input.avoid.forEach((text, sortOrder) => {
-          transaction
-            .insert(designTypeRules)
-            .values({
-              id: randomUUID(),
-              designTypeId: id,
-              kind: "avoid",
-              text,
-              sortOrder,
-            })
-            .run();
-        });
+        await transaction.delete(designTypeRules).where(and(eq(designTypeRules.designTypeId, id), eq(designTypeRules.kind, "avoid")));
+        await insertRules(transaction, id, "avoid", input.avoid);
       }
 
       if (input.vocabulary !== undefined) {
-        transaction
-          .delete(designTypeVocabulary)
-          .where(eq(designTypeVocabulary.designTypeId, id))
-          .run();
-        input.vocabulary.forEach((term, sortOrder) => {
-          transaction
-            .insert(designTypeVocabulary)
-            .values({ id: randomUUID(), designTypeId: id, term, sortOrder })
-            .run();
-        });
+        await transaction.delete(designTypeVocabulary).where(eq(designTypeVocabulary.designTypeId, id));
+        await insertVocabulary(transaction, id, input.vocabulary);
       }
     });
   } catch (error) {
-    if (sqliteErrorCode(error) === "SQLITE_CONSTRAINT_UNIQUE") {
-      throw new ApiError(
-        409,
-        "DESIGN_TYPE_SLUG_CONFLICT",
-        "The requested design type slug or vocabulary already exists",
-      );
+    if (databaseErrorCode(error) === PgCode.uniqueViolation) {
+      throw new ApiError(409, "DESIGN_TYPE_SLUG_CONFLICT", "The requested design type slug or vocabulary already exists");
     }
     throw error;
   }
 
-  return hydrateDesignTypes(connection, [findDesignTypeRowById(connection, id)])[0]!;
+  return getDesignTypeById(db, id);
 }
 
-export function deleteDesignType(
-  connection: DatabaseConnection,
-  id: string,
-): void {
-  findDesignTypeRowById(connection, id);
+export async function deleteDesignType(db: Db, id: string): Promise<void> {
+  await findDesignTypeRowById(db, id);
 
   try {
-    connection.database.transaction((transaction) => {
-      transaction.delete(designTypes).where(eq(designTypes.id, id)).run();
-
-      const orderedIds = transaction
-        .select({ id: designTypes.id })
-        .from(designTypes)
-        .orderBy(asc(designTypes.sortOrder), asc(designTypes.name))
-        .all()
-        .map((row) => row.id);
-      orderedIds.forEach((designTypeId, sortOrder) => {
-        transaction
-          .update(designTypes)
-          .set({ sortOrder })
-          .where(eq(designTypes.id, designTypeId))
-          .run();
-      });
+    await db.transaction(async (transaction) => {
+      await transaction.delete(designTypes).where(eq(designTypes.id, id));
+      await renumber(transaction, designTypes, designTypes.id, await orderedDesignTypeIds(transaction));
     });
   } catch (error) {
-    const code = sqliteErrorCode(error);
-    if (
-      code === "SQLITE_CONSTRAINT_FOREIGNKEY" ||
-      code === "SQLITE_CONSTRAINT_TRIGGER"
-    ) {
-      throw new ApiError(
-        409,
-        "DESIGN_TYPE_IN_USE",
-        "Design type cannot be deleted while references use it",
-      );
+    if (databaseErrorCode(error) === PgCode.foreignKeyViolation) {
+      throw new ApiError(409, "DESIGN_TYPE_IN_USE", "Design type cannot be deleted while references use it");
     }
     throw error;
   }

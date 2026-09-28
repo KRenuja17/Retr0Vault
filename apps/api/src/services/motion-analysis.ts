@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { and, asc, count, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -29,21 +29,18 @@ import {
   type VerifiedTechEntry,
 } from "@retr0vault/shared";
 
-import type { DatabaseConnection } from "../database/connection.js";
+import type { Db } from "../database/connection.js";
 import { motionClips, motionKeyframes, motionStudies, motionStudyTags, references } from "../database/schema.js";
 import { ApiError } from "../errors.js";
 import { burstFileName, type MotionStorage } from "../storage/motion-storage.js";
 import { findStudyRow, getMotionStudy, motionTriggerCounts } from "./motion.js";
-import { referenceSearchExpression } from "./reference-search.js";
+import { motionSearchRank, searchQuery, searchWords } from "./reference-search.js";
 
 /*
  * Motion analysis: edits, the curator export/import, and the Motion section
  * listing. Evidence (clips, keyframes, energy) is written only by the pipeline;
  * inspection notes and verified tech only by explicit edits, never by an import.
  */
-
-// Column order is defined by 0008_motion_search.sql.
-export const motionSearchRank = sql`bm25(motion_search, 0, 10, 12, 8, 6, 4, 2, 2, 1)`;
 
 function normalizeTechniques(input: readonly MotionTagInput[]): Array<MotionTagInput & { normalizedValue: string }> {
   const seen = new Set<string>();
@@ -85,20 +82,20 @@ function assertImplementation(claims: readonly ImplementationClaim[], verifiedTe
   }
 }
 
-export function updateMotionStudy(
-  connection: DatabaseConnection,
+export async function updateMotionStudy(
+  db: Db,
   referenceId: string,
   input: UpdateMotionStudyInput,
   options: { readonly protectEditedFields?: boolean } = {},
-): MotionStudy {
-  const row = findStudyRow(connection, referenceId);
-  const current = getMotionStudy(connection, referenceId);
+): Promise<MotionStudy> {
+  const row = await findStudyRow(db, referenceId);
+  const current = await getMotionStudy(db, referenceId);
   if (input.beats !== undefined) assertBeats(current, input.beats);
   assertImplementation(input.implementation ?? current.implementation, input.verifiedTech ?? current.verifiedTech);
   const techniques = input.techniques === undefined ? undefined : normalizeTechniques(input.techniques);
 
-  connection.database.transaction((transaction) => {
-    const existing = motionProtectedFieldsSchema.parse(JSON.parse(row.protectedFields));
+  await db.transaction(async (transaction) => {
+    const existing = motionProtectedFieldsSchema.parse(row.protectedFields);
     const edited = options.protectEditedFields === false ? [] :
       motionProtectedFieldSchema.options.filter((field) => input[field] !== undefined);
     const protections = input.protectedFields ?? [
@@ -106,31 +103,31 @@ export function updateMotionStudy(
     ];
     const values: Partial<typeof motionStudies.$inferInsert> = {
       updatedAt: new Date(),
-      protectedFields: JSON.stringify([...new Set(protections)]),
+      protectedFields: [...new Set(protections)],
     };
     if (input.motionDNA !== undefined) values.motionDNA = input.motionDNA;
     if (input.motionThesis !== undefined) values.motionThesis = input.motionThesis;
     if (input.motionBrief !== undefined) values.motionBrief = input.motionBrief;
-    if (input.analysis !== undefined) values.motionAnalysisJson = input.analysis === null ? null : JSON.stringify(input.analysis);
-    if (input.beats !== undefined) values.beatsJson = JSON.stringify(input.beats);
-    if (input.implementation !== undefined) values.implementationJson = JSON.stringify(input.implementation);
+    if (input.analysis !== undefined) values.motionAnalysisJson = input.analysis;
+    if (input.beats !== undefined) values.beatsJson = input.beats;
+    if (input.implementation !== undefined) values.implementationJson = input.implementation;
     if (input.inspectionNotes !== undefined) values.inspectionNotes = input.inspectionNotes === "" ? null : input.inspectionNotes;
-    if (input.verifiedTech !== undefined) values.verifiedTechJson = JSON.stringify(input.verifiedTech);
+    if (input.verifiedTech !== undefined) values.verifiedTechJson = input.verifiedTech;
     if (input.motionStatus !== undefined) values.motionStatus = input.motionStatus;
-    transaction.update(motionStudies).set(values).where(eq(motionStudies.id, row.id)).run();
+    await transaction.update(motionStudies).set(values).where(eq(motionStudies.id, row.id));
 
     if (techniques !== undefined) {
-      transaction.delete(motionStudyTags).where(eq(motionStudyTags.motionStudyId, row.id)).run();
-      techniques.forEach((tag, sortOrder) => {
-        transaction.insert(motionStudyTags).values({ motionStudyId: row.id, sortOrder, ...tag }).run();
-      });
+      await transaction.delete(motionStudyTags).where(eq(motionStudyTags.motionStudyId, row.id));
+      if (techniques.length > 0) {
+        await transaction.insert(motionStudyTags).values(techniques.map((tag, sortOrder) => ({ motionStudyId: row.id, sortOrder, ...tag })));
+      }
     }
   });
-  return getMotionStudy(connection, referenceId);
+  return getMotionStudy(db, referenceId);
 }
 
-export function resetMotionAnalysis(connection: DatabaseConnection, referenceId: string): MotionStudy {
-  return updateMotionStudy(connection, referenceId, { motionStatus: "pending" }, { protectEditedFields: false });
+export function resetMotionAnalysis(db: Db, referenceId: string): Promise<MotionStudy> {
+  return updateMotionStudy(db, referenceId, { motionStatus: "pending" }, { protectEditedFields: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -149,50 +146,58 @@ export function motionReport(results: MotionImportResult[]): MotionImportReport 
   });
 }
 
-export function importMotionAnalyses(
-  connection: DatabaseConnection,
+export async function importMotionAnalyses(
+  db: Db,
   entries: ReadonlyArray<{ source: string; value: unknown }>,
   overwriteProtected = false,
   seen = new Set<string>(),
-): MotionImportReport {
-  const results = entries.map(({ source, value }): MotionImportResult => {
-    const parsed = motionAnalysisSchema.safeParse(value);
-    if (!parsed.success) {
-      const id = z.object({ referenceId: z.uuid() }).safeParse(value);
-      return failedMotionResult(source, id.success ? id.data.referenceId : null, "INVALID_ANALYSIS",
-        parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
-    }
-    const analysis = parsed.data;
-    if (seen.has(analysis.referenceId)) {
-      return failedMotionResult(source, analysis.referenceId, "DUPLICATE_REFERENCE", "Only one analysis per reference is allowed in each import batch");
-    }
-    seen.add(analysis.referenceId);
-    try {
-      return connection.database.transaction(() => {
-        const current = getMotionStudy(connection, analysis.referenceId);
-        const patch: UpdateMotionStudyInput = updateMotionStudySchema.parse({
-          motionDNA: analysis.motionDNA,
-          motionThesis: analysis.motionThesis,
-          motionBrief: analysis.motionBrief,
-          analysis: analysis.analysis,
-          beats: analysis.beats,
-          implementation: analysis.implementation,
-          techniques: analysis.techniques,
-          motionStatus: "analyzed",
-          protectedFields: current.protectedFields,
-        });
-        const preservedFields = overwriteProtected ? [] : current.protectedFields.filter((field) => patch[field] !== undefined);
-        const kept = Object.fromEntries(Object.entries(patch).filter(([key]) => !preservedFields.includes(key as never))) as UpdateMotionStudyInput;
-        updateMotionStudy(connection, analysis.referenceId, kept, { protectEditedFields: false });
-        return { source, referenceId: analysis.referenceId, status: "imported", preservedFields, error: null };
-      });
-    } catch (error) {
-      return failedMotionResult(source, analysis.referenceId,
-        error instanceof ApiError ? error.code : "IMPORT_FAILED",
-        error instanceof ApiError ? error.message : "Motion analysis could not be stored; this study was left unchanged");
-    }
-  });
+): Promise<MotionImportReport> {
+  const results: MotionImportResult[] = [];
+  for (const entry of entries) results.push(await importOneMotion(db, entry, overwriteProtected, seen));
   return motionReport(results);
+}
+
+async function importOneMotion(
+  db: Db,
+  { source, value }: { source: string; value: unknown },
+  overwriteProtected: boolean,
+  seen: Set<string>,
+): Promise<MotionImportResult> {
+  const parsed = motionAnalysisSchema.safeParse(value);
+  if (!parsed.success) {
+    const id = z.object({ referenceId: z.uuid() }).safeParse(value);
+    return failedMotionResult(source, id.success ? id.data.referenceId : null, "INVALID_ANALYSIS",
+      parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
+  }
+  const analysis = parsed.data;
+  if (seen.has(analysis.referenceId)) {
+    return failedMotionResult(source, analysis.referenceId, "DUPLICATE_REFERENCE", "Only one analysis per reference is allowed in each import batch");
+  }
+  seen.add(analysis.referenceId);
+  try {
+    return await db.transaction(async (transaction) => {
+      const current = await getMotionStudy(transaction, analysis.referenceId);
+      const patch: UpdateMotionStudyInput = updateMotionStudySchema.parse({
+        motionDNA: analysis.motionDNA,
+        motionThesis: analysis.motionThesis,
+        motionBrief: analysis.motionBrief,
+        analysis: analysis.analysis,
+        beats: analysis.beats,
+        implementation: analysis.implementation,
+        techniques: analysis.techniques,
+        motionStatus: "analyzed",
+        protectedFields: current.protectedFields,
+      });
+      const preservedFields = overwriteProtected ? [] : current.protectedFields.filter((field) => patch[field] !== undefined);
+      const kept = Object.fromEntries(Object.entries(patch).filter(([key]) => !preservedFields.includes(key as never))) as UpdateMotionStudyInput;
+      await updateMotionStudy(transaction, analysis.referenceId, kept, { protectEditedFields: false });
+      return { source, referenceId: analysis.referenceId, status: "imported" as const, preservedFields, error: null };
+    });
+  } catch (error) {
+    return failedMotionResult(source, analysis.referenceId,
+      error instanceof ApiError ? error.code : "IMPORT_FAILED",
+      error instanceof ApiError ? error.message : "Motion analysis could not be stored; this study was left unchanged");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -200,19 +205,19 @@ export function importMotionAnalyses(
 // ---------------------------------------------------------------------------
 
 export async function getPendingMotion(
-  connection: DatabaseConnection,
+  db: Db,
   storage: MotionStorage,
   resultsDirectory: string,
 ): Promise<PendingMotionManifest> {
-  const pending = connection.database.select({ referenceId: motionStudies.referenceId }).from(motionStudies)
-    .where(eq(motionStudies.motionStatus, "pending")).orderBy(asc(motionStudies.createdAt), asc(motionStudies.id)).all();
+  const pending = await db.select({ referenceId: motionStudies.referenceId }).from(motionStudies)
+    .where(eq(motionStudies.motionStatus, "pending")).orderBy(asc(motionStudies.createdAt), asc(motionStudies.id));
   const studies: PendingMotionManifest["studies"] = [];
   const unavailable: PendingMotionManifest["unavailable"] = [];
 
   for (const { referenceId } of pending) {
-    const study = getMotionStudy(connection, referenceId);
-    const design = connection.database.select({ designDNA: references.designDNA, designThesis: references.designThesis })
-      .from(references).where(eq(references.id, referenceId)).get()!;
+    const study = await getMotionStudy(db, referenceId);
+    const [design] = await db.select({ designDNA: references.designDNA, designThesis: references.designThesis })
+      .from(references).where(eq(references.id, referenceId));
     const ready = study.clips.filter((clip) => clip.processingStatus === "ready");
     if (ready.length === 0) {
       unavailable.push({ referenceId, message: "No processed clips yet; wait for processing or retry failed clips" });
@@ -222,8 +227,8 @@ export async function getPendingMotion(
       const clips = [];
       for (const clip of ready) {
         const path = (name: string) => storage.existingPath(referenceId, clip.id, name);
-        const keyframeRows = connection.database.select().from(motionKeyframes).where(eq(motionKeyframes.motionClipId, clip.id))
-          .orderBy(asc(motionKeyframes.sortOrder)).all();
+        const keyframeRows = await db.select().from(motionKeyframes).where(eq(motionKeyframes.motionClipId, clip.id))
+          .orderBy(asc(motionKeyframes.sortOrder));
         const evidence = clipEvidenceSchema.parse(clip.evidence);
         clips.push({
           clipId: clip.id,
@@ -249,7 +254,7 @@ export async function getPendingMotion(
         referenceId,
         title: study.reference.title,
         sourceUrl: study.reference.sourceUrl,
-        designContext: design,
+        designContext: design!,
         inspectionNotes: study.inspectionNotes,
         verifiedTech: study.verifiedTech.map((entry, index) => ({ ...entry, index })),
         protectedFields: study.protectedFields,
@@ -274,30 +279,30 @@ export async function getPendingMotion(
 // Motion section listing
 // ---------------------------------------------------------------------------
 
-function beatTriggers(beatsJson: string | null): MotionTrigger[] {
-  if (beatsJson === null) return [];
-  const beats = motionBeatSchema.array().safeParse(JSON.parse(beatsJson));
+function beatTriggers(beatsJson: unknown): MotionTrigger[] {
+  if (beatsJson === null || beatsJson === undefined) return [];
+  const beats = motionBeatSchema.array().safeParse(beatsJson);
   if (!beats.success) return [];
   const used = new Set(beats.data.map((beat) => beat.trigger));
   return motionTriggerSchema.options.filter((trigger) => used.has(trigger));
 }
 
-export function listMotion(connection: DatabaseConnection, query: MotionListQuery): MotionListResponse {
-  return connection.database.transaction(() => queryMotion(connection, query));
+export function listMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
+  return db.transaction((transaction) => queryMotion(transaction, query), { isolationLevel: "repeatable read", accessMode: "read only" });
 }
 
-function queryMotion(connection: DatabaseConnection, query: MotionListQuery): MotionListResponse {
-  const countsByTrigger = motionTriggerCounts(connection);
+async function queryMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
+  const countsByTrigger = await motionTriggerCounts(db);
   const empty = () => motionListResponseSchema.parse({ items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0, countsByTrigger });
-  const searchExpression = query.q ? referenceSearchExpression(query.q) : undefined;
-  if (query.q && searchExpression === undefined) return empty();
+  const words = query.q ? searchWords(query.q) : undefined;
+  if (query.q && words === undefined) return empty();
 
   const conditions: SQL[] = [];
-  if (searchExpression !== undefined) conditions.push(sql`motion_search MATCH ${searchExpression}`);
+  if (words !== undefined) conditions.push(sql`motion_search.document @@ ${searchQuery(words)}`);
   if (query.status !== undefined) conditions.push(eq(motionStudies.motionStatus, query.status));
   if (query.trigger !== undefined) {
-    conditions.push(sql`exists (select 1 from json_each(case when json_valid(${motionStudies.beatsJson}) then ${motionStudies.beatsJson} else '[]' end) b
-      where json_extract(b.value, '$.trigger') = ${query.trigger})`);
+    conditions.push(sql`exists (select 1 from jsonb_array_elements(case when jsonb_typeof(${motionStudies.beatsJson}) = 'array' then ${motionStudies.beatsJson} else '[]'::jsonb end) b
+      where b ->> 'trigger' = ${query.trigger})`);
   }
   if (query.technique !== undefined) {
     const normalized = query.technique.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
@@ -306,35 +311,36 @@ function queryMotion(connection: DatabaseConnection, query: MotionListQuery): Mo
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   // Dynamic builders are joined in place, as in reference listing.
-  const totalQuery = connection.database.select({ value: count() }).from(motionStudies)
+  const totalQuery = db.select({ value: count() }).from(motionStudies)
     .innerJoin(references, eq(references.id, motionStudies.referenceId)).$dynamic();
-  const pageQuery = connection.database.select({
+  const pageQuery = db.select({
     studyId: motionStudies.id, referenceId: motionStudies.referenceId, title: references.title, sourceUrl: references.sourceUrl,
     designTypeId: references.designTypeId, motionStatus: motionStudies.motionStatus, motionDNA: motionStudies.motionDNA,
     beatsJson: motionStudies.beatsJson, createdAt: motionStudies.createdAt, updatedAt: motionStudies.updatedAt,
   }).from(motionStudies).innerJoin(references, eq(references.id, motionStudies.referenceId)).$dynamic();
-  if (searchExpression !== undefined) {
+  if (words !== undefined) {
     const joinCondition = sql`motion_search.motion_study_id = ${motionStudies.id}`;
     totalQuery.innerJoin(sql`motion_search`, joinCondition);
     pageQuery.innerJoin(sql`motion_search`, joinCondition);
   }
-  const total = totalQuery.where(where).get()?.value ?? 0;
-  const order: SQL[] = query.sort === "relevance" && searchExpression !== undefined ? [motionSearchRank, desc(motionStudies.createdAt)]
+  const [totalRow] = await totalQuery.where(where);
+  const total = totalRow?.value ?? 0;
+  const order: SQL[] = query.sort === "relevance" && words !== undefined ? [sql`${motionSearchRank(words)} desc`, desc(motionStudies.createdAt)]
     : query.sort === "oldest" ? [asc(motionStudies.createdAt)]
-      : query.sort === "title-asc" ? [sql`${references.title} collate nocase asc`]
-        : query.sort === "title-desc" ? [sql`${references.title} collate nocase desc`]
+      : query.sort === "title-asc" ? [sql`lower(${references.title}) asc`]
+        : query.sort === "title-desc" ? [sql`lower(${references.title}) desc`]
           : [desc(motionStudies.createdAt)];
   const offset = (query.page - 1) * query.limit;
-  const rows = pageQuery.where(where).orderBy(...order, asc(motionStudies.id)).limit(query.limit).offset(offset).all();
+  const rows = await pageQuery.where(where).orderBy(...order, asc(motionStudies.id)).limit(query.limit).offset(offset);
 
   const studyIds = rows.map((row) => row.studyId);
-  const tags = studyIds.length === 0 ? [] : connection.database.select().from(motionStudyTags)
-    .where(sql`${motionStudyTags.motionStudyId} in ${studyIds}`).orderBy(asc(motionStudyTags.sortOrder)).all();
-  const clips = studyIds.length === 0 ? [] : connection.database.select({
+  const tags = studyIds.length === 0 ? [] : await db.select().from(motionStudyTags)
+    .where(inArray(motionStudyTags.motionStudyId, studyIds)).orderBy(asc(motionStudyTags.sortOrder));
+  const clips = studyIds.length === 0 ? [] : await db.select({
     id: motionClips.id, studyId: motionClips.motionStudyId, label: motionClips.label, sortOrder: motionClips.sortOrder,
     processingStatus: motionClips.processingStatus, durationMs: motionClips.durationMs, width: motionClips.width, height: motionClips.height,
-    keyframeCount: sql<number>`(select count(*) from motion_keyframes k where k.motion_clip_id = ${motionClips.id})`,
-  }).from(motionClips).where(sql`${motionClips.motionStudyId} in ${studyIds}`).orderBy(asc(motionClips.sortOrder)).all();
+    keyframeCount: sql<number>`(select count(*)::integer from motion_keyframes k where k.motion_clip_id = ${motionClips.id})`,
+  }).from(motionClips).where(inArray(motionClips.motionStudyId, studyIds)).orderBy(asc(motionClips.sortOrder));
 
   return motionListResponseSchema.parse({
     items: rows.map((row, index) => {

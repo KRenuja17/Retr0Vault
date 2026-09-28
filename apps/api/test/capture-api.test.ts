@@ -2,23 +2,23 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pendingAnalysisManifestSchema, referenceListResponseSchema, referenceResponseSchema } from "@retr0vault/shared";
 
 import type { CapturedFrame, CaptureService } from "../src/capture/service.js";
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
+import type { Db } from "../src/database/connection.js";
 import { referenceFrames } from "../src/database/schema.js";
 import { ApiError } from "../src/errors.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
-import { createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createTestApp, disposeTestApp, queryRows, rejectWrites, validDesignTypeInput, type TestAppContext } from "./helpers.js";
 
 describe("website reference API and storage", () => {
   let context: TestAppContext;
-  let connection: DatabaseConnection;
+  let connection: Db;
   let frames: CapturedFrame[];
   let capture: ReturnType<typeof vi.fn<CaptureService["capture"]>>;
   let close: ReturnType<typeof vi.fn<CaptureService["close"]>>;
@@ -32,11 +32,10 @@ describe("website reference API and storage", () => {
     capture = vi.fn().mockImplementation(async () => ({ frames }));
     close = vi.fn().mockResolvedValue(undefined);
     context = await createTestApp("capture-api", { captureService: { capture, close } });
-    connection = createDatabaseConnection(context.databasePath);
+    connection = context.db;
   });
 
   afterEach(async () => {
-    connection.sqlite.close();
     await disposeTestApp(context);
     expect(close).toHaveBeenCalled();
   });
@@ -46,7 +45,7 @@ describe("website reference API and storage", () => {
   }
 
   it("stores UUID-named frames, a primary thumbnail and pending website metadata", async () => {
-    const type = createDesignType(connection, validDesignTypeInput);
+    const type = await createDesignType(connection, validDesignTypeInput);
     const response = await post({ url: "https://example.com/study", title: "Captured Editorial", designTypeId: type.id });
     expect(response.statusCode, response.body).toBe(201);
     const reference = referenceResponseSchema.parse(response.json());
@@ -95,17 +94,17 @@ describe("website reference API and storage", () => {
       const response = await post();
       expect(response.statusCode).toBe(statusCode);
       expect(response.json().error.code).toBe(code);
-      expect(connection.sqlite.prepare('SELECT count(*) AS total FROM "references"').get()).toEqual({ total: 0 });
+      expect(await queryRows(connection, sql`SELECT count(*)::int AS total FROM "references"`)).toEqual([{ total: 0 }]);
       expect(existsSync(context.storageRoot)).toBe(false);
     });
 
   it("rolls back files and database rows if frame insertion fails", async () => {
-    connection.sqlite.exec("CREATE TRIGGER deny_frames BEFORE INSERT ON reference_frames BEGIN SELECT RAISE(ABORT, 'test constraint'); END");
+    await rejectWrites(connection, "reference_frames", "INSERT");
     const response = await post();
     expect(response.statusCode).toBe(500);
-    expect(connection.sqlite.prepare('SELECT count(*) AS total FROM "references"').get()).toEqual({ total: 0 });
-    expect(connection.sqlite.prepare("SELECT count(*) AS total FROM reference_frames").get()).toEqual({ total: 0 });
-    expect(connection.sqlite.prepare("SELECT count(*) AS total FROM reference_search").get()).toEqual({ total: 0 });
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS total FROM "references"`)).toEqual([{ total: 0 }]);
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS total FROM reference_frames`)).toEqual([{ total: 0 }]);
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS total FROM reference_search`)).toEqual([{ total: 0 }]);
     expect(readdirSync(join(context.storageRoot, "captures"))).toEqual([]);
     expect(readdirSync(join(context.storageRoot, "thumbnails"))).toEqual([]);
   });
@@ -125,7 +124,7 @@ describe("website reference API and storage", () => {
     const response = await post();
     expect(response.statusCode).toBe(500);
     expect(response.json().error.code).toBe("CAPTURE_STORAGE_FAILED");
-    expect(connection.sqlite.prepare('SELECT count(*) AS total FROM "references"').get()).toEqual({ total: 0 });
+    expect(await queryRows(connection, sql`SELECT count(*)::int AS total FROM "references"`)).toEqual([{ total: 0 }]);
   });
 
   it("deletes database frames first, then only associated capture files and thumbnail", async () => {
@@ -135,7 +134,7 @@ describe("website reference API and storage", () => {
     writeFileSync(unrelated, "Keep me");
     const response = await context.app.inject({ method: "DELETE", url: `/api/v1/references/${first.id}` });
     expect(response.statusCode).toBe(204);
-    expect(connection.database.select().from(referenceFrames).where(eq(referenceFrames.referenceId, first.id)).all()).toEqual([]);
+    expect(await connection.select().from(referenceFrames).where(eq(referenceFrames.referenceId, first.id))).toEqual([]);
     for (const frame of first.frames) expect(existsSync(join(context.storageRoot, frame.imagePath))).toBe(false);
     expect(existsSync(join(context.storageRoot, first.thumbnailPath))).toBe(false);
     expect(readFileSync(unrelated, "utf8")).toBe("Keep me");
@@ -144,11 +143,12 @@ describe("website reference API and storage", () => {
 
   it("preserves all files if database deletion is rejected", async () => {
     const reference = referenceResponseSchema.parse((await post()).json());
-    connection.sqlite.exec('CREATE TRIGGER deny_delete BEFORE DELETE ON "references" BEGIN SELECT RAISE(ABORT, \'protected\'); END');
+    // A restricting foreign key the schema does not have yet.
+    await rejectWrites(connection, "references", "DELETE", { errorCode: "23503" });
     const response = await context.app.inject({ method: "DELETE", url: `/api/v1/references/${reference.id}` });
     expect(response.statusCode).toBe(409);
     for (const frame of reference.frames) expect(existsSync(join(context.storageRoot, frame.imagePath))).toBe(true);
-    expect(connection.database.select().from(referenceFrames).all()).toHaveLength(4);
+    expect(await connection.select().from(referenceFrames)).toHaveLength(4);
   });
 
   it("refuses traversal and directory symlinks for capture storage and cleanup", async () => {
@@ -169,8 +169,8 @@ describe("website reference API and storage", () => {
   it("enforces frame foreign keys, unique order and valid frame types", async () => {
     const reference = referenceResponseSchema.parse((await post()).json());
     const frame = reference.frames[0]!;
-    expect(() => connection.database.insert(referenceFrames).values({ ...frame, id: randomUUID(), imagePath: "other.png" }).run()).toThrow();
-    expect(() => connection.database.insert(referenceFrames).values({ ...frame, id: randomUUID(), referenceId: randomUUID(), imagePath: "missing.png" }).run()).toThrow();
-    expect(() => connection.sqlite.prepare("UPDATE reference_frames SET frame_type = 'invalid' WHERE id = ?").run(frame.id)).toThrow();
+    await expect(connection.insert(referenceFrames).values({ ...frame, id: randomUUID(), imagePath: "other.png" })).rejects.toThrow();
+    await expect(connection.insert(referenceFrames).values({ ...frame, id: randomUUID(), referenceId: randomUUID(), imagePath: "missing.png" })).rejects.toThrow();
+    await expect(connection.execute(sql`UPDATE reference_frames SET frame_type = 'invalid' WHERE id = ${frame.id}`)).rejects.toThrow();
   });
 });

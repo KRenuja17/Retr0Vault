@@ -8,14 +8,16 @@ import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { errorResponseSchema, referenceResponseSchema, type ImageFormat } from "@retr0vault/shared";
 
-import { createDatabaseConnection, type DatabaseConnection } from "../src/database/connection.js";
+import { sql } from "drizzle-orm";
+
+import type { Db } from "../src/database/connection.js";
 import type { CapturedFrame } from "../src/capture/service.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
-import { createMultipartPayload, createTestApp, disposeTestApp, type TestAppContext } from "./helpers.js";
+import { createMultipartPayload, createTestApp, disposeTestApp, queryRows, type TestAppContext } from "./helpers.js";
 
 describe("ID-based reference media", () => {
   let context: TestAppContext;
-  let connection: DatabaseConnection;
+  let connection: Db;
   let original: Buffer;
   let captureFrames: CapturedFrame[];
 
@@ -30,12 +32,11 @@ describe("ID-based reference media", () => {
     context = await createTestApp("media", { captureService: {
       capture: async () => ({ frames: captureFrames }), close: async () => undefined,
     } });
-    connection = createDatabaseConnection(context.databasePath);
+    connection = context.db;
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    connection.sqlite.close();
     await disposeTestApp(context);
   });
 
@@ -68,7 +69,7 @@ describe("ID-based reference media", () => {
   it.each(["jpeg", "png", "webp"] as const)("returns exact %s originals and generated WebP thumbnails", async (format: ImageFormat) => {
     const bytes = await sharp(original).toFormat(format).toBuffer();
     const reference = await upload(bytes);
-    const before = connection.sqlite.prepare('SELECT * FROM "references"').all();
+    const before = await queryRows(connection, sql`SELECT * FROM "references"`);
     for (const kind of ["original", "thumbnail"] as const) {
       const response = await context.app.inject({ url: url(reference.id.toUpperCase(), kind), headers: { origin: "http://localhost:4610" } });
       expect(response.statusCode).toBe(200);
@@ -82,7 +83,7 @@ describe("ID-based reference media", () => {
       expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:4610");
       expect(response.headers["content-disposition"]).toBeUndefined();
     }
-    expect(connection.sqlite.prepare('SELECT * FROM "references"').all()).toEqual(before);
+    expect(await queryRows(connection, sql`SELECT * FROM "references"`)).toEqual(before);
     expect((await context.app.inject(`/api/v1/references/${reference.id}`)).json()).toEqual(reference);
   });
 
@@ -150,7 +151,7 @@ describe("ID-based reference media", () => {
     const reference = await upload();
     const cached = await context.app.inject(url(reference.id));
     // Simulate a committed deletion with files still awaiting cleanup.
-    connection.sqlite.prepare('DELETE FROM "references" WHERE id = ?').run(reference.id);
+    await connection.execute(sql`DELETE FROM "references" WHERE id = ${reference.id}`);
     for (const id of [reference.id, randomUUID()]) for (const kind of ["original", "thumbnail"]) {
       expectNotFound(await context.app.inject({ url: url(id, kind), headers: { "if-none-match": String(cached.headers.etag) } }), "REFERENCE_NOT_FOUND");
     }
@@ -189,10 +190,10 @@ describe("ID-based reference media", () => {
     const outside = join(context.directory, "private.png"); writeFileSync(outside, "private sentinel");
     for (const path of [outside, "../private.png", "originals/../../private.png", "originals\\private.png", other.originalPath,
       reference.thumbnailPath, `captures/${reference.id}/scroll-50.png`]) {
-      connection.sqlite.prepare('UPDATE "references" SET original_path = ? WHERE id = ?').run(path, reference.id);
+      await connection.execute(sql`UPDATE "references" SET original_path = ${path} WHERE id = ${reference.id}`);
       expectNotFound(await context.app.inject(url(reference.id)));
     }
-    connection.sqlite.prepare('UPDATE "references" SET thumbnail_path = ? WHERE id = ?').run(other.thumbnailPath, reference.id);
+    await connection.execute(sql`UPDATE "references" SET thumbnail_path = ${other.thumbnailPath} WHERE id = ${reference.id}`);
     expectNotFound(await context.app.inject(url(reference.id, "thumbnail")));
     expect(readFileSync(outside, "utf8")).toBe("private sentinel");
   });

@@ -7,9 +7,8 @@ import { z } from "zod";
 import type { MotionImportResult } from "@retr0vault/shared";
 
 import { readBoundedJson, writeGeneratedFile } from "../analysis/files.js";
-import { loadConfig } from "../config.js";
-import { createDatabaseConnection, type DatabaseConnection } from "../database/connection.js";
-import { applyMigrations } from "../database/migrate.js";
+import { openCliDatabase } from "../database/cli-connection.js";
+import type { Db } from "../database/connection.js";
 import { failedMotionResult, getPendingMotion, importMotionAnalyses, motionReport } from "../services/motion-analysis.js";
 import { MotionStorage } from "../storage/motion-storage.js";
 
@@ -22,8 +21,8 @@ import { MotionStorage } from "../storage/motion-storage.js";
 
 const guidePath = fileURLToPath(new URL("../../../../docs/motion-analysis.md", import.meta.url));
 
-export async function exportPendingMotion(connection: DatabaseConnection, storage: MotionStorage, dataDirectory: string) {
-  const manifest = await getPendingMotion(connection, storage, join(dataDirectory, "motion-results"));
+export async function exportPendingMotion(db: Db, storage: MotionStorage, dataDirectory: string) {
+  const manifest = await getPendingMotion(db, storage, join(dataDirectory, "motion-results"));
   const guide = await readFile(guidePath, "utf8");
   const inbox = join(dataDirectory, "motion-inbox");
   await mkdir(inbox, { recursive: true });
@@ -33,7 +32,7 @@ export async function exportPendingMotion(connection: DatabaseConnection, storag
   return { manifestPath: join(inbox, "manifest.json"), exported: manifest.studies.length, unavailable: manifest.unavailable };
 }
 
-export async function importMotionFiles(connection: DatabaseConnection, resultsDirectory: string, overwriteProtected = false) {
+export async function importMotionFiles(db: Db, resultsDirectory: string, overwriteProtected = false) {
   let entries;
   try {
     if ((await lstat(resultsDirectory)).isSymbolicLink()) throw new Error("Motion results directory must not be a symbolic link");
@@ -49,7 +48,7 @@ export async function importMotionFiles(connection: DatabaseConnection, resultsD
     try {
       // One bounded document in memory at a time; `seen` spans the whole directory.
       const value = await readBoundedJson(join(resultsDirectory, entry.name));
-      results.push(...importMotionAnalyses(connection, [{ source: entry.name, value }], overwriteProtected, seen).results);
+      results.push(...(await importMotionAnalyses(db, [{ source: entry.name, value }], overwriteProtected, seen)).results);
     } catch (error) {
       results.push(failedMotionResult(entry.name, null, "INVALID_RESULT_FILE", error instanceof Error ? error.message : "Result file could not be read"));
     }
@@ -63,21 +62,19 @@ async function main(): Promise<void> {
     z.tuple([z.literal("import")]),
     z.tuple([z.literal("import"), z.literal("--overwrite-protected")]),
   ]).parse(process.argv.slice(2));
-  const config = loadConfig();
-  const connection = createDatabaseConnection(config.databasePath);
+  const { config, connection } = await openCliDatabase();
   try {
-    applyMigrations(connection);
     if (args[0] === "export") {
-      const result = await exportPendingMotion(connection, new MotionStorage(config.storageRoot), config.analysisDataDirectory);
+      const result = await exportPendingMotion(connection.database, new MotionStorage(config.storageRoot), config.analysisDataDirectory);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       if (result.unavailable.length > 0) process.exitCode = 1;
     } else {
-      const result = await importMotionFiles(connection, join(config.analysisDataDirectory, "motion-results"), args.length === 2);
+      const result = await importMotionFiles(connection.database, join(config.analysisDataDirectory, "motion-results"), args.length === 2);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       if (result.failed > 0) process.exitCode = 1;
     }
   } finally {
-    connection.sqlite.close();
+    await connection.close();
   }
 }
 

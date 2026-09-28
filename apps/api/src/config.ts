@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
@@ -12,7 +13,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
-  DATABASE_PATH: z.string().trim().min(1).optional(),
+  DATABASE_URL: z.string().trim().min(1).optional(),
   STORAGE_ROOT: z.string().trim().min(1).optional(),
   ANALYSIS_DATA_DIR: z.string().trim().min(1).optional(),
   CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(45_000),
@@ -35,6 +36,17 @@ const environmentSchema = z.object({
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
+/**
+ * Loads the repository's `.env` (database URL, bucket keys) into the process
+ * environment. Called by the server and the command-line tools, never by
+ * tests, so a test run cannot reach the real database. Variables already set
+ * in the environment are left as they are.
+ */
+export function loadRepositoryEnvironment(): void {
+  const path = join(repositoryRoot, ".env");
+  if (existsSync(path)) process.loadEnvFile(path);
+}
+
 export interface AppConfig {
   readonly nodeEnv: "development" | "test" | "production";
   readonly host: "127.0.0.1" | "localhost";
@@ -47,7 +59,8 @@ export interface AppConfig {
     | "debug"
     | "trace"
     | "silent";
-  readonly databasePath: string;
+  /** Postgres connection string (Supabase session pooler); required unless a connection is supplied. */
+  readonly databaseUrl: string | undefined;
   readonly storageRoot: string;
   readonly maxUploadBytes: number;
   readonly analysisDataDirectory: string;
@@ -71,8 +84,6 @@ export function loadConfig(
     throw new Error(`Invalid environment configuration: ${details}`);
   }
 
-  const configuredDatabasePath =
-    result.data.DATABASE_PATH ?? "data/retr0vault.db";
   const configuredStorageRoot = result.data.STORAGE_ROOT ?? "storage";
 
   return {
@@ -80,9 +91,7 @@ export function loadConfig(
     host: result.data.HOST,
     port: result.data.PORT,
     logLevel: result.data.LOG_LEVEL,
-    databasePath: isAbsolute(configuredDatabasePath)
-      ? configuredDatabasePath
-      : resolve(repositoryRoot, configuredDatabasePath),
+    databaseUrl: result.data.DATABASE_URL,
     storageRoot: isAbsolute(configuredStorageRoot)
       ? configuredStorageRoot
       : resolve(repositoryRoot, configuredStorageRoot),
