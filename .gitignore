@@ -29,6 +29,9 @@ data/motion-inbox/*
 data/motion-results/*
 !data/motion-results/.gitkeep
 
+# Cloud migration reports (C6)
+data/cloud-migration/
+
 # Runtime reference storage
 storage/originals/*
 !storage/originals/.gitkeep
