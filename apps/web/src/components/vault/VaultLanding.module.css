@@ -214,6 +214,9 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   width: 100%;
+  /* Room for the dial's index triangle, which rises 0.14em above the dial,
+     so it clears the overline by the stage's full gap at every size. */
+  padding-top: 0.14em;
   font-family: var(--rv-font-display);
   font-size: clamp(3.5rem, min(11vw, 21vh), 12.5rem);
   font-weight: 420;
