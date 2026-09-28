@@ -14,6 +14,7 @@
 .door {
   position: absolute;
   overflow: hidden;
+  isolation: isolate;
   transition:
     transform 1150ms cubic-bezier(0.77, 0, 0.18, 1),
     box-shadow 160ms linear;
@@ -25,6 +26,53 @@
   left: 0;
   width: 100vw;
   height: 100vh;
+  transition: filter 320ms var(--rv-easing);
+}
+
+/*
+ * Once the seal is cut, and while the doors travel, the print on them goes
+ * soft and grey and each door darkens toward its inner edge, so the eye is on
+ * the seam and the motion rather than on the page. The print sharpens again
+ * as the doors seal.
+ */
+.seamed .face,
+.parting .face,
+.apart .face,
+.closing .face {
+  filter: blur(2px) grayscale(0.5);
+}
+
+.door::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 320ms var(--rv-easing);
+}
+
+.seamed .door::before,
+.parting .door::before,
+.apart .door::before,
+.closing .door::before {
+  opacity: 1;
+}
+
+.leftRight .first::before {
+  background-image: linear-gradient(to left, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
+.leftRight .second::before {
+  background-image: linear-gradient(to right, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
+.upDown .first::before {
+  background-image: linear-gradient(to top, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
+.upDown .second::before {
+  background-image: linear-gradient(to bottom, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
 }
 
 /* --- left and right ----------------------------------------------------- */
@@ -156,6 +204,74 @@
 
 .parting .seam {
   opacity: 0;
+}
+
+/*
+ * The spark: a point of the accent running the length of the seam as it is
+ * cut (opening), or as the doors meet and seal (closing).
+ */
+.spark {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  background-color: var(--rv-accent);
+  box-shadow:
+    0 0 6px 1px var(--rv-accent),
+    0 0 18px 4px color-mix(in srgb, var(--rv-accent) 45%, transparent);
+}
+
+.leftRight .spark {
+  top: 0;
+  left: calc(50% - 2px);
+  width: 5px;
+  height: 64px;
+  border-radius: 3px;
+}
+
+.upDown .spark {
+  left: 0;
+  top: calc(50% - 2px);
+  width: 64px;
+  height: 5px;
+  border-radius: 3px;
+}
+
+.leftRight.seamed .spark,
+.leftRight.sealed .spark {
+  animation: spark-down 380ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+.upDown.seamed .spark,
+.upDown.sealed .spark {
+  animation: spark-across 380ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+@keyframes spark-down {
+  0% {
+    opacity: 1;
+    transform: translateY(-64px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(100vh);
+  }
+}
+
+@keyframes spark-across {
+  0% {
+    opacity: 1;
+    transform: translateX(-64px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100vw);
+  }
 }
 
 /* --- open, and closing from open ------------------------------------------ */

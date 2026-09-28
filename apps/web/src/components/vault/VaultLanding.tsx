@@ -544,6 +544,7 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
         {face}
       </div>
       <span className={styles.seam} aria-hidden="true" />
+      <span className={styles.spark} aria-hidden="true" />
 
       <div className={styles.controls}>
         <div className={styles.controlsBar}>

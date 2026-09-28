@@ -132,6 +132,7 @@ export function DoorsProvider({ children }: { readonly children: ReactNode }) {
             <div className={styles.face}>{scene.face}</div>
           </div>
           <span className={styles.seam} />
+          <span className={styles.spark} />
         </div>
       )}
     </DoorsContext.Provider>

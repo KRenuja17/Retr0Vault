@@ -172,11 +172,19 @@ function Lens() {
   );
 }
 
+/**
+ * The register's stamp, pressed onto the card: worn ink, a ring of ink
+ * squeezed out on impact. The card sinks back beneath it while it is there.
+ */
 function Stamp({ stamp }: { readonly stamp: LoginStamp }) {
   return (
     <span className={cx(styles.stamp, styles[`stamp-${stamp.kind}`])} aria-hidden="true">
-      <span className={styles.stampText}>{stamp.text}</span>
-      <span className={styles.stampDetail}>{stamp.detail}</span>
+      <span className={styles.stampRing} />
+      <span className={styles.stampInk}>
+        <span className={styles.stampText}>{stamp.text}</span>
+        <span className={styles.stampRule} />
+        <span className={styles.stampDetail}>{stamp.detail}</span>
+      </span>
     </span>
   );
 }
@@ -255,7 +263,11 @@ export function LoginScene({ view, live, intro = "play", reduced = false, sceneR
         </section>
 
         <form
-          className={cx(styles.card, view.jolt % 2 === 1 ? styles.joltA : view.jolt > 0 ? styles.joltB : undefined)}
+          className={cx(
+            styles.card,
+            view.stamp !== null && styles.stamped,
+            view.jolt % 2 === 1 ? styles.joltA : view.jolt > 0 ? styles.joltB : undefined,
+          )}
           onSubmit={onSubmit}
           noValidate
           aria-labelledby="strong-room-title"

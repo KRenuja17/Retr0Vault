@@ -25,6 +25,7 @@
   bottom: 0;
   width: 50%;
   overflow: hidden;
+  isolation: isolate;
   transition:
     transform 1150ms cubic-bezier(0.77, 0, 0.18, 1),
     box-shadow 160ms linear;
@@ -85,6 +86,44 @@
 
 .doorRight .face {
   left: -100%;
+}
+
+/*
+ * Once the seal is cut, and while the doors travel, the print on them goes
+ * soft and grey and each door darkens toward its inner edge, so the eye is on
+ * the seam and the motion. The print sharpens again as the doors seal.
+ */
+.face {
+  transition: filter 320ms var(--rv-easing);
+}
+
+.seamed .face,
+.opening .face,
+.away .face,
+.closing .face {
+  filter: blur(2px) grayscale(0.5);
+}
+
+.door::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  background-image: linear-gradient(to left, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+  transition: opacity 320ms var(--rv-easing);
+}
+
+.doorRight::before {
+  background-image: linear-gradient(to right, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
+.seamed .door::before,
+.opening .door::before,
+.away .door::before,
+.closing .door::before {
+  opacity: 1;
 }
 
 /* --- marginalia -------------------------------------------------------- */
@@ -599,6 +638,70 @@
   pointer-events: none;
 }
 
+/*
+ * The spark: a point of the accent running the length of the seam as it is
+ * cut (opening), or as the doors meet and seal (closing in).
+ */
+.spark {
+  position: absolute;
+  top: 0;
+  left: calc(50% - 2px);
+  width: 5px;
+  height: 64px;
+  border-radius: 3px;
+  opacity: 0;
+  pointer-events: none;
+  background-color: var(--rv-accent);
+  box-shadow:
+    0 0 6px 1px var(--rv-accent),
+    0 0 18px 4px color-mix(in srgb, var(--rv-accent) 45%, transparent);
+}
+
+.upDown .spark {
+  left: 0;
+  top: calc(50% - 2px);
+  width: 64px;
+  height: 5px;
+}
+
+.seamed .spark,
+.sealing .spark {
+  animation: spark-down 380ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+
+.upDown.seamed .spark,
+.upDown.sealing .spark {
+  animation-name: spark-across;
+}
+
+@keyframes spark-down {
+  0% {
+    opacity: 1;
+    transform: translateY(-64px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(100vh);
+  }
+}
+
+@keyframes spark-across {
+  0% {
+    opacity: 1;
+    transform: translateX(-64px);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100vw);
+  }
+}
+
 .unlocking .controls,
 .seamed .controls,
 .opening .controls {
@@ -668,6 +771,14 @@
   top: -100%;
 }
 
+.upDown .doorLeft::before {
+  background-image: linear-gradient(to top, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
+.upDown .doorRight::before {
+  background-image: linear-gradient(to bottom, rgba(var(--rv-grid-ink), 0.2), transparent 38%);
+}
+
 .upDown .door::after {
   top: auto;
   bottom: auto;
@@ -720,7 +831,7 @@
 
 /* --- closing in: the vault put to sleep ------------------------------------ */
 /* The doors arrive printed: no intro, only the film still running. */
-.settled *:not(.stripTrack, .standbyLight, .seam) {
+.settled *:not(.stripTrack, .standbyLight, .seam, .spark) {
   animation: none !important;
 }
 
