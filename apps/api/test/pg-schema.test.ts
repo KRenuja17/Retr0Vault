@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { openPglite, type DatabaseConnection } from "../src/database/connection.js";
+import { openPglite, rowsOf, type DatabaseConnection } from "../src/database/connection.js";
 import {
   designTypes,
   motionClips,
@@ -145,5 +145,31 @@ describe("the Postgres schema", () => {
   it("refuses to delete a design type that references still use", async () => {
     await connection.database.insert(references).values(reference({ designTypeId }));
     expect(await rejectionCode(connection.database.delete(designTypes).where(eq(designTypes.id, designTypeId)))).toBe("23503");
+  });
+
+  it("hides every table from roles other than the owner (Supabase's anon and authenticated)", async () => {
+    const tables = (await connection.database.execute<{ name: string; secured: boolean }>(sql`
+      select c.relname as name, c.relrowsecurity as secured from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind = 'r' order by c.relname`) as unknown as { rows: Array<{ name: string; secured: boolean }> }).rows;
+    expect(tables.length).toBeGreaterThanOrEqual(16);
+    expect(tables.filter((table) => !table.secured)).toEqual([]);
+
+    await connection.database.insert(references).values(reference({ title: "Private" }));
+    await connection.database.execute(sql`create role rls_probe`);
+    try {
+      await connection.database.execute(sql`grant select, insert on "references", reference_search to rls_probe`);
+      const asProbe = (query: SQL) => connection.database.transaction(async (transaction) => {
+        await transaction.execute(sql`set local role rls_probe`);
+        return rowsOf(await transaction.execute(query));
+      });
+      expect(await asProbe(sql`select count(*)::int as count from "references"`)).toEqual([{ count: 0 }]);
+      expect(await asProbe(sql`select count(*)::int as count from reference_search`)).toEqual([{ count: 0 }]);
+      expect(await rejectionCode(asProbe(sql`insert into "references" (id, title, source_type, original_path, thumbnail_path,
+        image_width, image_height, image_format) values (gen_random_uuid(), 'Injected', 'image', 'a.png', 'a.webp', 1, 1, 'png')`))).toBe("42501");
+    } finally {
+      await connection.database.execute(sql`drop owned by rls_probe`);
+      await connection.database.execute(sql`drop role rls_probe`);
+    }
   });
 });

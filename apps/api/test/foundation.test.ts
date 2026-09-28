@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +12,7 @@ import {
 
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { openPglite, type DatabaseConnection } from "../src/database/connection.js";
+import { defaultMigrationsFolder, openPglite, type DatabaseConnection } from "../src/database/connection.js";
 import { createTestDatabase, queryRows } from "./helpers.js";
 
 describe("B1 backend foundation", () => {
@@ -103,9 +103,12 @@ describe("B1 backend foundation", () => {
       await clean.migrate();
       await clean.migrate();
 
+      const journal = JSON.parse(
+        readFileSync(join(defaultMigrationsFolder, "meta", "_journal.json"), "utf8"),
+      ) as { entries: unknown[] };
       expect(
         await queryRows(clean.database, sql`select count(*)::int as applied from drizzle.__drizzle_migrations`),
-      ).toEqual([{ applied: 3 }]);
+      ).toEqual([{ applied: journal.entries.length }]);
       const coreTables = await queryRows<{ name: string }>(clean.database, sql`
         select table_name as name from information_schema.tables
         where table_schema = 'public' and table_name in ('app_metadata', 'design_types', 'design_type_rules',

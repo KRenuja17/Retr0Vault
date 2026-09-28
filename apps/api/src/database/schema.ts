@@ -37,7 +37,7 @@ export const appMetadata = pgTable("app_metadata", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
   updatedAt: updatedAt(),
-});
+}).enableRLS();
 
 export const designTypes = pgTable(
   "design_types",
@@ -58,7 +58,7 @@ export const designTypes = pgTable(
     index("design_types_sort_order_index").on(table.sortOrder),
     check("design_types_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const designTypeRules = pgTable(
   "design_type_rules",
@@ -78,7 +78,7 @@ export const designTypeRules = pgTable(
     check("design_type_rules_text_nonempty", sql`length(trim(${table.text})) > 0`),
     check("design_type_rules_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const designTypeVocabulary = pgTable(
   "design_type_vocabulary",
@@ -97,7 +97,7 @@ export const designTypeVocabulary = pgTable(
     check("design_type_vocabulary_term_nonempty", sql`length(trim(${table.term})) > 0`),
     check("design_type_vocabulary_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const collections = pgTable(
   "collections",
@@ -114,7 +114,7 @@ export const collections = pgTable(
     index("collections_sort_order_index").on(table.sortOrder),
     check("collections_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const references = pgTable(
   "references",
@@ -158,7 +158,7 @@ export const references = pgTable(
     check("references_image_format_check", sql`${table.imageFormat} in ('jpeg', 'png', 'webp')`),
     check("references_analysis_json_check", sql`${table.analysisJson} is null or jsonb_typeof(${table.analysisJson}) = 'object'`),
   ],
-);
+).enableRLS();
 
 export const tags = pgTable(
   "tags",
@@ -174,7 +174,7 @@ export const tags = pgTable(
     check("tags_value_nonempty", sql`length(trim(${table.value})) > 0`),
     check("tags_normalized_value_nonempty", sql`length(trim(${table.normalizedValue})) > 0`),
   ],
-);
+).enableRLS();
 
 export const referenceTags = pgTable(
   "reference_tags",
@@ -193,7 +193,7 @@ export const referenceTags = pgTable(
     index("reference_tags_tag_index").on(table.tagId),
     check("reference_tags_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const collectionReferences = pgTable(
   "collection_references",
@@ -212,7 +212,7 @@ export const collectionReferences = pgTable(
     index("collection_references_reference_index").on(table.referenceId),
     check("collection_references_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const referenceFrames = pgTable(
   "reference_frames",
@@ -232,7 +232,7 @@ export const referenceFrames = pgTable(
     check("reference_frames_order_nonnegative", sql`${table.sortOrder} >= 0`),
     check("reference_frames_path_nonempty", sql`length(trim(${table.imagePath})) > 0`),
   ],
-);
+).enableRLS();
 
 // Motion studies: recordings attached to a reference, analysed for motion.
 export const motionStudies = pgTable(
@@ -267,7 +267,7 @@ export const motionStudies = pgTable(
     check("motion_studies_implementation_json_check", sql`${table.implementationJson} is null or jsonb_typeof(${table.implementationJson}) = 'array'`),
     check("motion_studies_verified_tech_check", sql`jsonb_typeof(${table.verifiedTechJson}) = 'array'`),
   ],
-);
+).enableRLS();
 
 export const motionClips = pgTable(
   "motion_clips",
@@ -306,7 +306,7 @@ export const motionClips = pgTable(
       sql`${table.processingStatus} <> 'ready' or (${table.durationMs} > 0 and ${table.width} > 0 and ${table.height} > 0 and ${table.evidenceJson} is not null)`,
     ),
   ],
-);
+).enableRLS();
 
 export const motionKeyframes = pgTable(
   "motion_keyframes",
@@ -327,7 +327,7 @@ export const motionKeyframes = pgTable(
     check("motion_keyframes_time_check", sql`${table.timeMs} >= 0`),
     check("motion_keyframes_order_check", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 // Motion tags are kept apart from reference tags: reference edits garbage-
 // collect unused rows in `tags`, which would silently drop motion-only terms.
@@ -353,7 +353,7 @@ export const motionStudyTags = pgTable(
     check("motion_study_tags_value_check", sql`length(trim(${table.value})) > 0 and length(trim(${table.normalizedValue})) > 0`),
     check("motion_study_tags_order_check", sql`${table.sortOrder} >= 0`),
   ],
-);
+).enableRLS();
 
 export const databaseSchema = {
   appMetadata,
