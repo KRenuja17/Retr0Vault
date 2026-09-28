@@ -171,6 +171,8 @@ describe("moving the SQLite archive to the cloud", () => {
 
     const restored = await createIsolatedTestDatabase();
     try {
+      // An empty project: the backup brings its own accounts.
+      await restored.database.execute(sql`delete from users`);
       const result = await migrateArchive({
         sqlitePath: backupPath, source, target: remoteLike(new LocalBlobStore(join(directory, "second-bucket"))),
         db: restored.database, dryRun: false,

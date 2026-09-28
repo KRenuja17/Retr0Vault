@@ -10,7 +10,7 @@ import {
   listCollections,
 } from "../src/services/collections.js";
 import { listDesignTypes } from "../src/services/design-types.js";
-import { createTestDatabase } from "./helpers.js";
+import { createTestDatabase, TEST_USER } from "./helpers.js";
 
 describe("development seed data", () => {
   let connection: DatabaseConnection;
@@ -30,7 +30,7 @@ describe("development seed data", () => {
       slug: "personal-keepers",
       description: "Non-seed data that must survive seed cleanup.",
       isPinned: false,
-    });
+    }, undefined, TEST_USER.id);
 
     expect(await seedDevelopmentData(db)).toEqual({
       designTypes: 7,

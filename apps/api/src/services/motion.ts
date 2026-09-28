@@ -400,11 +400,14 @@ export async function clipOwner(db: Db, clipId: string): Promise<{ referenceId: 
  * Studies per beat trigger, in the fixed trigger order. A study counts once per
  * trigger however many of its beats use it; every trigger is listed, even at 0.
  */
-export async function motionTriggerCounts(db: Db): Promise<Array<{ trigger: MotionTrigger; count: number }>> {
+export async function motionTriggerCounts(db: Db, owner?: string): Promise<Array<{ trigger: MotionTrigger; count: number }>> {
+  const mine = owner === undefined ? sql`true` : sql`r.owner_id = ${owner}::uuid`;
   const rows = rowsOf<{ trigger: string; count: number | string }>(await db.execute(sql`
     select beat ->> 'trigger' as trigger, count(distinct s.id)::integer as count
-    from motion_studies s,
+    from motion_studies s
+      join "references" r on r.id = s.reference_id,
       jsonb_array_elements(case when jsonb_typeof(s.beats_json) = 'array' then s.beats_json else '[]'::jsonb end) as beat
+    where ${mine}
     group by 1
   `));
   return motionTriggerSchema.options.map((trigger) => ({

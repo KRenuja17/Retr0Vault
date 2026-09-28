@@ -6,6 +6,7 @@ import { ApiError } from "../errors.js";
 import { parseRequest } from "../http/validation.js";
 import { getReferenceMediaPaths } from "../services/references.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
+import { requireUser } from "./auth.js";
 
 const parametersSchema = z.object({ referenceId: z.uuid().toLowerCase() }).strict();
 // `v` is the reference's updatedAt, sent by the web app so a replaced picture is
@@ -40,7 +41,7 @@ export async function registerMediaRoutes(
       handler: async (request, reply) => {
         const { referenceId } = parseRequest(parametersSchema, request.params);
         parseRequest(querySchema, request.query);
-        const reference = await getReferenceMediaPaths(db, referenceId);
+        const reference = await getReferenceMediaPaths(db, referenceId, requireUser(request).id);
         const path = kind === "thumbnail" ? reference.thumbnailPath : reference.originalPath;
         const media = await storage.openReferenceImage(reference.id, path, kind).catch(() => {
           // Missing, unreadable and unsafe paths are indistinguishable over HTTP.

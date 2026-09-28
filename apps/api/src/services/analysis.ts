@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 
-import { asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,6 +19,7 @@ import type { Db } from "../database/connection.js";
 import { designTypes, references, referenceFrames } from "../database/schema.js";
 import { ApiError } from "../errors.js";
 import type { ReferenceStorage } from "../storage/reference-storage.js";
+import { assertOwnedReference, ownedBy, type Owner } from "./ownership.js";
 import { getReference, updateReference } from "./references.js";
 
 /**
@@ -30,10 +31,11 @@ export async function getPendingAnalysis(
   db: Db,
   storage: ReferenceStorage,
   dataDirectory: string,
+  owner?: Owner,
 ): Promise<PendingAnalysisManifest> {
   const inbox = join(dataDirectory, "analysis-inbox");
   const pending = await db.select().from(references)
-    .where(eq(references.analysisStatus, "pending"))
+    .where(and(eq(references.analysisStatus, "pending"), ownedBy(references.ownerId, owner)))
     .orderBy(asc(references.createdAt), asc(references.id));
   const items: PendingAnalysisManifest["references"] = [];
   const unavailable: PendingAnalysisManifest["unavailable"] = [];
@@ -100,9 +102,10 @@ export async function importAnalyses(
   entries: readonly AnalysisEntry[],
   overwriteProtected = false,
   seen = new Set<string>(),
+  owner?: Owner,
 ): Promise<AnalysisImportReport> {
   const results: AnalysisImportResult[] = [];
-  for (const entry of entries) results.push(await importOne(db, entry, overwriteProtected, seen));
+  for (const entry of entries) results.push(await importOne(db, entry, overwriteProtected, seen, owner));
   return analysisReport(results);
 }
 
@@ -111,6 +114,7 @@ async function importOne(
   { source, value }: AnalysisEntry,
   overwriteProtected: boolean,
   seen: Set<string>,
+  owner: Owner,
 ): Promise<AnalysisImportResult> {
   const parsed = referenceAnalysisSchema.safeParse(value);
   if (!parsed.success) {
@@ -129,6 +133,8 @@ async function importOne(
     // One transaction per reference: tags, metadata, status, and protections
     // either commit together or leave this reference entirely unchanged.
     return await db.transaction(async (transaction) => {
+      // Another account's reference is as missing as an unknown one.
+      await assertOwnedReference(transaction, analysis.referenceId, owner);
       const current = await getReference(transaction, analysis.referenceId);
       const matches = await transaction.select({ id: designTypes.id }).from(designTypes)
         .where(or(eq(designTypes.name, analysis.designType), eq(designTypes.slug, analysis.designType)));

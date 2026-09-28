@@ -74,7 +74,7 @@ describe("the Postgres schema", () => {
     expect(names).toEqual([
       "app_metadata", "collection_references", "collections", "design_type_rules", "design_type_vocabulary",
       "design_types", "motion_clips", "motion_keyframes", "motion_search", "motion_studies", "motion_study_tags",
-      "reference_frames", "reference_search", "reference_tags", "references", "tags",
+      "reference_frames", "reference_search", "reference_tags", "references", "sessions", "tags", "users",
     ]);
   });
 

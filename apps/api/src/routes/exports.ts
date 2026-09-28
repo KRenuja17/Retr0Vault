@@ -7,6 +7,7 @@ import type { Db } from "../database/connection.js";
 import type { MarkdownFile } from "../export/markdown.js";
 import { parseRequest } from "../http/validation.js";
 import { exportDesignDirection, exportReferences } from "../services/exports.js";
+import { requireUser } from "./auth.js";
 
 function sendMarkdown(reply: FastifyReply, file: MarkdownFile) {
   return reply.type("text/markdown; charset=utf-8")
@@ -21,11 +22,11 @@ export async function registerExportRoutes(app: FastifyInstance, db: Db): Promis
   app.post("/api/v1/export/references", options, async (request, reply) => {
     parseRequest(z.object({}).strict(), request.query);
     const input = parseRequest(referenceExportRequestSchema, request.body);
-    return sendMarkdown(reply, await exportReferences(db, input));
+    return sendMarkdown(reply, await exportReferences(db, input, requireUser(request).id));
   });
   app.post("/api/v1/export/design-direction", options, async (request, reply) => {
     parseRequest(z.object({}).strict(), request.query);
     const input = parseRequest(designDirectionExportRequestSchema, request.body);
-    return sendMarkdown(reply, await exportDesignDirection(db, input));
+    return sendMarkdown(reply, await exportDesignDirection(db, input, requireUser(request).id));
   });
 }

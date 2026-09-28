@@ -23,7 +23,7 @@ import { createDesignType } from "../src/services/design-types.js";
 import { createImageReferenceRecord, getReference } from "../src/services/references.js";
 import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { ReferenceStorage } from "../src/storage/reference-storage.js";
-import { createTestApp, disposeTestApp, rejectWrites, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createTestApp, disposeTestApp, rejectWrites, validDesignTypeInput, type TestAppContext, TEST_USER } from "./helpers.js";
 
 const fixtureDirectory = fileURLToPath(new URL("./fixtures/analysis/", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -51,7 +51,7 @@ describe("external-curator analysis", () => {
   async function createReference(title = "Uncurated") {
     const id = randomUUID();
     const stored = await storage.storeImage(id, image, await storage.inspectImage(image));
-    return await createImageReferenceRecord(connection, id, { title }, stored);
+    return await createImageReferenceRecord(connection, id, { title }, stored, TEST_USER.id);
   }
 
   async function importViaApi(analyses: unknown[], overwriteProtected = false) {

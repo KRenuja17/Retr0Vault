@@ -14,7 +14,7 @@ import { ReferenceStorage } from "../src/storage/reference-storage.js";
 import { maintainOrphanFiles, orphanGracePeriodMs } from "../src/storage/orphans.js";
 import { createImageReferenceRecord, getReference, listReferences, updateReference } from "../src/services/references.js";
 import { getStats } from "../src/services/stats.js";
-import { createIsolatedTestDatabase, createTestDatabase } from "./helpers.js";
+import { createIsolatedTestDatabase, createTestDatabase, TEST_USER } from "./helpers.js";
 
 describe("storage hardening and recovery", () => {
   let directory: string;
@@ -92,7 +92,7 @@ describe("storage hardening and recovery", () => {
 
   it("reports only old, recognized, unowned files and quarantines them recoverably", async () => {
     const stored = await store();
-    await createImageReferenceRecord(connection, stored.id, { title: "Live" }, stored);
+    await createImageReferenceRecord(connection, stored.id, { title: "Live" }, stored, TEST_USER.id);
     oldFile(stored.originalPath, "live");
     const orphanId = randomUUID();
     const captureId = randomUUID();
@@ -126,7 +126,7 @@ describe("storage hardening and recovery", () => {
     const stored = await store();
     const other = `originals/${randomUUID()}.png`;
     oldFile(other);
-    await createImageReferenceRecord(connection, stored.id, { title: "Legacy" }, { ...stored, originalPath: other });
+    await createImageReferenceRecord(connection, stored.id, { title: "Legacy" }, { ...stored, originalPath: other }, TEST_USER.id);
     expect((await maintainOrphanFiles(connection, blobs, true)).candidates).not.toContain(other);
     expect(existsSync(join(root, other))).toBe(true);
   });
@@ -158,7 +158,7 @@ describe("storage hardening and recovery", () => {
 
   it("restores a database backup, storage and analysis directory without losing search or metadata", async () => {
     const stored = await store();
-    await createImageReferenceRecord(connection, stored.id, { title: "Restorableword" }, stored);
+    await createImageReferenceRecord(connection, stored.id, { title: "Restorableword" }, stored, TEST_USER.id);
     await updateReference(connection, stored.id, { designDNA: "Archivedword", analysisJson: { palette: ["ochreword"] },
       tags: [{ type: "texture", value: "grainword" }], analysisStatus: "analyzed" });
     const before = await getReference(connection, stored.id);

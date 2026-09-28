@@ -13,7 +13,7 @@ import {
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { defaultMigrationsFolder, openPglite, type DatabaseConnection } from "../src/database/connection.js";
-import { createTestDatabase, queryRows } from "./helpers.js";
+import { createTestDatabase, queryRows, TEST_USER } from "./helpers.js";
 
 describe("B1 backend foundation", () => {
   let temporaryDirectory: string;
@@ -34,6 +34,7 @@ describe("B1 backend foundation", () => {
       connection,
       storageRoot: join(temporaryDirectory, "storage"),
       logger: false,
+      testUser: TEST_USER,
     });
   }
 

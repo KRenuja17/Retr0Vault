@@ -22,7 +22,7 @@ import {
   addReferenceToCollection, createImageReferenceRecord, deleteReferenceRecord,
   listReferences, removeReferenceFromCollection, updateReference,
 } from "../src/services/references.js";
-import { createTestApp, disposeTestApp, queryRows, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createTestApp, disposeTestApp, queryRows, validDesignTypeInput, type TestAppContext, TEST_USER } from "./helpers.js";
 
 describe("reference search and catalogue queries", () => {
   let context: TestAppContext;
@@ -42,7 +42,7 @@ describe("reference search and catalogue queries", () => {
     const reference = await createImageReferenceRecord(connection, id, { title }, {
       originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
       width: 1, height: 1, format: "png",
-    });
+    }, TEST_USER.id);
     return Object.keys(patch).length === 0 ? reference :
       await updateReference(connection, id, patch, { protectEditedFields: false });
   }
@@ -114,7 +114,7 @@ describe("reference search and catalogue queries", () => {
 
   it("combines search, type, collection and status before counting and paging", async () => {
     const designType = await createDesignType(connection, validDesignTypeInput);
-    const collection = await createCollection(connection, { name: "Keepers", slug: "keepers", description: "", isPinned: false });
+    const collection = await createCollection(connection, { name: "Keepers", slug: "keepers", description: "", isPinned: false }, undefined, TEST_USER.id);
     const first = await createReference("Alpha grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id] });
     const second = await createReference("Bravo grain", { designTypeId: designType.id, analysisStatus: "analyzed", collectionIds: [collection.id], tags: [{ type: "texture", value: "grain" }] });
     await createReference("Wrong type grain", { analysisStatus: "analyzed", collectionIds: [collection.id] });
@@ -225,7 +225,7 @@ describe("reference search and catalogue queries", () => {
   it("returns live counts after membership changes, reassignment, collection edits and reference deletion", async () => {
     const firstType = await createDesignType(connection, validDesignTypeInput);
     const secondType = await createDesignType(connection, { ...validDesignTypeInput, name: "Second", slug: "second" });
-    const collection = await createCollection(connection, { name: "Keepers", description: "", isPinned: false });
+    const collection = await createCollection(connection, { name: "Keepers", description: "", isPinned: false }, undefined, TEST_USER.id);
     const first = await createReference("First", { designTypeId: firstType.id, collectionIds: [collection.id] });
     const second = await createReference("Second", { designTypeId: firstType.id, analysisStatus: "analyzed" });
     const counts = async () => {
@@ -299,10 +299,11 @@ describe("reference search and catalogue queries", () => {
       await legacy.execute(sql`INSERT INTO design_type_vocabulary (id, design_type_id, term, sort_order)
         VALUES (${randomUUID()}, ${designType.id}, 'editorial grid', 0)`);
       const id = randomUUID();
-      await legacy.insert(references).values({ id, title: "Legacyword", designTypeId: designType.id,
-        sourceType: "image", originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
-        imageWidth: 1, imageHeight: 1, imageFormat: "png", analysisJson: { palette: ["Oldorange"] },
-      });
+      // Written as the older schema knew it: no owner column yet.
+      await legacy.execute(sql`INSERT INTO "references" (id, title, design_type_id, source_type, original_path, thumbnail_path,
+        image_width, image_height, image_format, analysis_json)
+        VALUES (${id}, 'Legacyword', ${designType.id}, 'image', ${`originals/${id}.png`}, ${`thumbnails/${id}.webp`},
+        1, 1, 'png', '{"palette":["Oldorange"]}'::jsonb)`);
       const tagId = randomUUID();
       await legacy.insert(tags).values({ id: tagId, type: "texture", value: "Oldgrain", normalizedValue: "oldgrain" });
       await legacy.insert(referenceTags).values({ referenceId: id, tagId, sortOrder: 0 });

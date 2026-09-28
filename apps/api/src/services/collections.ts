@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { asc, count, eq, ne } from "drizzle-orm";
+import { and, asc, count, eq, isNull, ne } from "drizzle-orm";
 
 import {
   collectionResponseSchema,
@@ -14,6 +14,7 @@ import { renumber } from "../database/ordering.js";
 import { collectionReferences, collections } from "../database/schema.js";
 import { ApiError, databaseErrorCode, PgCode } from "../errors.js";
 import { slugFromName } from "../lib/slug.js";
+import { ownedBy, type Owner } from "./ownership.js";
 
 type CollectionRow = typeof collections.$inferSelect;
 
@@ -46,23 +47,27 @@ async function findCollectionRowById(db: Db, id: string): Promise<CollectionRow>
   return row;
 }
 
-async function assertUniqueSlug(db: Db, slug: string, excludedId?: string): Promise<void> {
-  const [existing] = await db.select({ id: collections.id }).from(collections).where(eq(collections.slug, slug));
+/** Each account (and the unowned rows) names its collections on its own. */
+const sameOwner = (ownerId: string | null) => (ownerId === null ? isNull(collections.ownerId) : eq(collections.ownerId, ownerId));
+
+async function assertUniqueSlug(db: Db, slug: string, ownerId: string | null, excludedId?: string): Promise<void> {
+  const [existing] = await db.select({ id: collections.id }).from(collections)
+    .where(and(eq(collections.slug, slug), sameOwner(ownerId)));
   if (existing !== undefined && existing.id !== excludedId) {
     throw new ApiError(409, "COLLECTION_SLUG_CONFLICT", `A collection with slug '${slug}' already exists`);
   }
 }
 
-async function orderedCollectionIds(db: Db, excluding?: string): Promise<string[]> {
+async function orderedCollectionIds(db: Db, ownerId: string | null, excluding?: string): Promise<string[]> {
   const rows = await db.select({ id: collections.id }).from(collections)
-    .where(excluding === undefined ? undefined : ne(collections.id, excluding))
+    .where(and(sameOwner(ownerId), excluding === undefined ? undefined : ne(collections.id, excluding)))
     .orderBy(asc(collections.sortOrder), asc(collections.name));
   return rows.map((row) => row.id);
 }
 
-export async function listCollections(db: Db): Promise<CollectionResponse[]> {
+export async function listCollections(db: Db, owner?: Owner): Promise<CollectionResponse[]> {
   const [rows, counts] = await Promise.all([
-    db.select().from(collections).orderBy(asc(collections.sortOrder), asc(collections.name)),
+    db.select().from(collections).where(ownedBy(collections.ownerId, owner)).orderBy(asc(collections.sortOrder), asc(collections.name)),
     db.select({ collectionId: collectionReferences.collectionId, value: count() })
       .from(collectionReferences)
       .groupBy(collectionReferences.collectionId),
@@ -71,8 +76,8 @@ export async function listCollections(db: Db): Promise<CollectionResponse[]> {
   return rows.map((row) => serializeCollection(row, countsByCollection.get(row.id) ?? 0));
 }
 
-export async function findCollectionBySlug(db: Db, slug: string): Promise<CollectionResponse | undefined> {
-  const [row] = await db.select().from(collections).where(eq(collections.slug, slug));
+export async function findCollectionBySlug(db: Db, slug: string, owner?: Owner): Promise<CollectionResponse | undefined> {
+  const [row] = await db.select().from(collections).where(and(eq(collections.slug, slug), ownedBy(collections.ownerId, owner)));
   if (row === undefined) return undefined;
   return serializeCollection(row, await collectionReferenceCount(db, row.id));
 }
@@ -81,14 +86,15 @@ export async function createCollection(
   db: Db,
   input: CreateCollectionInput,
   id: string = randomUUID(),
+  ownerId: string | null = null,
 ): Promise<CollectionResponse> {
   const slug = input.slug ?? slugFromName(input.name);
 
-  await assertUniqueSlug(db, slug);
+  await assertUniqueSlug(db, slug, ownerId);
 
   try {
     await db.transaction(async (transaction) => {
-      const orderedIds = await orderedCollectionIds(transaction);
+      const orderedIds = await orderedCollectionIds(transaction, ownerId);
       const position = insertPosition(input.sortOrder, orderedIds.length);
 
       await transaction.insert(collections).values({
@@ -98,6 +104,7 @@ export async function createCollection(
         description: input.description,
         isPinned: input.isPinned,
         sortOrder: position,
+        ownerId,
       });
 
       orderedIds.splice(position, 0, id);
@@ -118,10 +125,10 @@ export async function updateCollection(
   id: string,
   input: UpdateCollectionInput,
 ): Promise<CollectionResponse> {
-  await findCollectionRowById(db, id);
+  const { ownerId } = await findCollectionRowById(db, id);
 
   if (input.slug !== undefined) {
-    await assertUniqueSlug(db, input.slug, id);
+    await assertUniqueSlug(db, input.slug, ownerId, id);
   }
 
   try {
@@ -137,7 +144,7 @@ export async function updateCollection(
       }
 
       if (input.sortOrder !== undefined) {
-        const orderedIds = await orderedCollectionIds(transaction, id);
+        const orderedIds = await orderedCollectionIds(transaction, ownerId, id);
         orderedIds.splice(insertPosition(input.sortOrder, orderedIds.length), 0, id);
         await renumber(transaction, collections, collections.id, orderedIds);
       }
@@ -153,12 +160,12 @@ export async function updateCollection(
 }
 
 export async function deleteCollection(db: Db, id: string): Promise<void> {
-  await findCollectionRowById(db, id);
+  const { ownerId } = await findCollectionRowById(db, id);
 
   try {
     await db.transaction(async (transaction) => {
       await transaction.delete(collections).where(eq(collections.id, id));
-      await renumber(transaction, collections, collections.id, await orderedCollectionIds(transaction));
+      await renumber(transaction, collections, collections.id, await orderedCollectionIds(transaction, ownerId));
     });
   } catch (error) {
     if (databaseErrorCode(error) === PgCode.foreignKeyViolation) {

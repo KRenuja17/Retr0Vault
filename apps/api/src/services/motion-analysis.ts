@@ -34,6 +34,7 @@ import { motionClips, motionKeyframes, motionStudies, motionStudyTags, reference
 import { ApiError } from "../errors.js";
 import { burstFileName, type MotionStorage } from "../storage/motion-storage.js";
 import { findStudyRow, getMotionStudy, motionTriggerCounts } from "./motion.js";
+import { assertOwnedReference, ownedBy, type Owner } from "./ownership.js";
 import { motionSearchRank, searchQuery, searchWords } from "./reference-search.js";
 
 /*
@@ -151,9 +152,10 @@ export async function importMotionAnalyses(
   entries: ReadonlyArray<{ source: string; value: unknown }>,
   overwriteProtected = false,
   seen = new Set<string>(),
+  owner?: Owner,
 ): Promise<MotionImportReport> {
   const results: MotionImportResult[] = [];
-  for (const entry of entries) results.push(await importOneMotion(db, entry, overwriteProtected, seen));
+  for (const entry of entries) results.push(await importOneMotion(db, entry, overwriteProtected, seen, owner));
   return motionReport(results);
 }
 
@@ -162,6 +164,7 @@ async function importOneMotion(
   { source, value }: { source: string; value: unknown },
   overwriteProtected: boolean,
   seen: Set<string>,
+  owner: Owner,
 ): Promise<MotionImportResult> {
   const parsed = motionAnalysisSchema.safeParse(value);
   if (!parsed.success) {
@@ -176,6 +179,7 @@ async function importOneMotion(
   seen.add(analysis.referenceId);
   try {
     return await db.transaction(async (transaction) => {
+      await assertOwnedReference(transaction, analysis.referenceId, owner);
       const current = await getMotionStudy(transaction, analysis.referenceId);
       const patch: UpdateMotionStudyInput = updateMotionStudySchema.parse({
         motionDNA: analysis.motionDNA,
@@ -213,10 +217,13 @@ export async function getPendingMotion(
   db: Db,
   storage: MotionStorage,
   dataDirectory: string,
+  owner?: Owner,
 ): Promise<PendingMotionManifest> {
   const inbox = join(dataDirectory, "motion-inbox");
   const pending = await db.select({ referenceId: motionStudies.referenceId }).from(motionStudies)
-    .where(eq(motionStudies.motionStatus, "pending")).orderBy(asc(motionStudies.createdAt), asc(motionStudies.id));
+    .innerJoin(references, eq(references.id, motionStudies.referenceId))
+    .where(and(eq(motionStudies.motionStatus, "pending"), ownedBy(references.ownerId, owner)))
+    .orderBy(asc(motionStudies.createdAt), asc(motionStudies.id));
   const studies: PendingMotionManifest["studies"] = [];
   const unavailable: PendingMotionManifest["unavailable"] = [];
 
@@ -297,14 +304,16 @@ function beatTriggers(beatsJson: unknown): MotionTrigger[] {
  * One page of the motion section, in two pipelined round trips (counts and
  * page together, then the page's tags and clips), as for references.
  */
-export async function listMotion(db: Db, query: MotionListQuery): Promise<MotionListResponse> {
+export async function listMotion(db: Db, query: MotionListQuery, owner?: Owner): Promise<MotionListResponse> {
   const words = query.q ? searchWords(query.q) : undefined;
   if (query.q && words === undefined) {
-    const countsByTrigger = await motionTriggerCounts(db);
+    const countsByTrigger = await motionTriggerCounts(db, owner);
     return motionListResponseSchema.parse({ items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0, countsByTrigger });
   }
 
   const conditions: SQL[] = [];
+  const own = ownedBy(references.ownerId, owner);
+  if (own !== undefined) conditions.push(own);
   if (words !== undefined) conditions.push(sql`motion_search.document @@ ${searchQuery(words)}`);
   if (query.status !== undefined) conditions.push(eq(motionStudies.motionStatus, query.status));
   if (query.trigger !== undefined) {
@@ -337,7 +346,7 @@ export async function listMotion(db: Db, query: MotionListQuery): Promise<Motion
           : [desc(motionStudies.createdAt)];
   const offset = (query.page - 1) * query.limit;
   const [countsByTrigger, [totalRow], rows] = await Promise.all([
-    motionTriggerCounts(db),
+    motionTriggerCounts(db, owner),
     totalQuery.where(where),
     pageQuery.where(where).orderBy(...order, asc(motionStudies.id)).limit(query.limit).offset(offset),
   ]);

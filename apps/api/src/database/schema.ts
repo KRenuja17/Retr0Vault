@@ -39,6 +39,45 @@ export const appMetadata = pgTable("app_metadata", {
   updatedAt: updatedAt(),
 }).enableRLS();
 
+/*
+ * Accounts. A username is matched without regard to case (`username_key`);
+ * the password is stored only as an scrypt hash. A session row holds the
+ * SHA-256 of the token in the browser's cookie, never the token itself.
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey(),
+    username: text("username").notNull(),
+    usernameKey: text("username_key").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex("users_username_key_unique").on(table.usernameKey),
+    check("users_username_check", sql`${table.username} ~ '^[A-Za-z0-9._-]{3,32}$'`),
+    check("users_username_key_check", sql`${table.usernameKey} = lower(${table.username})`),
+    check("users_password_hash_check", sql`${table.passwordHash} like 'scrypt$%'`),
+  ],
+).enableRLS();
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  },
+  (table) => [
+    index("sessions_user_index").on(table.userId),
+    index("sessions_expires_at_index").on(table.expiresAt),
+    check("sessions_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+).enableRLS();
+
 export const designTypes = pgTable(
   "design_types",
   {
@@ -108,9 +147,13 @@ export const collections = pgTable(
     description: text("description").notNull().default(""),
     isPinned: boolean("is_pinned").notNull().default(false),
     sortOrder: integer("sort_order").notNull(),
+    /** The account the collection belongs to; unowned rows are visible to no account. */
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "restrict" }),
   },
   (table) => [
-    uniqueIndex("collections_slug_unique").on(table.slug),
+    // Each account names its own collections.
+    uniqueIndex("collections_owner_slug_unique").on(table.ownerId, table.slug),
+    index("collections_owner_index").on(table.ownerId),
     index("collections_sort_order_index").on(table.sortOrder),
     check("collections_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
   ],
@@ -143,8 +186,11 @@ export const references = pgTable(
     imageFormat: text("image_format", { enum: ["jpeg", "png", "webp"] }).notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** The account the reference belongs to; unowned rows are visible to no account. */
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "restrict" }),
   },
   (table) => [
+    index("references_owner_index").on(table.ownerId),
     index("references_design_type_index").on(table.designTypeId),
     index("references_analysis_status_index").on(table.analysisStatus),
     index("references_created_at_index").on(table.createdAt),
@@ -357,6 +403,8 @@ export const motionStudyTags = pgTable(
 
 export const databaseSchema = {
   appMetadata,
+  users,
+  sessions,
   collectionReferences,
   motionClips,
   motionKeyframes,

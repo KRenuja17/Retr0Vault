@@ -10,7 +10,7 @@ import { loadConfig } from "../src/config.js";
 import { createImageReferenceRecord, updateReference } from "../src/services/references.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createCollection } from "../src/services/collections.js";
-import { createMultipartPayload, createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext } from "./helpers.js";
+import { createMultipartPayload, createTestApp, disposeTestApp, validDesignTypeInput, type TestAppContext, TEST_USER } from "./helpers.js";
 
 describe("backend hardening and statistics", () => {
   let context: TestAppContext;
@@ -31,13 +31,13 @@ describe("backend hardening and statistics", () => {
     const connection = context.db;
     const type = await createDesignType(connection, validDesignTypeInput);
     const empty = await createDesignType(connection, { ...validDesignTypeInput, name: "Empty", slug: "empty" });
-    const first = await createCollection(connection, { name: "First", slug: "first", description: "", isPinned: false });
-    const second = await createCollection(connection, { name: "Second", slug: "second", description: "", isPinned: false });
-    const third = await createCollection(connection, { name: "Empty", slug: "empty", description: "", isPinned: false });
+    const first = await createCollection(connection, { name: "First", slug: "first", description: "", isPinned: false }, undefined, TEST_USER.id);
+    const second = await createCollection(connection, { name: "Second", slug: "second", description: "", isPinned: false }, undefined, TEST_USER.id);
+    const third = await createCollection(connection, { name: "Empty", slug: "empty", description: "", isPinned: false }, undefined, TEST_USER.id);
     const ids: string[] = [];
     for (const status of ["pending", "analyzed", "manual", "failed"] as const) {
       const id = randomUUID(); ids.push(id);
-      await createImageReferenceRecord(connection, id, { title: status }, { originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 2, height: 2, format: "png" });
+      await createImageReferenceRecord(connection, id, { title: status }, { originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 2, height: 2, format: "png" }, TEST_USER.id);
       await updateReference(connection, id, { analysisStatus: status, ...(status === "failed" ? {} : { designTypeId: type.id }),
         collectionIds: status === "pending" ? [first.id, second.id] : status === "analyzed" ? [first.id] : [] });
     }

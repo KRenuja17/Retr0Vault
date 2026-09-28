@@ -52,7 +52,9 @@ function migratedDataDir(): Promise<Blob> {
 
 /** A private, fully migrated in-memory database (slower: prefer `createTestDatabase`). */
 export async function createIsolatedTestDatabase(): Promise<DatabaseConnection> {
-  return openPglite({ loadDataDir: await migratedDataDir() });
+  const connection = await openPglite({ loadDataDir: await migratedDataDir() });
+  await addTestUser(connection.database);
+  return connection;
 }
 
 interface SharedDatabase {
@@ -113,6 +115,8 @@ export async function createTestDatabase(): Promise<DatabaseConnection> {
   const shared = await getSharedDatabase();
   if (shared.leased) return createIsolatedTestDatabase();
   shared.leased = true;
+  // Emptied on every return, so the test account is added again.
+  await addTestUser(shared.connection.database);
   let returned = false;
   return {
     kind: "pglite",
@@ -132,6 +136,20 @@ export async function createTestDatabase(): Promise<DatabaseConnection> {
       }
     },
   };
+}
+
+/**
+ * The account the test apps act as: a request without a session counts as
+ * this account (see `BuildAppOptions.testUser`). Tests that create rows
+ * straight through the services pass `TEST_USER.id` as the owner.
+ */
+export const TEST_USER = { id: "7e57a000-0000-4000-8000-000000000001", username: "tester" } as const;
+
+/** Adds the test account to a database (a no-op when it is already there). */
+export async function addTestUser(db: Db): Promise<void> {
+  await db.execute(sql`insert into users (id, username, username_key, password_hash)
+    values (${TEST_USER.id}, ${TEST_USER.username}, ${TEST_USER.username}, 'scrypt$1$1$1$AA==$AA==')
+    on conflict do nothing`);
 }
 
 /** Rows of a raw SQL query, for assertions on what the database holds. */
@@ -212,7 +230,9 @@ export async function createTestApp(
   const storageRoot = join(directory, "storage");
   const connection = options.reuse?.connection ?? await createTestDatabase();
   try {
+    await addTestUser(connection.database);
     const app = await buildApp({
+      testUser: TEST_USER,
       config: loadConfig({ ...process.env, ANALYSIS_DATA_DIR: join(directory, "data") }),
       connection,
       storageRoot,

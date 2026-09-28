@@ -19,6 +19,7 @@ import {
 } from "../database/schema.js";
 import { ApiError, databaseErrorCode, PgCode } from "../errors.js";
 import { slugFromName } from "../lib/slug.js";
+import { ownedBy, type Owner } from "./ownership.js";
 
 type DesignTypeRow = typeof designTypes.$inferSelect;
 
@@ -33,7 +34,8 @@ async function assertUniqueSlug(db: Db, slug: string, excludedId?: string): Prom
   }
 }
 
-async function hydrateDesignTypes(db: Db, rows: DesignTypeRow[]): Promise<DesignTypeResponse[]> {
+/** Design types are shared by every account; their reference counts are each account's own. */
+async function hydrateDesignTypes(db: Db, rows: DesignTypeRow[], owner?: Owner): Promise<DesignTypeResponse[]> {
   if (rows.length === 0) {
     return [];
   }
@@ -44,7 +46,7 @@ async function hydrateDesignTypes(db: Db, rows: DesignTypeRow[]): Promise<Design
     db.select().from(designTypeVocabulary).where(inArray(designTypeVocabulary.designTypeId, ids)).orderBy(asc(designTypeVocabulary.sortOrder)),
     db.select({ designTypeId: references.designTypeId, value: count() })
       .from(references)
-      .where(inArray(references.designTypeId, ids))
+      .where(and(inArray(references.designTypeId, ids), ownedBy(references.ownerId, owner)))
       .groupBy(references.designTypeId),
   ]);
 
@@ -117,22 +119,22 @@ async function insertVocabulary(db: Db, designTypeId: string, terms: readonly st
   await db.insert(designTypeVocabulary).values(terms.map((term, sortOrder) => ({ id: randomUUID(), designTypeId, term, sortOrder })));
 }
 
-export async function listDesignTypes(db: Db): Promise<DesignTypeResponse[]> {
+export async function listDesignTypes(db: Db, owner?: Owner): Promise<DesignTypeResponse[]> {
   const rows = await db.select().from(designTypes).orderBy(asc(designTypes.sortOrder), asc(designTypes.name));
-  return hydrateDesignTypes(db, rows);
+  return hydrateDesignTypes(db, rows, owner);
 }
 
-export async function getDesignTypeById(db: Db, id: string): Promise<DesignTypeResponse> {
-  return (await hydrateDesignTypes(db, [await findDesignTypeRowById(db, id)]))[0]!;
+export async function getDesignTypeById(db: Db, id: string, owner?: Owner): Promise<DesignTypeResponse> {
+  return (await hydrateDesignTypes(db, [await findDesignTypeRowById(db, id)], owner))[0]!;
 }
 
-export async function findDesignTypeBySlug(db: Db, slug: string): Promise<DesignTypeResponse | undefined> {
+export async function findDesignTypeBySlug(db: Db, slug: string, owner?: Owner): Promise<DesignTypeResponse | undefined> {
   const [row] = await db.select().from(designTypes).where(eq(designTypes.slug, slug));
-  return row === undefined ? undefined : (await hydrateDesignTypes(db, [row]))[0]!;
+  return row === undefined ? undefined : (await hydrateDesignTypes(db, [row], owner))[0]!;
 }
 
-export async function getDesignTypeBySlug(db: Db, slug: string): Promise<DesignTypeResponse> {
-  const designType = await findDesignTypeBySlug(db, slug);
+export async function getDesignTypeBySlug(db: Db, slug: string, owner?: Owner): Promise<DesignTypeResponse> {
+  const designType = await findDesignTypeBySlug(db, slug, owner);
   if (designType === undefined) {
     throw new ApiError(404, "DESIGN_TYPE_NOT_FOUND", "Design type not found");
   }

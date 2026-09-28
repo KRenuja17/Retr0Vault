@@ -1,4 +1,12 @@
 -- The pre-cloud SQLite schema (tables only): the format of the archive `cloud:migrate` reads and of the backups `cloud:backup` writes.
+CREATE TABLE `users` (
+	`id` text PRIMARY KEY NOT NULL,
+	`username` text NOT NULL,
+	`username_key` text NOT NULL,
+	`password_hash` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
 CREATE TABLE `design_types` (
 	`id` text PRIMARY KEY NOT NULL,
 	`slug` text NOT NULL,
@@ -38,6 +46,7 @@ CREATE TABLE `collections` (
 	`name` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
 	`is_pinned` integer DEFAULT false NOT NULL,
+	`owner_id` text,
 	`sort_order` integer NOT NULL,
 	CONSTRAINT "collections_sort_order_nonnegative" CHECK("collections"."sort_order" >= 0)
 );
@@ -62,6 +71,7 @@ CREATE TABLE `references` (
 	`image_format` text NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL, `protected_fields` text DEFAULT '[]' NOT NULL,
+	`owner_id` text,
 	FOREIGN KEY (`design_type_id`) REFERENCES `design_types`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "references_source_type_check" CHECK("references"."source_type" in ('image', 'website')),
 	CONSTRAINT "references_analysis_status_check" CHECK("references"."analysis_status" in ('pending', 'analyzed', 'manual', 'failed')),

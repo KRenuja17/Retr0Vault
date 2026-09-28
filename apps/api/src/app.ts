@@ -18,6 +18,9 @@ import { registerReferenceRoutes } from "./routes/references.js";
 import { registerStatsRoute } from "./routes/stats.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerLocalAccess } from "./http/local-access.js";
+import type { SessionUser } from "./auth/sessions.js";
+import { registerAuth } from "./routes/auth.js";
+import { registerShowcaseRoutes } from "./routes/showcase.js";
 import { ApiError, isTransientDatabaseError } from "./errors.js";
 import { ReferenceStorage } from "./storage/reference-storage.js";
 import { ChromiumCaptureService, type CaptureService } from "./capture/service.js";
@@ -50,6 +53,11 @@ export interface BuildAppOptions {
   readonly maxMotionUploadBytes?: number;
   /** When the motion queue recovers and starts work: after listening (default), or on ready for inject-only apps. */
   readonly motionQueueStart?: "listen" | "ready";
+  /**
+   * Tests only: a request without a session counts as this account, so tests
+   * that are not about signing in need not sign in. Never set by the server.
+   */
+  readonly testUser?: SessionUser;
 }
 
 /** Network-level failures reaching Postgres (postgres.js and Node error codes). */
@@ -167,6 +175,10 @@ export async function buildApp(
   });
 
   await registerLocalAccess(app, config.port);
+  await registerAuth(app, db, {
+    secureCookies: config.nodeEnv === "production",
+    ...(options.testUser === undefined ? {} : { testUser: options.testUser }),
+  });
   await app.register(multipart, {
     limits: {
       fileSize: options.maxUploadBytes ?? config.maxUploadBytes,
@@ -180,6 +192,7 @@ export async function buildApp(
   });
 
   await registerHealthRoute(app, db);
+  await registerShowcaseRoutes(app, db, storage);
   await registerStatsRoute(app, db);
   await registerDesignTypeRoutes(app, db);
   await registerCollectionRoutes(app, db);

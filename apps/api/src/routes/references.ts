@@ -29,6 +29,8 @@ import type { CaptureService } from "../capture/service.js";
 import { validateCaptureUrl } from "../capture/url-policy.js";
 import { getDesignTypeById } from "../services/design-types.js";
 import type { MotionStorage } from "../storage/motion-storage.js";
+import { assertOwnedCollections, assertOwnedReference } from "../services/ownership.js";
+import { requireUser } from "./auth.js";
 
 const idParametersSchema = z.object({ id: z.uuid() }).strict();
 
@@ -117,7 +119,7 @@ export async function registerReferenceRoutes(
       throw new ApiError(500, "CAPTURE_STORAGE_FAILED", "Could not store captured images; no reference was saved");
     });
     try {
-      return reply.status(201).send(await createWebsiteReferenceRecord(db, id, input, stored));
+      return reply.status(201).send(await createWebsiteReferenceRecord(db, id, input, stored, requireUser(request).id));
     } catch (error) {
       const cleanup = await storage.deleteReferenceFiles(id, stored.originalPath, stored.thumbnailPath, stored.frames.map((frame) => frame.imagePath));
       if (cleanup.warnings.length > 0) request.log.warn({ referenceId: id, warnings: cleanup.warnings }, "Capture rollback warnings");
@@ -126,6 +128,7 @@ export async function registerReferenceRoutes(
   });
 
   app.post("/api/v1/references/image", async (request, reply) => {
+    const owner = requireUser(request).id;
     parseRequest(z.object({}).strict(), request.query);
     const { fields, buffer } = await readImageMultipart(request);
     const input = parseRequest(createImageReferenceFieldsSchema, fields);
@@ -139,6 +142,7 @@ export async function registerReferenceRoutes(
         id,
         input,
         storedImage,
+        owner,
       );
       return reply.status(201).send(reference);
     } catch (error) {
@@ -158,7 +162,7 @@ export async function registerReferenceRoutes(
   app.put("/api/v1/references/:id/image", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
     parseRequest(z.object({}).strict(), request.query);
-    const current = await getReferenceMediaPaths(db, id);
+    const current = await getReferenceMediaPaths(db, id, requireUser(request).id);
     const { fields, buffer } = await readImageMultipart(request);
     const input = parseRequest(replaceReferenceImageFieldsSchema, fields);
     const replacement = await storage.replaceImage(id, current, buffer);
@@ -182,22 +186,28 @@ export async function registerReferenceRoutes(
 
   app.get("/api/v1/references", async (request) => {
     const query = parseRequest(referenceListQuerySchema, request.query);
-    return await listReferences(db, query);
+    return await listReferences(db, query, requireUser(request).id);
   });
 
   app.get("/api/v1/references/:id", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
+    await assertOwnedReference(db, id, requireUser(request).id);
     return await getReference(db, id);
   });
 
   app.patch("/api/v1/references/:id", async (request) => {
     const { id } = parseRequest(idParametersSchema, request.params);
     const input = parseRequest(updateReferenceSchema, request.body);
+    const owner = requireUser(request).id;
+    await assertOwnedReference(db, id, owner);
+    // Only the account's own collections can take its references.
+    if (input.collectionIds !== undefined) await assertOwnedCollections(db, input.collectionIds, owner);
     return await updateReference(db, id, input);
   });
 
   app.delete("/api/v1/references/:id", async (request, reply) => {
     const { id } = parseRequest(idParametersSchema, request.params);
+    await assertOwnedReference(db, id, requireUser(request).id);
     const deleted = await deleteReferenceRecord(db, id);
     const cleanup = await storage.deleteReferenceFiles(
       deleted.id,

@@ -15,7 +15,13 @@ import type { Db } from "../src/database/connection.js";
 import { createDesignType } from "../src/services/design-types.js";
 import { createImageReferenceRecord, updateReference } from "../src/services/references.js";
 import {
-  createMultipartPayload, createTestApp, databaseSnapshot, disposeTestApp, validDesignTypeInput, type TestAppContext,
+  createMultipartPayload,
+  createTestApp,
+  databaseSnapshot,
+  disposeTestApp,
+  validDesignTypeInput,
+  type TestAppContext,
+  TEST_USER,
 } from "./helpers.js";
 
 function authored(referenceIds: string[]): AuthoredDirection {
@@ -55,7 +61,7 @@ describe("export API", () => {
     const reference = await createImageReferenceRecord(connection, id, { title }, {
       originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`,
       width: 1, height: 1, format: "png",
-    });
+    }, TEST_USER.id);
     return Object.keys(patch).length === 0 ? reference : await updateReference(connection, id, patch);
   }
 

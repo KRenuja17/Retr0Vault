@@ -24,9 +24,13 @@ import type { LocalBlobStore } from "../storage/local-blob-store.js";
  * - Nothing local is changed.
  */
 
-/** Parents before children, so foreign keys hold as rows arrive. */
+/**
+ * Parents before children, so foreign keys hold as rows arrive. Accounts come
+ * first: a backup carries them (with their password hashes) and the owner of
+ * every reference and collection; the pre-cloud archive has neither.
+ */
 export const archiveTables = [
-  "design_types", "design_type_rules", "design_type_vocabulary", "collections", "references", "tags",
+  "users", "design_types", "design_type_rules", "design_type_vocabulary", "collections", "references", "tags",
   "reference_tags", "collection_references", "reference_frames", "motion_studies", "motion_clips",
   "motion_keyframes", "motion_study_tags", "app_metadata",
 ] as const;
@@ -176,6 +180,13 @@ async function copyRows(
   for (const table of archiveTables) {
     const target = columns.get(table);
     if (target === undefined) throw new Error(`Postgres has no ${table} table; run the migrations first`);
+    // An older archive lacks later tables (accounts): nothing to copy from it.
+    const inArchive = archive.prepare("select 1 from sqlite_master where type = 'table' and name = ?").get(table) !== undefined;
+    if (!inArchive) {
+      reports.push({ table, source: 0, inserted: 0, present: 0 });
+      log(`  ${table}: not in this archive`);
+      continue;
+    }
     const rows = archive.prepare(`select * from "${table}"`).all() as Array<Record<string, unknown>>;
     const sourceColumns = (archive.prepare(`pragma table_info("${table}")`).all() as Array<{ name: string }>).map((column) => column.name);
     const unknown = sourceColumns.filter((name) => !target.some((column) => column.name === name));

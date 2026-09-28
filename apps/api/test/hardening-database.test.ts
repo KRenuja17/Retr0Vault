@@ -9,7 +9,7 @@ import { clearDevelopmentData, seedDevelopmentData } from "../src/database/seed.
 import { developmentDesignTypes } from "../src/database/seed-data.js";
 import { createDesignType, listDesignTypes } from "../src/services/design-types.js";
 import { createImageReferenceRecord, getReference, updateReference } from "../src/services/references.js";
-import { createTestDatabase, queryRows, validDesignTypeInput } from "./helpers.js";
+import { createTestDatabase, queryRows, validDesignTypeInput, TEST_USER } from "./helpers.js";
 
 describe("database hardening and additive upgrades", () => {
   let directory: string;
@@ -24,7 +24,7 @@ describe("database hardening and additive upgrades", () => {
   function createRecord(target = connection, id = randomUUID()) {
     return createImageReferenceRecord(target, id, { title: "Persistedword" }, {
       originalPath: `originals/${id}.png`, thumbnailPath: `thumbnails/${id}.webp`, width: 2, height: 2, format: "png",
-    });
+    }, TEST_USER.id);
   }
   /** A database migrated only as far as the baseline, before 0001_json_guards. */
   async function baselineConnection() {
@@ -71,7 +71,10 @@ describe("database hardening and additive upgrades", () => {
   it("refuses invalid existing JSON atomically, preserving data and migration history", async () => {
     const legacy = await baselineConnection();
     try {
-      const record = await createRecord(legacy.database);
+      // Written as the baseline schema knew it: no owner column yet.
+      const record = { id: randomUUID() };
+      await legacy.database.execute(sql`INSERT INTO "references" (id, title, source_type, original_path, thumbnail_path, image_width, image_height, image_format)
+        VALUES (${record.id}, 'Persistedword', 'image', ${`originals/${record.id}.png`}, ${`thumbnails/${record.id}.webp`}, 2, 2, 'png')`);
       await legacy.database.execute(sql`UPDATE "references" SET protected_fields = '["unknown"]'::jsonb WHERE id = ${record.id}`);
       const before = await queryRows(legacy.database, sql`SELECT * FROM "references"`);
       await expect(legacy.migrate()).rejects.toThrow();

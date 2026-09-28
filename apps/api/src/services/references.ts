@@ -43,6 +43,7 @@ import type { StoredReferenceImage, StoredWebsiteCapture } from "../storage/refe
 import type { CreateWebsiteReferenceInput } from "@retr0vault/shared";
 import { referenceSearchRank, searchQuery, searchWords } from "./reference-search.js";
 import { motionSummaries } from "./motion.js";
+import { ownedBy, type Owner } from "./ownership.js";
 
 type ReferenceRow = typeof references.$inferSelect;
 
@@ -207,6 +208,7 @@ export async function createImageReferenceRecord(
   id: string,
   fields: CreateImageReferenceFields,
   image: StoredReferenceImage,
+  ownerId: string | null = null,
 ): Promise<ReferenceResponse> {
   await assertDesignTypeExists(db, fields.designTypeId);
   const now = new Date();
@@ -225,6 +227,7 @@ export async function createImageReferenceRecord(
     imageFormat: image.format,
     createdAt: now,
     updatedAt: now,
+    ownerId,
   });
 
   return getReference(db, id);
@@ -237,10 +240,11 @@ export async function getReference(db: Db, id: string): Promise<ReferenceRespons
 export async function getReferenceMediaPaths(
   db: Db,
   id: string,
+  owner?: Owner,
 ): Promise<Pick<ReferenceRow, "id" | "sourceType" | "originalPath" | "thumbnailPath">> {
   const [row] = await db.select({
     id: references.id, sourceType: references.sourceType, originalPath: references.originalPath, thumbnailPath: references.thumbnailPath,
-  }).from(references).where(eq(references.id, id));
+  }).from(references).where(and(eq(references.id, id), ownedBy(references.ownerId, owner)));
   if (row === undefined) throw new ApiError(404, "REFERENCE_NOT_FOUND", "Reference not found");
   return row;
 }
@@ -275,6 +279,7 @@ export async function createWebsiteReferenceRecord(
   id: string,
   input: CreateWebsiteReferenceInput,
   capture: StoredWebsiteCapture,
+  ownerId: string | null = null,
 ): Promise<ReferenceResponse> {
   await assertDesignTypeExists(db, input.designTypeId);
   return db.transaction(async (transaction) => {
@@ -283,7 +288,7 @@ export async function createWebsiteReferenceRecord(
       id, title: input.title ?? new URL(input.url).hostname, sourceType: "website", sourceUrl: input.url,
       originalPath: capture.originalPath, thumbnailPath: capture.thumbnailPath, designTypeId: input.designTypeId ?? null,
       imageWidth: capture.width, imageHeight: capture.height, imageFormat: capture.format,
-      analysisStatus: "pending", createdAt: now, updatedAt: now,
+      analysisStatus: "pending", createdAt: now, updatedAt: now, ownerId,
     });
     if (capture.frames.length > 0) {
       await transaction.insert(referenceFrames).values(capture.frames.map((frame) => ({ id: randomUUID(), referenceId: id, ...frame })));
@@ -299,8 +304,10 @@ export async function createWebsiteReferenceRecord(
  * transaction, a total can briefly disagree with a page while an import is
  * writing; the next request agrees again.)
  */
-export async function listReferences(db: Db, query: ReferenceListQuery): Promise<ReferenceListResponse> {
+export async function listReferences(db: Db, query: ReferenceListQuery, owner?: Owner): Promise<ReferenceListResponse> {
   const conditions: SQL[] = [];
+  const own = ownedBy(references.ownerId, owner);
+  if (own !== undefined) conditions.push(own);
   const emptyResult = () => referenceListResponseSchema.parse({
     items: [], page: query.page, limit: query.limit, total: 0, totalPages: 0,
   });
@@ -324,7 +331,7 @@ export async function listReferences(db: Db, query: ReferenceListQuery): Promise
       db.select({ id: collectionReferences.referenceId })
         .from(collectionReferences)
         .innerJoin(collections, eq(collectionReferences.collectionId, collections.id))
-        .where(eq(collections.slug, query.collection)),
+        .where(and(eq(collections.slug, query.collection), ownedBy(collections.ownerId, owner))),
     ));
   }
 
