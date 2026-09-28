@@ -15,6 +15,14 @@ export const SESSION_COOKIE = "rv_session";
 export const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1_000;
 /** A session's expiry is pushed back at most this often, to spare a write per request. */
 const RENEW_AFTER_MS = 60 * 60 * 1_000;
+/**
+ * A live session, once read, is trusted for this long without asking the
+ * database again: every request needs the session, and each read is a round
+ * trip to a database far away. Ending a session in the API (signing out, a
+ * new password) forgets it at once; one ended from the users CLI, another
+ * process, stops working within this time.
+ */
+const REMEMBER_MS = 30_000;
 
 export interface SessionUser {
   readonly id: string;
@@ -22,6 +30,20 @@ export interface SessionUser {
 }
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+interface Remembered {
+  readonly user: SessionUser;
+  readonly until: number;
+}
+
+const remembered = new Map<string, Remembered>();
+
+/** Forgets every remembered session of an account (after its sessions are deleted). */
+export function forgetUserSessions(userId: string): void {
+  for (const [tokenHash, entry] of remembered) {
+    if (entry.user.id === userId) remembered.delete(tokenHash);
+  }
+}
 
 export async function createSession(db: Db, userId: string): Promise<string> {
   const token = randomBytes(32).toString("base64url");
@@ -31,8 +53,8 @@ export async function createSession(db: Db, userId: string): Promise<string> {
     userId,
     expiresAt: new Date(now + SESSION_LIFETIME_MS),
   });
-  // Expired sessions are cleared as new ones are made.
-  await db.delete(sessions).where(lt(sessions.expiresAt, new Date(now)));
+  // Expired sessions are cleared as new ones are made, without holding up the sign-in.
+  void db.delete(sessions).where(lt(sessions.expiresAt, new Date(now))).catch(() => undefined);
   return token;
 }
 
@@ -41,27 +63,39 @@ export async function findSessionUser(db: Db, token: string | undefined): Promis
   if (token === undefined || !/^[A-Za-z0-9_-]{43}$/u.test(token)) return undefined;
   const tokenHash = hashToken(token);
   const now = new Date();
+  const known = remembered.get(tokenHash);
+  if (known !== undefined && known.until > now.getTime()) return known.user;
+  remembered.delete(tokenHash);
   const [row] = await db.select({
-    id: users.id, username: users.username, lastSeenAt: sessions.lastSeenAt,
+    id: users.id, username: users.username, lastSeenAt: sessions.lastSeenAt, expiresAt: sessions.expiresAt,
   }).from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)));
   if (row === undefined) return undefined;
+  let expiresAt = row.expiresAt.getTime();
   if (now.getTime() - row.lastSeenAt.getTime() > RENEW_AFTER_MS) {
+    expiresAt = now.getTime() + SESSION_LIFETIME_MS;
     await db.update(sessions)
-      .set({ lastSeenAt: now, expiresAt: new Date(now.getTime() + SESSION_LIFETIME_MS) })
+      .set({ lastSeenAt: now, expiresAt: new Date(expiresAt) })
       .where(eq(sessions.tokenHash, tokenHash));
   }
-  return { id: row.id, username: row.username };
+  const user = { id: row.id, username: row.username };
+  remembered.set(tokenHash, { user, until: Math.min(now.getTime() + REMEMBER_MS, expiresAt) });
+  return user;
 }
 
 export async function deleteSession(db: Db, token: string | undefined): Promise<void> {
   if (token === undefined) return;
-  await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
+  const tokenHash = hashToken(token);
+  remembered.delete(tokenHash);
+  await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
 }
 
+/** Inside a transaction, call `forgetUserSessions` again once it has committed. */
 export async function deleteUserSessions(db: Db, userId: string): Promise<void> {
+  forgetUserSessions(userId);
   await db.delete(sessions).where(eq(sessions.userId, userId));
+  forgetUserSessions(userId);
 }
 
 export function readCookie(header: string | undefined, name: string): string | undefined {

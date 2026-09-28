@@ -17,7 +17,10 @@ import { databaseSchema } from "./schema.js";
  *
  * - `openPostgres(url)` talks to Supabase (or any Postgres) through postgres.js,
  *   over TLS, with a small pool. The session pooler supports prepared
- *   statements; pass `prepare: false` for the transaction pooler.
+ *   statements; pass `prepare: false` for the transaction pooler. Opening a
+ *   connection to the hosted database costs about ten round trips (seconds,
+ *   not milliseconds), so the pool's connections are kept open rather than
+ *   closed when idle, and `warm()` opens them all ahead of the first request.
  * - `openPglite()` runs Postgres in-process (WebAssembly) for tests: no server
  *   and no network.
  *
@@ -32,6 +35,8 @@ export interface DatabaseConnection {
   readonly kind: "postgres" | "pglite";
   readonly database: Db;
   migrate(migrationsFolder?: string): Promise<void>;
+  /** Opens every connection in the pool (and reopens any that were recycled). */
+  warm?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -45,12 +50,14 @@ export interface PostgresOptions {
 }
 
 export function openPostgres(url: string, options: PostgresOptions = {}): DatabaseConnection {
+  const max = options.max ?? 5;
   const client = postgres(url, {
     ssl: "require",
-    max: options.max ?? 5,
+    max,
     prepare: options.prepare ?? true,
     connect_timeout: 15,
-    idle_timeout: 60,
+    // Never closed for being idle: reopening one costs seconds.
+    idle_timeout: 0,
     onnotice: () => undefined,
   });
   const drizzled = drizzlePostgres(client, { schema: databaseSchema });
@@ -59,6 +66,11 @@ export function openPostgres(url: string, options: PostgresOptions = {}): Databa
     kind: "postgres",
     database: drizzled as unknown as Db,
     migrate: (migrationsFolder = defaultMigrationsFolder) => migratePostgres(drizzled, { migrationsFolder }),
+    // As many trivial queries at once as the pool holds: each takes (or opens) its own connection.
+    warm: async () => {
+      if (closed) return;
+      await Promise.all(Array.from({ length: max }, () => client`select 1`));
+    },
     close: async () => {
       if (closed) return;
       closed = true;

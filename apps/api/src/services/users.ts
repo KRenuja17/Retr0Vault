@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { asc, eq, isNull, sql } from "drizzle-orm";
 
 import { hashPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../auth/passwords.js";
-import { deleteUserSessions } from "../auth/sessions.js";
+import { deleteUserSessions, forgetUserSessions } from "../auth/sessions.js";
 import type { Db } from "../database/connection.js";
 import { collections, references, users } from "../database/schema.js";
 import { ApiError, databaseErrorCode, PgCode } from "../errors.js";
@@ -53,6 +53,8 @@ export async function setPassword(db: Db, userId: string, password: string): Pro
     await transaction.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
     await deleteUserSessions(transaction, userId);
   });
+  // A session read while the transaction was open could have been remembered again.
+  forgetUserSessions(userId);
 }
 
 export async function listUsers(db: Db) {

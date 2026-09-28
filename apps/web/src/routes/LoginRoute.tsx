@@ -12,6 +12,8 @@ import { ApiError } from "@/lib/api/client";
 import { signIn } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/api/queryKeys";
 import { forgetAccountQueries, useSession } from "@/lib/auth/session";
+import { prefetchVault } from "@/lib/catalogue/useCatalogue";
+import { ALL_FILTER } from "@/lib/catalogue/filters";
 import { useReducedMotion } from "@/lib/motion/preferences";
 import { useFrontDoor } from "@/lib/vault/frontDoor";
 import { holdPageStill } from "@/lib/vault/scrollLock";
@@ -28,8 +30,8 @@ import { holdPageStill } from "@/lib/vault/scrollLock";
 
 const DEGREES_PER_NUMBER = 6;
 /** The drama of turning the tumblers takes at least this long, however fast the API answers. */
-const MIN_VERIFY_MS = 1_150;
-const GRANTED_HOLD_MS = 950;
+const MIN_VERIFY_MS = 900;
+const GRANTED_HOLD_MS = 700;
 const DENIED_HOLD_MS = 1_700;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -321,6 +323,9 @@ export function LoginRoute() {
 
     try {
       const response = await signIn({ username: name, password });
+      // The vault is read from now, while the stamp lands and the dial settles.
+      forgetAccountQueries(client);
+      prefetchVault(client, destination === "/all" ? ALL_FILTER : null);
       await Promise.all([spinning, wait(Math.max(0, MIN_VERIFY_MS - (Date.now() - started)))]);
       leaving.current = true;
       setMode("granted");
@@ -331,7 +336,6 @@ export function LoginRoute() {
       await wait(reduced ? 0 : GRANTED_HOLD_MS);
       const picture = <LoginScene view={{ ...viewRef.current, dialTurn: turn.current }} />;
       await doors.open(picture, async () => {
-        forgetAccountQueries(client);
         client.setQueryData(queryKeys.session(), response);
         navigate(destination, { replace: true });
         // Let the vault's first plates arrive before the doors part, so they can be dealt in.

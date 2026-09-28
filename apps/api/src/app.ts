@@ -62,6 +62,8 @@ export interface BuildAppOptions {
 
 /** How many times startup tries an unreachable database (waits 2, 4 and 8 s between). */
 const STARTUP_ATTEMPTS = 4;
+/** How often the pool's connections are touched, to keep every one of them open. */
+const POOL_WARM_INTERVAL_MS = 4 * 60 * 1_000;
 
 /** Network-level failures reaching Postgres (postgres.js and Node error codes). */
 function isDatabaseUnreachable(error: unknown): boolean {
@@ -145,7 +147,19 @@ export async function buildApp(
   }
 
   if (ownsConnection) {
-    app.addHook("onClose", async () => connection.close());
+    // The hosted database is a long way off and a new connection costs seconds,
+    // so the pool is opened before the first request and kept open: warmed now,
+    // and again every few minutes, which also reopens any the driver recycled.
+    const warm = () => connection.warm?.().catch((error: unknown) => {
+      app.log.warn({ err: error }, "Could not warm the database pool");
+    });
+    void warm();
+    const keeper = setInterval(() => void warm(), POOL_WARM_INTERVAL_MS);
+    keeper.unref();
+    app.addHook("onClose", async () => {
+      clearInterval(keeper);
+      await connection.close();
+    });
   }
 
   app.setNotFoundHandler((request, reply) => {

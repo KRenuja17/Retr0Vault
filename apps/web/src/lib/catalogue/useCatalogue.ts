@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions, useInfiniteQuery, useQuery, type QueryClient } from "@tanstack/react-query";
 import type {
   CollectionResponse,
   DesignTypeResponse,
@@ -16,34 +16,23 @@ import { queryKeys } from "@/lib/api/queryKeys";
 
 import { filterQuery, filterToParams, type CatalogueFilter } from "./filters";
 
-export function useDesignTypes() {
-  return useQuery({
-    queryKey: queryKeys.designTypes(),
-    queryFn: ({ signal }) => fetchDesignTypes(signal),
-  });
-}
+const designTypesQuery = queryOptions({
+  queryKey: queryKeys.designTypes(),
+  queryFn: ({ signal }) => fetchDesignTypes(signal),
+});
 
-export function useCollections() {
-  return useQuery({
-    queryKey: queryKeys.collections(),
-    queryFn: ({ signal }) => fetchCollections(signal),
-  });
-}
+const collectionsQuery = queryOptions({
+  queryKey: queryKeys.collections(),
+  queryFn: ({ signal }) => fetchCollections(signal),
+});
 
-export function useStats() {
-  return useQuery({
-    queryKey: queryKeys.stats(),
-    queryFn: ({ signal }) => fetchStats(signal),
-  });
-}
+const statsQuery = queryOptions({
+  queryKey: queryKeys.stats(),
+  queryFn: ({ signal }) => fetchStats(signal),
+});
 
-/**
- * Pages of references for one catalogue filter. `catalogueIndex` is assigned by
- * the backend against the whole filtered result set, so plate numbers stay
- * continuous as further pages are appended.
- */
-export function useCatalogueReferences(filter: CatalogueFilter) {
-  const query = useInfiniteQuery({
+function catalogueReferencesQuery(filter: CatalogueFilter) {
+  return infiniteQueryOptions({
     queryKey: queryKeys.catalogue(
       filter.kind,
       filter.kind === "all" ? null : filter.slug,
@@ -55,6 +44,40 @@ export function useCatalogueReferences(filter: CatalogueFilter) {
     getNextPageParam: (lastPage: ReferenceListResponse) =>
       lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined,
   });
+}
+
+export function useDesignTypes() {
+  return useQuery(designTypesQuery);
+}
+
+export function useCollections() {
+  return useQuery(collectionsQuery);
+}
+
+export function useStats() {
+  return useQuery(statsQuery);
+}
+
+/**
+ * Starts reading what the vault's rooms show first, before they are open:
+ * after signing in, while the stamp lands and the doors are still shut. The
+ * database is far away, so the rooms arrive filled rather than filling. With a
+ * `filter`, that catalogue's first page of plates is read too.
+ */
+export function prefetchVault(client: QueryClient, filter: CatalogueFilter | null): void {
+  void client.prefetchQuery(designTypesQuery);
+  void client.prefetchQuery(collectionsQuery);
+  void client.prefetchQuery(statsQuery);
+  if (filter !== null) void client.prefetchInfiniteQuery(catalogueReferencesQuery(filter));
+}
+
+/**
+ * Pages of references for one catalogue filter. `catalogueIndex` is assigned by
+ * the backend against the whole filtered result set, so plate numbers stay
+ * continuous as further pages are appended.
+ */
+export function useCatalogueReferences(filter: CatalogueFilter) {
+  const query = useInfiniteQuery(catalogueReferencesQuery(filter));
 
   const items = useMemo(
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
