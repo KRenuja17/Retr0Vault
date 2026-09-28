@@ -42,6 +42,7 @@ const environmentSchema = z.object({
   S3_BUCKET: optionalText(),
   S3_ACCESS_KEY_ID: optionalText(),
   S3_SECRET_ACCESS_KEY: optionalText(),
+  FILE_CACHE_MAX_MB: z.coerce.number().int().min(0).max(1_048_576).default(4_096),
 });
 
 const objectStorageVariables = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const;
@@ -75,6 +76,8 @@ export interface AppConfig {
   readonly databaseUrl: string | undefined;
   /** The private bucket for files; when absent, files stay under `storageRoot`. */
   readonly objectStorage: S3BlobStoreConfig | undefined;
+  /** Local copies of bucket files, read before the bucket; `maxBytes` 0 turns it off. */
+  readonly fileCache: { readonly directory: string; readonly maxBytes: number };
   readonly storageRoot: string;
   readonly maxUploadBytes: number;
   readonly analysisDataDirectory: string;
@@ -119,6 +122,10 @@ export function loadConfig(
       bucket: data.S3_BUCKET!,
       accessKeyId: data.S3_ACCESS_KEY_ID!,
       secretAccessKey: data.S3_SECRET_ACCESS_KEY!,
+    },
+    fileCache: {
+      directory: join(resolve(repositoryRoot, result.data.ANALYSIS_DATA_DIR ?? "data"), "file-cache"),
+      maxBytes: result.data.FILE_CACHE_MAX_MB * 1_024 * 1_024,
     },
     storageRoot: isAbsolute(configuredStorageRoot)
       ? configuredStorageRoot

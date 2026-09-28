@@ -111,7 +111,7 @@ export type AnalysisCommand = z.infer<typeof analysisCommandSchema>;
 export async function runAnalysisCommand(
   command: AnalysisCommand,
   db: Db,
-  config: Pick<AppConfig, "objectStorage" | "storageRoot" | "analysisDataDirectory">,
+  config: Pick<AppConfig, "objectStorage" | "fileCache" | "storageRoot" | "analysisDataDirectory">,
 ): Promise<{ result: unknown; ok: boolean }> {
   if (command[0] === "export") {
     const blobs = openBlobStore(config);

@@ -139,10 +139,21 @@ export class S3BlobStore implements BlobStore {
     assertBlobKey(key);
     if (options.exclusive === true && await this.head(key) !== undefined) throw blobExistsError(key);
     const { size } = await stat(path);
-    await this.#client.send(new PutObjectCommand({
-      Bucket: this.#bucket, Key: key, Body: createReadStream(path), ContentType: options.contentType,
-      ContentLength: size,
-    }));
+    // The SDK cannot replay a streamed body, so a dropped connection is retried
+    // here, each time with a fresh stream from the file.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await this.#client.send(new PutObjectCommand({
+          Bucket: this.#bucket, Key: key, Body: createReadStream(path), ContentType: options.contentType,
+          ContentLength: size,
+        }));
+        return;
+      } catch (error) {
+        const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        if (attempt >= 3 || (status !== undefined && status < 500 && status !== 408 && status !== 429)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+      }
+    }
   }
 
   public async download(key: string, path: string): Promise<void> {

@@ -35,6 +35,9 @@ data/cloud-migration/
 # Cloud backups (npm run cloud:backup)
 data/backups/
 
+# Local copies of bucket files (FILE_CACHE_MAX_MB)
+data/file-cache/
+
 # Runtime reference storage
 storage/originals/*
 !storage/originals/.gitkeep

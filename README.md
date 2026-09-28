@@ -25,7 +25,7 @@ Put the connection details in `D:\Retr0Vault\.env` (copy `.env.example`; the fil
 
 Keys stay in `.env`: never in a commit, a screenshot or a chat, and never sent to the web app. The five `S3_*` values go together; with none of them, files stay in the local `STORAGE_ROOT` folder instead, which is how the tests run. `npm run cloud:check` confirms, without printing secrets, that the database answers and the bucket accepts, returns (whole and by byte range) and deletes a test object.
 
-Every table has Row Level Security on with no policies, so Supabase's public Data API can read nothing; the API connects as the tables' owner. A free Supabase project pauses after a quiet week: `/api/v1/health` then fails with 503 `DATABASE_UNAVAILABLE`, and the project resumes from the Supabase dashboard. B2 keeps earlier versions of changed or deleted files by default (the bucket's lifecycle settings), which is a safety net that also counts toward storage.
+Every table has Row Level Security on with no policies, so Supabase's public Data API can read nothing; the API connects as the tables' owner. A free Supabase project pauses after a quiet week: `/api/v1/health` then fails with 503 `DATABASE_UNAVAILABLE`, and the project resumes from the Supabase dashboard. B2 keeps earlier versions of changed or deleted files by default (the bucket's lifecycle settings), which is a safety net that also counts toward storage. Each request to the bucket takes about half a second or more from here, so the API keeps a local copy of every file it writes or reads (`FILE_CACHE_MAX_MB`); the bucket stays the durable copy, and the cache can be deleted at any time with the API stopped.
 
 ## Start Retr0Vault on Windows
 
@@ -89,6 +89,7 @@ Other environment variables are optional and validated at startup:
 | `PORT` | `4611` | API port |
 | `LOG_LEVEL` | `info` | Fastify/Pino log level |
 | `STORAGE_ROOT` | `storage` | Local file folder when no bucket is configured, and where `cloud:migrate` reads files from; absolute or relative to the repository root |
+| `FILE_CACHE_MAX_MB` | `4096` | Local copies of bucket files under `data/file-cache/`, read before the bucket (least recently read dropped first); `0` turns the cache off |
 | `MAX_UPLOAD_BYTES` | `26214400` | Maximum multipart image size in bytes (25 MiB by default) |
 | `ANALYSIS_DATA_DIR` | `data` | Parent directory for local analysis inbox/results; relative to the repository root or absolute |
 | `CAPTURE_TIMEOUT_MS` | `45000` | Maximum browser-capture duration, including DNS and launch (1,000–120,000 ms), followed by process cleanup |

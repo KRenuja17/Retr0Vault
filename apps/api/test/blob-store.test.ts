@@ -3,12 +3,16 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { loadConfig, loadRepositoryEnvironment } from "../src/config.js";
 import { BlobNotFoundError, BlobRangeError, type BlobStore } from "../src/storage/blob-store.js";
+import { CachedBlobStore } from "../src/storage/cached-blob-store.js";
 import { LocalBlobStore } from "../src/storage/local-blob-store.js";
 import { S3BlobStore } from "../src/storage/s3-blob-store.js";
+import { remoteLike } from "./helpers.js";
 
 /*
  * The contract both stores keep. The local store runs in every test run; the
@@ -127,6 +131,93 @@ contract("local", async () => {
     prefix: "contract/",
     cleanup: async () => rmSync(root, { recursive: true, force: true }),
   };
+});
+
+contract("cached", async () => {
+  const root = mkdtempSync(join(tmpdir(), "retr0vault-cached-blobs-"));
+  return {
+    store: new CachedBlobStore(remoteLike(new LocalBlobStore(join(root, "bucket"))), join(root, "cache"), { maxBytes: 1_024 * 1_024 }),
+    prefix: "contract/",
+    cleanup: async () => rmSync(root, { recursive: true, force: true }),
+  };
+});
+
+describe("the local cache in front of the bucket", () => {
+  let root: string;
+  let bucket: LocalBlobStore;
+  let calls: { read: number; download: number };
+  let counted: BlobStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "retr0vault-cache-"));
+    bucket = new LocalBlobStore(join(root, "bucket"));
+    calls = { read: 0, download: 0 };
+    const inner = remoteLike(bucket);
+    counted = {
+      ...inner,
+      read: (key, range) => { calls.read += 1; return inner.read(key, range); },
+      download: (key, path) => { calls.download += 1; return inner.download(key, path); },
+    };
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  const cached = (options: { maxBytes?: number; fillBeforeServingBytes?: number } = {}) =>
+    new CachedBlobStore(counted, join(root, "cache"), { maxBytes: options.maxBytes ?? 1_024, ...options });
+  const text = async (store: BlobStore, key: string, range?: Parameters<BlobStore["read"]>[1]) =>
+    (await store.readBuffer(key)).toString("utf8") + (range === undefined ? "" : "");
+
+  it("serves what it wrote without asking the bucket, with the bucket's MD5 version", async () => {
+    const store = cached();
+    await store.write("thumbnails/a.webp", "thumbnail", { contentType: "image/webp" });
+    expect(await text(store, "thumbnails/a.webp")).toBe("thumbnail");
+    expect(calls).toEqual({ read: 0, download: 0 });
+    expect((await store.head("thumbnails/a.webp"))!.version).toBe(`"${createHash("md5").update("thumbnail").digest("hex")}"`);
+    expect(readFileSync(join(root, "bucket", "thumbnails", "a.webp"), "utf8")).toBe("thumbnail");
+  });
+
+  it("fetches a missing file once, then serves it locally", async () => {
+    await bucket.write("originals/b.png", "original", { contentType: "image/png" });
+    const store = cached();
+    expect(await text(store, "originals/b.png")).toBe("original");
+    expect(await text(store, "originals/b.png")).toBe("original");
+    expect(calls).toEqual({ read: 0, download: 1 });
+  });
+
+  it("streams a first range read of a large file from the bucket while it fills the cache", async () => {
+    await bucket.write("motion/c/clip.mp4", "0123456789", { contentType: "video/mp4" });
+    const store = cached({ fillBeforeServingBytes: 4 });
+    const first = await store.read("motion/c/clip.mp4", { start: 2, end: 4 });
+    first.body.resume();
+    expect(first.range).toEqual({ start: 2, end: 4 });
+    await store.settled();
+    const second = await store.read("motion/c/clip.mp4", { suffix: 3 });
+    const chunks: Buffer[] = [];
+    for await (const chunk of second.body) chunks.push(chunk as Buffer);
+    expect(Buffer.concat(chunks).toString()).toBe("789");
+    expect(calls).toEqual({ read: 1, download: 1 });
+  });
+
+  it("forgets deleted and replaced files", async () => {
+    const store = cached();
+    await store.write("originals/d.png", "first", { contentType: "image/png" });
+    await store.copy("originals/d.png", "originals/d.png.previous");
+    await store.write("originals/d.png", "second", { contentType: "image/png" });
+    expect(await text(store, "originals/d.png")).toBe("second");
+    expect(await text(store, "originals/d.png.previous")).toBe("first");
+    await store.delete("originals/d.png");
+    await expect(store.read("originals/d.png")).rejects.toBeInstanceOf(BlobNotFoundError);
+  });
+
+  it("drops the least recently read files beyond its limit, which the bucket still serves", async () => {
+    const store = cached({ maxBytes: 25 });
+    for (const name of ["one", "two", "three"]) {
+      await store.write(`captures/${name}.png`, "0123456789", { contentType: "image/png" });
+      await store.settled();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(await text(store, "captures/one.png")).toBe("0123456789");
+    expect(calls.download).toBe(1); // "one" had been dropped and came back from the bucket
+  });
 });
 
 if (process.env["RETR0VAULT_LIVE"] === "1") {

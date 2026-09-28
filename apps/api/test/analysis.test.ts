@@ -270,7 +270,8 @@ describe("external-curator analysis", () => {
     const dataDirectory = join(context.directory, "cli-data");
     const run = async (...args: string[]) => {
       const { result, ok } = await runAnalysisCommand(analysisCommandSchema.parse(args), connection,
-        { objectStorage: undefined, storageRoot: context.storageRoot, analysisDataDirectory: dataDirectory });
+        { objectStorage: undefined, fileCache: { directory: join(dataDirectory, "file-cache"), maxBytes: 0 },
+          storageRoot: context.storageRoot, analysisDataDirectory: dataDirectory });
       return { ok, result: result as { exported?: number; imported?: number; failed?: number } };
     };
     const exported = await run("export");
