@@ -161,4 +161,19 @@ describe("B1 backend foundation", () => {
       }),
     ).toThrowError(/Invalid environment configuration/);
   });
+
+  it("takes the bucket settings all together or not at all", () => {
+    const bucket = {
+      S3_ENDPOINT: "https://s3.us-east-005.backblazeb2.com", S3_REGION: "us-east-005", S3_BUCKET: "vault",
+      S3_ACCESS_KEY_ID: "key-id", S3_SECRET_ACCESS_KEY: "secret",
+    };
+    expect(loadConfig(bucket).objectStorage).toEqual({
+      endpoint: bucket.S3_ENDPOINT, region: "us-east-005", bucket: "vault", accessKeyId: "key-id", secretAccessKey: "secret",
+    });
+    // Blank values, as in a copied .env.example, count as not set.
+    expect(loadConfig({ DATABASE_URL: "", ...Object.fromEntries(Object.keys(bucket).map((name) => [name, ""])) }))
+      .toMatchObject({ databaseUrl: undefined, objectStorage: undefined });
+    expect(() => loadConfig({ ...bucket, S3_SECRET_ACCESS_KEY: "" })).toThrowError(/also needs S3_SECRET_ACCESS_KEY/);
+    expect(() => loadConfig({ ...bucket, S3_ENDPOINT: "http://s3.example.com" })).toThrowError(/Invalid environment configuration/);
+  });
 });

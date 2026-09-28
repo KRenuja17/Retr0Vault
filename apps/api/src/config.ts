@@ -6,6 +6,9 @@ import { z } from "zod";
 
 import type { S3BlobStoreConfig } from "./storage/s3-blob-store.js";
 
+/** An optional setting; left blank (as in a copied `.env.example`) it counts as not set. */
+const optionalText = () => z.preprocess((value) => (value === "" ? undefined : value), z.string().trim().min(1).optional());
+
 const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -15,7 +18,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
-  DATABASE_URL: z.string().trim().min(1).optional(),
+  DATABASE_URL: optionalText(),
   STORAGE_ROOT: z.string().trim().min(1).optional(),
   ANALYSIS_DATA_DIR: z.string().trim().min(1).optional(),
   CAPTURE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(45_000),
@@ -34,11 +37,11 @@ const environmentSchema = z.object({
   MOTION_PROCESS_TIMEOUT_MS: z.coerce.number().int().min(30_000).max(1_800_000).default(300_000),
   FFMPEG_PATH: z.string().trim().min(1).optional(),
   FFPROBE_PATH: z.string().trim().min(1).optional(),
-  S3_ENDPOINT: z.url({ protocol: /^https$/u }).optional(),
-  S3_REGION: z.string().trim().min(1).optional(),
-  S3_BUCKET: z.string().trim().min(1).optional(),
-  S3_ACCESS_KEY_ID: z.string().trim().min(1).optional(),
-  S3_SECRET_ACCESS_KEY: z.string().trim().min(1).optional(),
+  S3_ENDPOINT: z.preprocess((value) => (value === "" ? undefined : value), z.url({ protocol: /^https$/u }).optional()),
+  S3_REGION: optionalText(),
+  S3_BUCKET: optionalText(),
+  S3_ACCESS_KEY_ID: optionalText(),
+  S3_SECRET_ACCESS_KEY: optionalText(),
 });
 
 const objectStorageVariables = ["S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const;

@@ -1,24 +1,40 @@
 # Retr0Vault
 
-Retr0Vault is a local-first visual inspiration and design-vocabulary archive. The backend supports design-type and collection management, local image ingestion, Chromium website capture, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports. The React frontend is the editorial catalogue over it: the plate gallery, design-type style guides, the reference sheet, accession and the analysis desk, search, collections, and multi-reference compare/direction/export.
+Retr0Vault is a visual inspiration and design-vocabulary archive that runs on this PC and keeps its data in the cloud. The backend supports design-type and collection management, local image ingestion, Chromium website capture, full-text search, live counts, catalogue ordering, safe reference deletion, an external-curator analysis workflow with protected manual edits, and Markdown reference/direction exports. The React frontend is the editorial catalogue over it: the plate gallery, design-type style guides, the reference sheet, accession and the analysis desk, search, collections, and multi-reference compare/direction/export.
 
 ## Prerequisites
 
 - Windows 11 or later for website capture ([Playwright system requirements](https://playwright.dev/docs/intro#system-requirements))
 - Node.js 22 or later
 - npm 10 or later
+- An internet connection: the catalogue lives in a [Supabase](https://supabase.com) Postgres database and its files in a private [Backblaze B2](https://www.backblaze.com/cloud-storage) bucket (see [Cloud data](#cloud-data))
 
-No Docker, XAMPP/WAMP, external database server, cloud service, or AI API key is required.
+No Docker, XAMPP/WAMP, local database server or AI API key is required.
+
+## Cloud data
+
+The app runs on this PC; the data does not. Postgres keeps every record and the bucket keeps every file (originals, thumbnails, captures and motion recordings). The API talks to both; the browser only ever talks to the API.
+
+Put the connection details in `D:\Retr0Vault\.env` (copy `.env.example`; the file is git-ignored):
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Supabase **session pooler** connection string (Project Settings → Database) |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | The bucket's S3 endpoint (for B2, `https://s3.<region>.backblazeb2.com`), region and name |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | An application key limited to that bucket |
+
+Keys stay in `.env`: never in a commit, a screenshot or a chat, and never sent to the web app. The five `S3_*` values go together; with none of them, files stay in the local `STORAGE_ROOT` folder instead, which is how the tests run. `npm run cloud:check` confirms, without printing secrets, that the database answers and the bucket accepts, returns (whole and by byte range) and deletes a test object.
+
+Every table has Row Level Security on with no policies, so Supabase's public Data API can read nothing; the API connects as the tables' owner. A free Supabase project pauses after a quiet week: `/api/v1/health` then fails with 503 `DATABASE_UNAVAILABLE`, and the project resumes from the Supabase dashboard. B2 keeps earlier versions of changed or deleted files by default (the bucket's lifecycle settings), which is a safety net that also counts toward storage.
 
 ## Start Retr0Vault on Windows
 
-From PowerShell in a development working copy's root:
+From PowerShell in the repository root, with `.env` filled in:
 
 ```powershell
 npm install
 npm run capture:install
-npm run db:migrate
-npm run seed
+npm run cloud:check
 npm run dev
 ```
 
@@ -40,20 +56,7 @@ Invoke-RestMethod http://127.0.0.1:4611/api/v1/health
 Run either half alone with `npm run dev:api` or `npm run dev:web`; the web
 server proxies `/api` to the API, so the frontend needs the API running.
 
-The database is created at `data/retr0vault.db`. The API also applies committed migrations during startup, so explicitly running `db:migrate` is safe and repeatable but not required after the first setup.
-
-To keep a source-only checkout such as `D:\Retr0Vault` free of dependencies/build output, clone it to a separate working directory and run these commands there. Keep persistent runtime paths outside both checkouts, for example:
-
-```powershell
-git clone D:\Retr0Vault "$env:LOCALAPPDATA\Retr0Vault\workspace"
-Set-Location "$env:LOCALAPPDATA\Retr0Vault\workspace"
-$env:DATABASE_PATH = "$env:LOCALAPPDATA\Retr0Vault\runtime\retr0vault.db"
-$env:STORAGE_ROOT = "$env:LOCALAPPDATA\Retr0Vault\runtime\storage"
-$env:ANALYSIS_DATA_DIR = "$env:LOCALAPPDATA\Retr0Vault\runtime\data"
-# Then run the install, migrate, seed and dev:api commands above.
-```
-
-Use the same environment variables for the API and every CLI command in each new PowerShell session. `seed` is optional representative content: rerunning it refreshes seed-owned records and can replace edits to them. Seed and seed-clear operations are atomic; a slug conflict or in-use design type leaves the entire operation unchanged. Neither command is a restore operation.
+The API applies committed migrations to `DATABASE_URL` during startup, so `npm run db:migrate` is safe and repeatable but not required. `npm run seed` adds representative design types and a collection to an empty project; rerunning it refreshes seed-owned records and can replace edits to them, and `seed:clear` removes only those records. Both are atomic, and neither is a restore operation.
 
 ## Backend commands
 
@@ -61,10 +64,13 @@ Use the same environment variables for the API and every CLI command in each new
 npm run dev          # Start API and web together
 npm run dev:api      # Start the API in watch mode
 npm run capture:install # Install the pinned Playwright Chromium browser
-npm run db:migrate   # Apply committed SQLite migrations
+npm run cloud:check  # Confirm the database and bucket in .env are reachable
+npm run db:migrate   # Apply committed Postgres migrations to DATABASE_URL
 npm run db:generate  # Generate migrations after schema changes
 npm run seed         # Add representative development design types/collection
 npm run seed:clear   # Remove only the development seed records
+npm run cloud:backup # Save the database to data/backups/ (add -- --files for the bucket)
+npm run cloud:migrate # Copy a SQLite archive and its files into the cloud (see Backups)
 npm run test:api     # Run the backend test suite
 npm run typecheck:api # Type-check shared/backend sources and backend tests
 npm run build:api    # Build shared and API packages
@@ -73,17 +79,16 @@ npm run storage:orphans # Report old unowned files; does not move/delete them
 
 No manual shared-package build is needed after `npm install`. `seed` and `seed:clear` build `@retr0vault/shared` first, including when invoked directly with `--workspace @retr0vault/api`. Direct API workspace `typecheck` builds shared declarations first; `start` builds the API and its shared dependency before running the compiled server. These pre-scripts stop the command if compilation fails.
 
-`build:api` (and the API workspace `build`) already orders shared/API compilation through TypeScript project references. `dev:api`, `test:api`, the root `typecheck:api`, and the analysis/orphan CLIs use shared TypeScript source directly. `db:migrate`, `db:generate`, and `capture:install` do not need shared runtime output. The full root `typecheck` and `build` commands also check/build the frontend.
+`build:api` (and the API workspace `build`) already orders shared/API compilation through TypeScript project references. `dev:api`, `test:api`, the root `typecheck:api`, and the command-line tools use shared TypeScript source directly. `db:migrate`, `db:generate`, and `capture:install` do not need shared runtime output. The full root `typecheck` and `build` commands also check/build the frontend. The server and every command-line tool read `.env`; variables already set in the environment win.
 
-Environment variables are optional and validated at startup:
+Other environment variables are optional and validated at startup:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Localhost bind address (`127.0.0.1` or `localhost`) |
 | `PORT` | `4611` | API port |
 | `LOG_LEVEL` | `info` | Fastify/Pino log level |
-| `DATABASE_PATH` | `data/retr0vault.db` | Absolute path, or a path relative to the repository root |
-| `STORAGE_ROOT` | `storage` | Absolute path, or a path relative to the repository root, for originals and thumbnails |
+| `STORAGE_ROOT` | `storage` | Local file folder when no bucket is configured, and where `cloud:migrate` reads files from; absolute or relative to the repository root |
 | `MAX_UPLOAD_BYTES` | `26214400` | Maximum multipart image size in bytes (25 MiB by default) |
 | `ANALYSIS_DATA_DIR` | `data` | Parent directory for local analysis inbox/results; relative to the repository root or absolute |
 | `CAPTURE_TIMEOUT_MS` | `45000` | Maximum browser-capture duration, including DNS and launch (1,000–120,000 ms), followed by process cleanup |
@@ -91,7 +96,7 @@ Environment variables are optional and validated at startup:
 
 ## Library statistics
 
-`GET /api/v1/stats` returns one consistent database snapshot, with no query parameters:
+`GET /api/v1/stats` returns the live counts, all read together in one round trip, with no query parameters:
 
 ```json
 {
@@ -110,24 +115,22 @@ Each group is `{ "id": "uuid", "name": "Name", "slug": "name", "referenceCount":
 
 - The server binds only to `127.0.0.1` or `localhost`; no LAN/public bind or reverse proxy is supported. Host headers must name `localhost`, `127.0.0.1`, or `[::1]`, blocking arbitrary DNS-rebinding hostnames.
 - Browser origins are restricted to HTTP loopback names on frontend port `4610` or the configured API port. Other origins, including `null`, are rejected **before writes**, not merely denied CORS response headers. Cross-site browser requests without Origin are also rejected. Exact-origin CORS supports GET/HEAD/POST/PATCH/DELETE preflights, Content-Type, and exposed Content-Disposition; no credentials or wildcard origins.
-- This is a single-user local application, not an authenticated multi-user service. Native local programs can omit Origin. Keep the machine, loopback frontend, runtime directories and their parents trusted; filesystem checks are not a sandbox against another process running as your Windows user. Do not expose the API through port forwarding or a tunnel.
-- Ordinary JSON requests are limited to 1 MiB; analysis/export routes allow 2 MiB. Uploads allow one file (25 MiB default), up to 20 fields, 8 KiB per field and 100-byte field names. Truncated fields are rejected. Images are actually decoded, limited to 100 million pixels, and thumbnails are generated before exclusive file writes. Existing files and links are never intentionally overwritten by ingestion.
+- This is a single-user application, not an authenticated multi-user service. Native local programs can omit Origin. Keep the machine, loopback frontend, `.env` and local runtime directories trusted. Do not expose the API through port forwarding or a tunnel.
+- Ordinary JSON requests are limited to 1 MiB; analysis/export routes allow 2 MiB. Uploads allow one file (25 MiB default), up to 20 fields, 8 KiB per field and 100-byte field names. Truncated fields are rejected. Images are actually decoded, limited to 100 million pixels, and thumbnails are generated before any file is stored. Ingestion never overwrites an existing file.
 - Newly supplied metadata source URLs must be HTTP(S), at most 2,048 characters, without credentials, whitespace, control characters or backslashes. They are not fetched. Website capture additionally enforces the public-network rules above. Historical metadata remains readable; unsafe links are not rendered as clickable links in exports.
 - Manual analysis JSON is limited to 20 nesting levels and 10,000 values. Protected field names are unique and validated. Strict analysis imports retain their full dimension schema, per-record transactions and protected-edit rules. CLI imports read one regular, non-linked, bounded 2 MiB JSON file at a time and detect duplicates across the whole batch; input files are not consumed or deleted.
-- Responses use the shared `{ error: { code, message, statusCode }, requestId }` envelope. Unexpected failures are generic in every environment; expected API failures retain actionable messages. SQLite lock contention has a one-second wait and returns 503 `DATABASE_BUSY` with `Retry-After: 1`. Before retrying a write after a lost connection, check whether it already succeeded.
+- Responses use the shared `{ error: { code, message, statusCode }, requestId }` envelope. Unexpected failures are generic in every environment; expected API failures retain actionable messages. Database contention (serialization failures, deadlocks, lock timeouts, too many connections) returns 503 `DATABASE_BUSY` with `Retry-After: 1`; an unreachable database returns 503 `DATABASE_UNAVAILABLE` with `Retry-After: 10`. Before retrying a write after a lost connection, check whether it already succeeded.
 - HTTP logs retain request IDs, methods, response statuses and timing, but omit raw URLs/query strings, bodies, authorization headers, SQL parameters and exception stacks. Responses default to `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 ## Database integrity and migrations
 
-SQLite connections enable foreign keys, WAL and full synchronous durability. Existing foreign-key delete/restrict behavior, unique relations, enums, positive image dimensions and ordering constraints remain enforced. Committed migrations are repeatable; never edit a migration already applied to a real library.
-
-The additive `0006_backend_json_guards.sql` migration validates legacy JSON and installs insert/update guards: analysis must be a JSON object or SQL NULL, and protected fields must be a unique array of supported names. It does not rebuild references or alter their rowids, relations or FTS triggers. If the preflight fails, the migration rolls back without repairing or discarding user data. Back up first, inspect the affected JSON with a SQLite tool, repair only the confirmed bad record, and retry. Future table-rebuild migrations must recreate these custom guards as well as the FTS projection/triggers; Drizzle's table snapshot does not model custom triggers.
+The Postgres schema (`apps/api/drizzle`) enforces foreign-key delete/restrict behavior, unique relations, enums, positive image dimensions and ordering constraints with named constraints. `0001_json_guards.sql` adds the JSON shape checks: analysis must be a JSON object or SQL NULL, and protected fields must be a unique array of supported names. `0002_search.sql` adds the trigger-maintained search tables and `0003_row_level_security.sql` turns on Row Level Security. All pending migrations run in one transaction, so a failed migration leaves the database as it was. Never edit a migration already applied to a real library.
 
 ## Deletion and orphan-file maintenance
 
-Reference deletion commits database cascades first, then removes only that UUID's validated original, thumbnail and recorded capture frames. Database rejection retains all files. Missing files are harmless on repeated cleanup; unsafe paths, linked directories or filesystem failures are left alone and produce a cleanup warning. An HTTP 204 means the database deletion succeeded, even if file cleanup could not finish. API deletion is permanent; recovery requires a backup.
+Reference deletion commits database cascades first, then removes only that UUID's validated original, thumbnail, recorded capture frames and motion files from the file store. Database rejection retains all files. Missing files are harmless on repeated cleanup; unsafe names or storage failures are left alone and produce a cleanup warning. An HTTP 204 means the database deletion succeeded, even if file cleanup could not finish. API deletion is permanent; recovery requires a backup.
 
-Crashes between file creation and the database transaction, or failed filesystem cleanup, can leave orphans. There is no automatic startup deletion. Stop the API, captures, importers and other storage writers; make a backup; verify that `DATABASE_PATH` and `STORAGE_ROOT` identify the same library. Then:
+Crashes between storing a file and the database transaction, or failed cleanup, can leave orphans. There is no automatic startup deletion. Stop the API, captures and importers, make a backup, then:
 
 ```powershell
 npm run storage:orphans
@@ -135,24 +138,35 @@ npm run storage:orphans
 npm run storage:orphans -- --quarantine
 ```
 
-The command requires an existing database and passes SQLite quick/foreign-key checks before touching storage. Only recognized UUID image/frame filenames at least 24 hours old qualify. Files belonging to any live reference ID or referenced database path, recent files, unknown names, nested/unrecognized content and links are retained; linked managed directories abort the scan. Empty directories are not recursively removed.
+The command lists the configured store (the bucket, or the local folder) and compares it with one consistent read of the database. Only recognized UUID image/frame/motion names at least 24 hours old qualify. Files belonging to any live reference, clip or referenced path, recent files and unknown names are retained and reported; in a local folder, linked directories abort the scan. Quarantine refuses to run against a database with no references.
 
-Quarantine moves eligible files to `STORAGE_ROOT/quarantine/<batch-uuid>/` with their original relative paths intact. It never removes database rows or permanently deletes quarantined content. Review the JSON report's `candidates`, `quarantined`, `skipped` and `quarantineDirectory`. If interrupted, completed moves remain recoverable under quarantine; rerunning scans remaining files. To recover a mistaken move, keep writers stopped and copy the selected file back to its original relative path only after checking that destination is absent. Keep quarantine until a verified backup and manual review make it unnecessary.
+Quarantine copies eligible files under `quarantine/<batch-uuid>/` in the same store, with their original keys intact, and then removes the originals. It never removes database rows or permanently deletes quarantined content. Review the JSON report's `candidates`, `quarantined`, `skipped` and `quarantinePrefix`. If interrupted, completed moves remain recoverable under quarantine; rerunning scans remaining files. Keep quarantine until a verified backup and manual review make it unnecessary.
 
-## Backup and restore expectations
+## Backups
 
-Git contains code, migrations and documentation—not the library. Back up before upgrades, bulk changes or cleanup, and periodically to a separate local disk. There is no automatic backup/cloud sync requirement.
+Git contains code, migrations and documentation, not the library. Supabase's free plan keeps no backups you can download, so take your own before upgrades, bulk changes or cleanup, and periodically:
 
-1. Stop the API and every importer/maintenance process, and wait for them to exit. Use a new backup directory outside the repository and live runtime roots.
-2. Copy the configured SQLite database and any remaining `-wal`/`-shm` sidecars together, the entire `STORAGE_ROOT` (including originals, thumbnails, captures and quarantine), and `ANALYSIS_DATA_DIR` inbox/results. Record the runtime path settings and Git commit used. Do not modify/remove WAL files manually: committed data may still be in the [SQLite WAL](https://www.sqlite.org/wal.html).
-3. Verify the backup by restoring it into fresh, separate directories with all processes stopped; never mix database/storage from different backups or overwrite the only good copy. Point the three environment variables at the restored paths, run `npm run db:migrate`, then start the API.
-4. Compare `/api/v1/stats`, open representative reference metadata, check original/thumbnail/capture files and search terms, and confirm analysis protections. Regenerate pending manifests after restoring to a new path because their absolute image paths can be stale. Do not run `seed` as part of recovery unless deliberately refreshing sample content.
+```powershell
+npm run cloud:backup              # data/backups/retr0vault-<date>.db
+npm run cloud:backup -- --files   # also bring data/backups/files/ up to date with the bucket
+```
 
-Copying only a live `.db` file is not a valid backup procedure. SQLite has an [online backup API](https://www.sqlite.org/backup.html), but a database-only snapshot would still need coordination with image-file writes; V1 documents and tests the stopped-process backup procedure instead. Store backups with appropriate Windows permissions because source URLs and curator results may be private.
+The database backup is one SQLite file in the pre-cloud archive's format, read from one consistent snapshot; any SQLite viewer opens it. `--files` downloads only files that are new or changed since the last mirror. Store backups on a separate disk with appropriate Windows permissions: source URLs and curator results may be private.
 
-## Backend V1 verification
+To restore into an **empty** Supabase project and bucket, point `.env` at them and run:
 
-Run `npm run test`, `npm run typecheck` and `npm run build` after installing Chromium. Tests cover fresh and populated migrations, constraints, CRUD/deletion, real Chromium lifecycle and SSRF boundaries, analysis safety, exports, FTS updates/relevance/pagination, live statistics, browser-origin rejection, upload rollback, orphan quarantine and cold-backup restoration. Frontend tests cover the catalogue, style guides, the reference sheet, accession and the analysis desk, search, collections, selection, compare, direction and exports against a stubbed API. Tests use disposable runtime directories.
+```powershell
+npm run cloud:migrate -- --dry-run --sqlite data/backups/retr0vault-<date>.db --storage data/backups/files
+npm run cloud:migrate -- --sqlite data/backups/retr0vault-<date>.db --storage data/backups/files
+```
+
+`cloud:migrate` also moved the pre-cloud archive: it reads `data/retr0vault.db` (read-only) and the files under `STORAGE_ROOT`, copies every row in one transaction with its IDs, dates, protections and analyses, uploads every file under its existing key (verified by size and checksum), rebuilds search and prints a verification report, which it keeps under `data/cloud-migration/`. Rerunning copies only what is missing and never overwrites; a file whose bytes differ in the bucket is reported. `--dry-run` checks every row against the real constraints and then rolls back. The original `data/retr0vault.db` and `storage/` are left untouched as the pre-cloud snapshot.
+
+After a restore, compare `/api/v1/stats`, open representative references, originals, captures and motion clips, try some searches and confirm analysis protections. Regenerate pending manifests, whose inbox copies belong to the old library.
+
+## Backend verification
+
+Run `npm run test`, `npm run typecheck` and `npm run build` after installing Chromium. API tests run on an in-process Postgres ([PGlite](https://pglite.dev)) and a local file store, with no network and no accounts: they cover migrations and constraints, CRUD/deletion, real Chromium lifecycle and SSRF boundaries, analysis safety, exports, search updates/relevance/pagination, live statistics, browser-origin rejection, upload rollback, the file-store contract, bucket-mode curator copies, orphan quarantine, the archive migration and backup round trip. `RETR0VAULT_LIVE=1 npx vitest run test/blob-store.test.ts` (in `apps/api`) runs the file-store contract against the real bucket in `.env`, under a throwaway prefix it removes. Frontend tests cover the catalogue, style guides, the reference sheet, accession and the analysis desk, search, collections, selection, compare, direction and exports against a stubbed API.
 
 Dependency audit at this checkpoint: `npm audit --omit=dev` reports no runtime advisories. The full audit reports four moderate entries in the development-only Drizzle Kit → esbuild-kit → esbuild chain, all stemming from [esbuild's development-server CORS advisory](https://github.com/evanw/esbuild/security/advisories/GHSA-67mh-4wv8-2f99). Retr0Vault does not run that esbuild server or Drizzle Studio. Keep migration generation local/trusted; do not use `npm audit fix --force`, which currently proposes a breaking Drizzle Kit downgrade. Review upstream fixes when upgrading the pinned lockfile.
 
@@ -178,13 +192,13 @@ PUT    /api/v1/references/:id/image
 DELETE /api/v1/references/:id
 ```
 
-The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are preserved beneath `storage/originals`; generated WebP thumbnails are written beneath `storage/thumbnails`.
+The list endpoint accepts `q`, `designType`, `collection`, `status`, `page`, `limit`, `sort`, and `includeCatalogueIndex` query parameters. Originals are kept byte for byte under `originals/<id>.<ext>` in the file store; generated WebP thumbnails under `thumbnails/<id>.webp`.
 
 ### Replacing a reference's picture
 
 `PUT /api/v1/references/:id/image` takes one JPEG, PNG or WebP as multipart field `file` (the same size limit as uploads) and an optional `resetAnalysis` field, `true` or `false`. Only the picture changes: title, analysis, tags, collections and any motion study stay. An image reference keeps the uploaded bytes and its original follows the new format, so a PNG replaced by a JPEG moves from `originals/<id>.png` to `originals/<id>.jpg`. A website reference takes the picture as its primary viewport frame, re-encoded as `captures/<id>/viewport.png`, and keeps its other frames. The thumbnail is regenerated either way. With `resetAnalysis=true` the reference is filed back as `pending` so the next manifest carries the new picture; its analysis fields stay until a new analysis is imported.
 
-The new files are written beside the old ones, the old ones are moved aside, and they are only removed once the database row points at the new picture. A failure at any step leaves the previous picture in place. A second replacement of the same reference while one is running returns 409 `REFERENCE_IMAGE_BUSY`. If the API is killed mid-replacement, a `<file>.incoming` or `<file>.previous` can be left beside the picture. `storage:orphans` does not recognise those names; the next replacement of that reference removes them, or delete them by hand with the API stopped. In the app this is the **Replace a reference's picture** lane on `/add` (`/add#replace`). Catalogue plates are 16:9 and crop from the top, so a full-screen 1920 × 1080 screenshot fits a plate exactly.
+The current files are first copied aside as `<key>.previous`, then the new ones are stored, and the copies are removed only once the database row points at the new picture. A failure at any step puts the previous picture back. A second replacement of the same reference while one is running returns 409 `REFERENCE_IMAGE_BUSY`. If the API is killed mid-replacement, a `<key>.previous` copy can be left behind; `storage:orphans` reports it as an unrecognized name, and the next replacement of that reference overwrites it. In the app this is the **Replace a reference's picture** lane on `/add` (`/add#replace`). Catalogue plates are 16:9 and crop from the top, so a full-screen 1920 × 1080 screenshot fits a plate exactly.
 
 ```powershell
 curl.exe -X PUT http://127.0.0.1:4611/api/v1/references/<reference-id>/image `
@@ -205,7 +219,7 @@ With the existing F1 Vite `/api` proxy, use the same-origin image `src` `/api/v1
 
 Both routes return raw image bytes (not JSON) with `Content-Length` and `X-Content-Type-Options: nosniff`. Thumbnails are `image/webp`; originals are `image/jpeg`, `image/png`, or `image/webp`. For website captures, original means the primary `viewport.png`, not the full-page or other frames. HEAD returns the same headers without an image body.
 
-The ID must be a UUID (case-insensitive); no filesystem paths are accepted, and the only query parameter is an optional `v` (at most 64 characters). The web app sends the reference's `updatedAt` there, so a replaced picture gets a new URL instead of the browser reusing the old image it already decoded. Missing references return 404 `REFERENCE_NOT_FOUND`; missing, unreadable or unsafe media returns 404 `MEDIA_NOT_FOUND`. Invalid IDs/query parameters return 400 `VALIDATION_ERROR`. Errors use the existing JSON envelope and `Cache-Control: no-store`. Existing reference response fields and storage layout are unchanged; `storage/` is not exposed as a static directory.
+The ID must be a UUID (case-insensitive); no filesystem paths are accepted, and the only query parameter is an optional `v` (at most 64 characters). The web app sends the reference's `updatedAt` there, so a replaced picture gets a new URL instead of the browser reusing the old image it already decoded. Missing references return 404 `REFERENCE_NOT_FOUND`; missing, unreadable or unsafe media returns 404 `MEDIA_NOT_FOUND`. Invalid IDs/query parameters return 400 `VALIDATION_ERROR`. Errors use the existing JSON envelope and `Cache-Control: no-store`. Existing reference response fields and storage keys are unchanged; the bucket is private, and files reach the browser only through these routes.
 
 Successful responses use `Cache-Control: private, max-age=0, must-revalidate` and a weak ETag. Browsers can cache bytes and revalidate with `If-None-Match`; a matching validator returns an empty 304 only after the reference and safe file are checked again. Deleted/missing media returns 404 even with a previously valid ETag. Normal image loading handles this automatically; the existing localhost/Origin/CORS policy still applies. Byte-range requests are not supported (GET returns the complete image).
 
@@ -227,9 +241,9 @@ Optional `designTypeId` selects an existing category. Input is strictly validate
 
 The endpoint waits for the capture and returns HTTP 201 with the normal reference response, `sourceType: "website"`, `analysisStatus: "pending"`, and ordered `frames`. A fresh, sandboxed, headless Chromium process uses a 1440 × 900 viewport, pixel ratio 1, English locale, UTC, light colour scheme, and reduced motion. It waits for DOM readiness, then up to two seconds of network idle. Navigation is limited to 15 seconds; the overall browser deadline defaults to 45 seconds. Dynamic sites, login screens, consent banners, bot protection, and lazy content can affect what is visible; capture does not interact with or bypass them.
 
-Frames are PNG files beneath `storage/captures/<reference-id>/`:
+Frames are PNG files under `captures/<reference-id>/` in the file store:
 
-- `viewport.png`: primary top viewport, also used as `originalPath` and to generate the card's WebP thumbnail under `storage/thumbnails`.
+- `viewport.png`: primary top viewport, also used as `originalPath` and to generate the card's WebP thumbnail under `thumbnails/`.
 - `hero.png`: optional top hero/first section when a visible matching element fits inside the viewport. It is omitted if no suitable region is found.
 - `scroll-50.png`, `scroll-80.png`: viewports at approximately 50% and 80% of the scrollable distance. Short pages can produce identical views.
 - `fullpage.png`: only when `fullPage` is true; maximum page dimensions are 4096 × 20000 pixels. Oversized pages fail clearly; retry without `fullPage`.
@@ -252,20 +266,20 @@ The additive `0005_website_capture.sql` migration creates `reference_frames` wit
 Invoke-RestMethod 'http://127.0.0.1:4611/api/v1/references?q=technical%20mono&sort=relevance&page=1&limit=24&includeCatalogueIndex=true'
 ```
 
-Search covers titles, Design DNA, design theses, visual tags, design-type names/slugs/descriptions and vocabulary, source URLs, design briefs, image recipes, and text values inside structured analysis. It is local SQLite search; no embedding model, vector database, AI API, or external service is used.
+Search covers titles, Design DNA, design theses, visual tags, design-type names/slugs/descriptions and vocabulary, source URLs, design briefs, image recipes, and text values inside structured analysis. It is Postgres full-text search; no embedding model, vector database or AI API is used.
 
 | Parameter | Behaviour |
 | --- | --- |
 | `q` | Up to 500 characters. All words must match, possibly across different fields. Matching is case-insensitive and ignores Latin accents. Punctuation separates words; FTS operators and SQL syntax are not executed. This is whole-word matching, not arbitrary substring or fuzzy search. Empty/whitespace input lists all references; punctuation-only input matches none. |
 | `designType`, `collection` | Exact slugs; combined with each other and the search/status filters. Unknown slugs return an empty result. |
 | `status` | `pending`, `analyzed`, `manual`, or `failed` |
-| `sort` | `relevance`, `newest`, `oldest`, `title-asc`, or `title-desc`. Defaults to relevance when `q` is nonempty, newest otherwise. Explicit relevance without a query uses newest. Title sorting uses SQLite's `NOCASE` collation. |
+| `sort` | `relevance`, `newest`, `oldest`, `title-asc`, or `title-desc`. Defaults to relevance when `q` is nonempty, newest otherwise. Explicit relevance without a query uses newest. Title sorting ignores case. |
 | `page`, `limit` | One-based page (default 1, maximum 1,000,000) and page size (default 24, range 1–100). The response includes `page`, `limit`, `total`, and `totalPages`; an out-of-range page is empty but retains the matching total. |
 | `includeCatalogueIndex` | Literal `true` or `false` (default false). When true, each list item includes a one-based `catalogueIndex` within the complete filtered/sorted result set, before pagination. Otherwise the property is omitted. |
 
-Relevance gives more weight to titles, Design DNA, and visual tags than long-form text. Ties use stable UUID ordering (relevance also uses newest-first for equally ranked results). Catalogue indexes remain stable for unchanged data/query/sort, not across library edits or different filters. Totals, page items, and their relations are read from one database snapshot. Design-type and collection `referenceCount` values are live totals across all statuses, independent of the current search.
+Relevance gives more weight to titles, Design DNA, and visual tags than long-form text. Ties use stable UUID ordering (relevance also uses newest-first for equally ranked results). Catalogue indexes remain stable for unchanged data/query/sort, not across library edits or different filters. Totals and page items are read together and their relations in one more batch; while an import is writing, a total can briefly disagree with its page. Design-type and collection `referenceCount` values are live totals across all statuses, independent of the current search.
 
-The custom migration `apps/api/drizzle/0004_reference_search.sql` owns the [SQLite FTS5](https://www.sqlite.org/fts5.html) table, a shared source projection, and transactional synchronization triggers. It backfills existing references and refreshes the index when reference text, tags, assignments, or category vocabulary changes, including analysis imports. Reference UUIDs—not implicit database rowids—identify documents. Future migrations that rebuild source tables must preserve these triggers; changes to indexed columns must keep the projection and BM25 weights in `reference-search.ts` aligned.
+The custom migration `apps/api/drizzle/0002_search.sql` owns the `reference_search` and `motion_search` tables: one weighted `tsvector` per reference or study (the `simple` configuration, so no stemming or stop words; accents and case folded on both sides), kept current by triggers when reference text, tags, assignments, category vocabulary or motion analysis change, including analysis imports. Weights A–D stand in for the former per-field weights. Changes to indexed columns must keep the refresh functions and the ranking weights in `reference-search.ts` aligned.
 
 ## External-curator analysis
 
@@ -331,7 +345,7 @@ For category briefs use `{ "mode": "category-brief", "designTypeIds": ["uuid"] }
 
 `POST /api/v1/export/design-direction` supports exactly two modes:
 
-- `pending-combination`: select 2–100 references with `referenceIds`, plus optional `intent` (1–5,000 characters). The first selected reference is the primary starting point, not automatic authority for all dimensions. The Markdown manifest contains comparison instructions, a structured snapshot of the selected sources (including full internal analysis and category context), and the JSON Schema for the authored result. Image paths are relative to configured `STORAGE_ROOT`; downloading the manifest does not bundle images or fetch source URLs.
+- `pending-combination`: select 2–100 references with `referenceIds`, plus optional `intent` (1–5,000 characters). The first selected reference is the primary starting point, not automatic authority for all dimensions. The Markdown manifest contains comparison instructions, a structured snapshot of the selected sources (including full internal analysis and category context), and the JSON Schema for the authored result. Image paths are storage keys (such as `originals/<id>.png`); downloading the manifest does not bundle images or fetch source URLs.
 - `authored`: select 1–100 references with `referenceIds` and provide a completed `direction` object. The endpoint validates and formats the supplied decisions without generating or evaluating them. The first selected reference is primary; subsequent references are supporting sources.
 
 ```powershell
@@ -403,14 +417,14 @@ GET    /api/v1/motion/clips/:clipId/energy     the motion-energy curve, for the 
 GET    /api/v1/motion                          Motion section: q, trigger, technique, status, sort, page, limit
 ```
 
-Uploads stream to disk and return 202 at once; any container ffprobe reads (MP4, MOV, WebM, MKV) up to 60 s, 3840 × 2160 and `MAX_MOTION_UPLOAD_BYTES` (default 300 MiB) is accepted. A single-worker queue in the API then:
+Uploads stream to a temporary folder, are checked there and stored, and return 202 at once; any container ffprobe reads (MP4, MOV, WebM, MKV) up to 60 s, 3840 × 2160 and `MAX_MOTION_UPLOAD_BYTES` (default 300 MiB) is accepted. A single-worker queue in the API then:
 
 1. normalizes the clip to `clip.mp4` (H.264, faststart; H.264 MP4s are remuxed, everything else transcoded) and a 640 px `preview.mp4` for plates;
 2. samples it at 10 fps in greyscale and measures a **motion-energy** curve and an **8 × 6 region map** per sample;
 3. detects **events** (onset, peak, settle, spread, locality, still-band hint) and **hard cuts**;
 4. extracts **smart keyframes** (start, cut, onset, peak, sub-peaks inside long events, settle, fill, end; at most 24), **burst strips** of 8 frames across the strongest events, an energy timeline, a region sheet and a contact sheet.
 
-`MOTION_PROCESS_TIMEOUT_MS` (default 300 000) bounds one clip. Clips interrupted by a shutdown are resumed on the next start. Files live under `storage/motion/<reference-id>/<clip-id>/` and are removed with their clip, study or reference; `storage:orphans` reports unowned motion files.
+`MOTION_PROCESS_TIMEOUT_MS` (default 300 000) bounds one clip. Clips interrupted by a shutdown are resumed on the next start. Processing downloads the recording to a temporary folder, runs ffmpeg there and stores each output. Files live under `motion/<reference-id>/<clip-id>/` in the file store and are removed with their clip, study or reference; `storage:orphans` reports unowned motion files.
 
 Motion media is served by clip ID; `clip` and `preview` support HTTP byte ranges for seeking:
 
@@ -430,7 +444,7 @@ npm run motion:import           # data/motion-results/<referenceId>.json
 npm run motion:import -- --overwrite-protected
 ```
 
-The manifest lists every piece of evidence by absolute path, plus the user's inspection notes and numbered verified tech. An analysis may mark an implementation claim `verified` only by citing a `verifiedTech` entry; inspection notes and verified tech are never importable. API equivalents: `GET /api/v1/motion/pending`, `POST /api/v1/motion/import`, `POST /api/v1/motion/:referenceId/reset`. The contract and curator instructions are in [docs/motion-analysis.md](docs/motion-analysis.md).
+The manifest lists every piece of evidence by absolute path (with the bucket, local copies in `data/motion-inbox/evidence/`), plus the user's inspection notes and numbered verified tech. An analysis may mark an implementation claim `verified` only by citing a `verifiedTech` entry; inspection notes and verified tech are never importable. API equivalents: `GET /api/v1/motion/pending`, `POST /api/v1/motion/import`, `POST /api/v1/motion/:referenceId/reset`. The contract and curator instructions are in [docs/motion-analysis.md](docs/motion-analysis.md).
 
 Reference responses carry an additive `motion` summary (null without a study); `/api/v1/stats` adds `motionStudies` and `countsByTrigger`. Reference Markdown exports include a Motion Study section, and combination manifests include each reference's `motionStudy`.
 
@@ -442,8 +456,8 @@ apps/
   web/       React catalogue frontend (Vite)
 packages/
   shared/    Shared Zod schemas and inferred TypeScript types
-data/        Local SQLite, analysis and motion-analysis runtime data (ignored)
-storage/     Local reference files, captures and motion recordings (ignored)
+data/        Analysis/motion inboxes and results, backups, migration reports and the pre-cloud SQLite archive (ignored)
+storage/     Pre-cloud local files, kept as the migration's snapshot (ignored)
 docs/        Analysis and motion-analysis contracts, curator and recording guides
 ```
 
