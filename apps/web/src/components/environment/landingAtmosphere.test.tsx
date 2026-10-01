@@ -1,10 +1,8 @@
 import { StrictMode, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 
-import { LandingAtmosphere, LandingEffectPicker, LandingFieldCanvas, useLandingEffect } from "./LandingAtmosphere";
-import type { LandingEffect } from "./landingField";
+import { LandingAtmosphere, LandingFieldCanvas } from "./LandingAtmosphere";
 
 function clock() {
   const pending = new Map<number, FrameRequestCallback>();
@@ -47,22 +45,17 @@ function surfaces() {
   return contexts;
 }
 
-function Scene({ effect = "orrery", running = true, reduced = false }: {
-  effect?: LandingEffect; running?: boolean; reduced?: boolean;
+function Scene({ running = true, reduced = false }: {
+  running?: boolean; reduced?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   return (
     <div ref={root}>
       <button type="button">Preview control</button>
       <LandingFieldCanvas /><LandingFieldCanvas />
-      <LandingAtmosphere root={root} effect={effect} running={running} reduced={reduced} />
+      <LandingAtmosphere root={root} running={running} reduced={reduced} />
     </div>
   );
-}
-
-function Desk() {
-  const [effect, change] = useLandingEffect();
-  return <LandingEffectPicker effect={effect} onChange={change} />;
 }
 
 afterEach(() => {
@@ -104,8 +97,7 @@ describe("landing field lifecycle", () => {
     expect(frames.pending.size).toBe(1);
     view.rerender(<Scene reduced />);
     expect(frames.pending.size).toBe(0);
-    view.rerender(<Scene effect="none" />);
-    expect(frames.pending.size).toBe(0);
+
   });
 
   it("stops in hidden tabs and removes its visibility listener on unmount", () => {
@@ -123,22 +115,10 @@ describe("landing field lifecycle", () => {
     expect(frames.pending.size).toBe(0);
   });
 
-  it("steers the orrery when the pointer moves across the paper", () => {
-    const frames = clock();
-    const contexts = surfaces();
-    const view = render(<Scene />);
-    const primary = contexts[0]!;
-    const root = view.container.firstElementChild!;
-    const initialTilt = primary.rotate.mock.calls.at(-1)![0];
-    root.dispatchEvent(new MouseEvent("pointermove", { clientX: 1200, clientY: 400, bubbles: true }));
-    for (let frame = 0; frame < 30; frame += 1) frames.advance(34);
-    expect(primary.rotate.mock.calls.at(-1)![0]).toBeGreaterThan(initialTilt + 0.2);
-  });
-
   it("ripples a paper click, ignores controls and secondary clicks, and removes the listener", () => {
     const frames = clock();
     const contexts = surfaces();
-    const view = render(<Scene effect="constellation" />);
+    const view = render(<Scene />);
     const primary = contexts[0]!;
     const root = view.container.firstElementChild!;
     const press = (target: Element, button = 0) => target.dispatchEvent(new MouseEvent("pointerdown", {
@@ -152,7 +132,7 @@ describe("landing field lifecycle", () => {
     frames.advance(34);
     expect(primary.arc).toHaveBeenCalledWith(1000, 300, expect.any(Number), 0, Math.PI * 2);
     primary.arc.mockClear();
-    view.rerender(<Scene effect="constellation" running={false} />);
+    view.rerender(<Scene running={false} />);
     frames.advance(34);
     expect(primary.arc).not.toHaveBeenCalled();
     view.unmount();
@@ -160,56 +140,13 @@ describe("landing field lifecycle", () => {
     expect(frames.pending.size).toBe(0);
   });
 
-  it.each(["ribbons", "orrery", "halftone", "constellation", "shutters", "moire", "magnetic", "irises", "prisms", "typography"] as const)("draws a static %s with no scheduled animation", (effect) => {
+  it("draws a static map with no scheduled animation", () => {
     const frames = clock();
     const contexts = surfaces();
-    render(<Scene effect={effect} reduced />);
+    render(<Scene reduced />);
     expect(contexts[1]!.drawImage).toHaveBeenCalledTimes(1);
     expect(frames.pending.size).toBe(0);
     expect(document.querySelector("canvas")).toHaveAttribute("aria-hidden", "true");
     expect(document.querySelector("canvas")!.style.pointerEvents).toBe("none");
-  });
-});
-
-describe("temporary effect comparison desk", () => {
-  it("switches by keyboard without sending Enter to the vault, and remembers the choice on remount", async () => {
-    vi.stubEnv("DEV", true);
-    const entered = vi.fn();
-    window.addEventListener("keydown", entered);
-    try {
-      const view = render(<Desk />);
-      const option = screen.getByRole("button", { name: "Ink tides" });
-      option.focus();
-      await userEvent.keyboard("{Enter}");
-      expect(option).toHaveAttribute("aria-pressed", "true");
-      expect(entered).not.toHaveBeenCalled();
-      view.unmount();
-      render(<Desk />);
-      expect(screen.getByRole("button", { name: "Ink tides" })).toHaveAttribute("aria-pressed", "true");
-      fireEvent.click(screen.getByRole("button", { name: /Next landing effect/ }));
-      expect(screen.getByRole("button", { name: "Accession map" })).toHaveAttribute("aria-pressed", "true");
-    } finally {
-      window.removeEventListener("keydown", entered);
-    }
-  });
-
-  it("replaces a remembered engraving with the orrery and cycles all ten designs and Off", () => {
-    vi.stubEnv("DEV", true);
-    window.sessionStorage.setItem("retr0vault.landing.field-preview", "engraving");
-    render(<Desk />);
-    expect(screen.getByRole("button", { name: "Archive orrery" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByRole("button", { name: /engraved/i })).toBeNull();
-    const cycle = ["Ink tides", "Accession map", "Paper shutters", "Moiré silk", "Magnetic ink", "Iris array", "Prism weave", "Type currents", "Plain paper", "Signal ribbons", "Archive orrery"];
-    for (const name of cycle) {
-      fireEvent.click(screen.getByRole("button", { name: /Next landing effect/ }));
-      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", "true");
-    }
-  });
-
-  it("does not ship the comparison controls in production", () => {
-    vi.stubEnv("DEV", false);
-    render(<Desk />);
-    expect(screen.queryByRole("complementary")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
   });
 });
