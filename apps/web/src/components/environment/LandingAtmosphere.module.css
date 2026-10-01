@@ -11,7 +11,7 @@
   position: absolute;
   top: calc(var(--bar-h) + 1.5rem);
   left: var(--rv-shell-gutter);
-  width: 13rem;
+  width: 15rem;
   padding: 0.65rem 0.8rem;
   border: 1px solid var(--rv-rule-soft);
   background: var(--rv-paper);
@@ -107,7 +107,12 @@
   }
 
   .caption { grid-column: 1 / -1; }
-  .next { margin: 0; }
-  .choices { width: 9rem; }
+  .next { margin: 0; grid-column: 1 / -1; }
+  .choices { width: 100%; grid-column: 1 / -1; }
   .detail { display: none; }
+}
+
+@media (min-width: 600px) and (max-width: 959px) {
+  .next { grid-column: 1; }
+  .choices { width: 15rem; grid-column: 2; }
 }

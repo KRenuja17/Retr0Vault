@@ -4,7 +4,7 @@ import { LANDING_EFFECTS, attachLandingField, type LandingEffect, type LandingFi
 import styles from "./LandingAtmosphere.module.css";
 
 const PREVIEW_KEY = "retr0vault.landing.field-preview";
-const DEFAULT_EFFECT: LandingEffect = "engraving";
+const DEFAULT_EFFECT: LandingEffect = "orrery";
 
 function readPreview(): LandingEffect {
   if (import.meta.env.DEV) {
