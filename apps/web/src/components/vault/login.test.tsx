@@ -65,7 +65,8 @@ describe("the strong room", () => {
     const { location } = renderRoute("/");
     expect(await screen.findByRole("dialog", { name: "Retr0Vault" })).toBeInTheDocument();
     await waitFor(() => expect(location().pathname).toBe("/login"), { timeout: 4000 });
-    expect(screen.getByRole("heading", { name: "Present your credentials.", hidden: true })).toBeInTheDocument();
+    // The route changes before its screen finishes mounting behind the front door.
+    expect(await screen.findByRole("heading", { name: "Present your credentials.", hidden: true }, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it("reads the name, then shuts its lens while the combination is typed, one tumbler per character", async () => {

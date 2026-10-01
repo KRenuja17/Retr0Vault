@@ -160,7 +160,7 @@ describe("landing field lifecycle", () => {
     expect(frames.pending.size).toBe(0);
   });
 
-  it.each(["ribbons", "orrery", "halftone", "constellation", "shutters"] as const)("draws a static %s with no scheduled animation", (effect) => {
+  it.each(["ribbons", "orrery", "halftone", "constellation", "shutters", "moire", "magnetic", "irises", "prisms", "typography"] as const)("draws a static %s with no scheduled animation", (effect) => {
     const frames = clock();
     const contexts = surfaces();
     render(<Scene effect={effect} reduced />);
@@ -193,13 +193,13 @@ describe("temporary effect comparison desk", () => {
     }
   });
 
-  it("replaces a remembered engraving with the orrery and cycles all five designs and Off", () => {
+  it("replaces a remembered engraving with the orrery and cycles all ten designs and Off", () => {
     vi.stubEnv("DEV", true);
     window.sessionStorage.setItem("retr0vault.landing.field-preview", "engraving");
     render(<Desk />);
     expect(screen.getByRole("button", { name: "Archive orrery" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: /engraved/i })).toBeNull();
-    const cycle = ["Ink tides", "Accession map", "Paper shutters", "Plain paper", "Signal ribbons", "Archive orrery"];
+    const cycle = ["Ink tides", "Accession map", "Paper shutters", "Moiré silk", "Magnetic ink", "Iris array", "Prism weave", "Type currents", "Plain paper", "Signal ribbons", "Archive orrery"];
     for (const name of cycle) {
       fireEvent.click(screen.getByRole("button", { name: /Next landing effect/ }));
       expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", "true");

@@ -1,4 +1,7 @@
-export type LandingEffect = "ribbons" | "orrery" | "halftone" | "constellation" | "shutters" | "none";
+import { pulseAt, type Field } from "./landingFieldMath";
+import { irises, magnetic, moire, prisms, typography } from "./landingStudies";
+
+export type LandingEffect = "ribbons" | "orrery" | "halftone" | "constellation" | "shutters" | "moire" | "magnetic" | "irises" | "prisms" | "typography" | "none";
 
 export const LANDING_EFFECTS: readonly { id: LandingEffect; name: string; detail: string }[] = [
   { id: "ribbons", name: "Signal ribbons", detail: "Flowing ink traces bend around your pointer. Click the paper to send a wave through them." },
@@ -6,6 +9,11 @@ export const LANDING_EFFECTS: readonly { id: LandingEffect; name: string; detail
   { id: "halftone", name: "Ink tides", detail: "A softer halftone tide. Move to leave a light impression; click the paper to ripple the ink." },
   { id: "constellation", name: "Accession map", detail: "Archive marks drift on fine connecting threads. Move to gather them; click the paper to send a signal." },
   { id: "shutters", name: "Paper shutters", detail: "Folded paper vanes open toward your pointer. Click the paper to set a wave of shutters in motion." },
+  { id: "moire", name: "Moiré silk", detail: "Two printed screens drift into interference. Move to part the silk; click to send a shimmer through it." },
+  { id: "magnetic", name: "Magnetic ink", detail: "Ink filings turn around invisible poles. Move to become a magnet; click to reverse a wave of nibs." },
+  { id: "irises", name: "Iris array", detail: "A sheet of mechanical apertures breathes. Move to open the blades; click to pass an exposure across the paper." },
+  { id: "prisms", name: "Prism weave", detail: "A folded sheet catches imaginary light. Move to lift a ridge; click to roll a crease across the facets." },
+  { id: "typography", name: "Type currents", detail: "Loose type flows along invisible lines. Move to lift and underline the index; click to scatter a wave of characters." },
   { id: "none", name: "Plain paper", detail: "The original paper, for comparison." },
 ];
 
@@ -14,29 +22,10 @@ const INK = "23, 20, 15";
 const ACCENT = "180, 71, 42";
 const FRAME_MS = 1000 / 30;
 
-interface Field {
-  width: number;
-  height: number;
-  time: number;
-  x: number;
-  y: number;
-  presence: number;
-  pulseAge: number;
-  pulseX: number;
-  pulseY: number;
-}
-
 /** One drawing, copied onto both door faces: their print always meets at the seam. */
 export interface LandingFieldController {
   setRunning(running: boolean): void;
   dispose(): void;
-}
-
-function pulseAt(field: Field, x: number, y: number): number {
-  if (field.pulseAge > 3) return 0;
-  const distance = Math.hypot(x - field.pulseX, y - field.pulseY);
-  const band = (distance - field.pulseAge * 240) / 55;
-  return Math.exp(-band * band - field.pulseAge * 1.3);
 }
 
 function ribbons(ctx: CanvasRenderingContext2D, field: Field): void {
@@ -285,6 +274,11 @@ export function attachLandingField(
     else if (effect === "halftone") halftone(context, field);
     else if (effect === "constellation") constellation(context, field);
     else if (effect === "shutters") shutters(context, field);
+    else if (effect === "moire") moire(context, field);
+    else if (effect === "magnetic") magnetic(context, field);
+    else if (effect === "irises") irises(context, field);
+    else if (effect === "prisms") prisms(context, field);
+    else if (effect === "typography") typography(context, field);
     if (effect !== "none") reservePaper(context, field.width, field.height);
     for (const surface of surfaces.slice(1)) {
       surface.context.clearRect(0, 0, field.width, field.height);
