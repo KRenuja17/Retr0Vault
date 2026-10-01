@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useQuery } from "@tanstack/react-query";
 import type { ShowcaseResponse } from "@retr0vault/shared";
 
+import { LandingAtmosphere, LandingEffectPicker, LandingFieldCanvas, useLandingEffect } from "@/components/environment/LandingAtmosphere";
 import { ConnectionStatus } from "@/components/layout/ConnectionStatus";
 import { fetchShowcase } from "@/lib/api/endpoints";
 import { showcaseThumbnailUrl } from "@/lib/api/media";
@@ -205,6 +206,7 @@ interface FaceProps {
 function Face({ counts, slots, lockedSlots, frames, standby }: FaceProps) {
   return (
     <div className={styles.face}>
+      <LandingFieldCanvas />
       <span className={cx(styles.registration, styles.registrationTopLeft)} />
       <span className={cx(styles.registration, styles.registrationTopRight)} />
       <span className={cx(styles.registration, styles.registrationBottomLeft)} />
@@ -317,6 +319,7 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
   const tookTurn = useRef(false);
 
   const root = useRef<HTMLDivElement>(null);
+  const [effect, setEffect] = useLandingEffect();
   const enter = useRef<HTMLButtonElement>(null);
   const turn = useRef(0);
   const finished = useRef(false);
@@ -527,6 +530,7 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
       ref={root}
       className={cx(
         styles.vault,
+        import.meta.env.DEV && styles.preview,
         reduced && styles.still,
         closingIn && styles.settled,
         styles[phase],
@@ -537,6 +541,7 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
       aria-labelledby="vault-title"
       aria-describedby="vault-summary"
     >
+      <LandingAtmosphere root={root} effect={effect} running={phase === "ready"} reduced={reduced} />
       <div className={cx(styles.door, styles.doorLeft)} aria-hidden="true" onTransitionEnd={(event) => {
         if (event.target === event.currentTarget && event.propertyName === "transform" && phase === "opening") void finish();
       }}>
@@ -549,6 +554,7 @@ export function VaultLanding({ arrival = "intro", depositor, onUnlock, onOpening
       <span className={styles.spark} aria-hidden="true" />
 
       <div className={styles.controls}>
+        <LandingEffectPicker effect={effect} onChange={setEffect} />
         <div className={styles.controlsBar}>
           <h2 id="vault-title" className="rv-visually-hidden">Retr0Vault</h2>
           <p id="vault-summary" className="rv-visually-hidden">

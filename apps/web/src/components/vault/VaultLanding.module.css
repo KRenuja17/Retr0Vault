@@ -84,6 +84,16 @@
   background-size: var(--rv-paper-grain-size);
 }
 
+/* The field is printed underneath the page, so type and controls stay crisp. */
+.face > .stage,
+.face > .bar {
+  position: relative;
+}
+
+.face > :not(canvas) {
+  z-index: 1;
+}
+
 .doorRight .face {
   left: -100%;
 }
@@ -1026,5 +1036,13 @@
 
   .counterValue {
     font-size: var(--rv-text-lg);
+  }
+}
+
+/* Reserve room for the temporary desk on narrow screens. */
+@media (max-width: 959px) {
+  .preview .stage {
+    padding-top: 7rem;
+    gap: clamp(0.35rem, 1vh, 0.7rem);
   }
 }
