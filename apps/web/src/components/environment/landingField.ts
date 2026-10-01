@@ -115,8 +115,6 @@ export function attachLandingField(
   const { canvas, context } = primary;
   const field: Field = { width: 0, height: 0, time: 0, x: 0, y: 0, presence: 0, pulseAge: Infinity, pulseX: 0, pulseY: 0 };
   let dpr = 1;
-  let left = 0;
-  let top = 0;
   let targetX = 0;
   let targetY = 0;
   let targetPresence = 0;
@@ -137,11 +135,8 @@ export function attachLandingField(
   }
 
   function measure(): void {
-    const box = canvas.getBoundingClientRect();
     field.width = canvas.clientWidth;
     field.height = canvas.clientHeight;
-    left = box.left;
-    top = box.top;
     // Cap both resolution and total pixels; two door faces share the same drawing.
     dpr = Math.min(window.devicePixelRatio || 1, 1.5, Math.sqrt(2_000_000 / Math.max(1, field.width * field.height)));
     for (const surface of surfaces) {
@@ -181,10 +176,21 @@ export function attachLandingField(
     }
   }
 
+  // The doors can start offscreen and translate without any resize event.
+  // Use the stationary vault and the canvas's layout offset, never a door transform.
+  function pointerPosition(event: PointerEvent): { x: number; y: number } {
+    const box = root.getBoundingClientRect();
+    return {
+      x: event.clientX - box.left - canvas.offsetLeft,
+      y: event.clientY - box.top - canvas.offsetTop,
+    };
+  }
+
   function move(event: PointerEvent): void {
     if (event.pointerType === "touch" || reduced || !running) return;
-    targetX = event.clientX - left;
-    targetY = event.clientY - top;
+    const point = pointerPosition(event);
+    targetX = point.x;
+    targetY = point.y;
     targetPresence = 1;
   }
 
@@ -194,8 +200,9 @@ export function attachLandingField(
     // A navigation or form control must never trigger the paper interaction.
     if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea, [role='button']")) return;
     field.pulseAge = 0;
-    field.pulseX = event.clientX - left;
-    field.pulseY = event.clientY - top;
+    const point = pointerPosition(event);
+    field.pulseX = point.x;
+    field.pulseY = point.y;
   }
   function visibility(): void { if (document.hidden) stop(); else start(); }
   function resize(): void { measure(); start(); }

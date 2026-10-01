@@ -140,6 +140,40 @@ describe("landing field lifecycle", () => {
     expect(frames.pending.size).toBe(0);
   });
 
+  it.each([
+    { split: "left/right", openLeft: -640, openTop: 52, pointerX: 90 },
+    { split: "left/right", openLeft: -640, openTop: 52, pointerX: 1190 },
+    { split: "up/down", openLeft: 0, openTop: -308, pointerX: 90 },
+    { split: "up/down", openLeft: 0, openTop: -308, pointerX: 1190 },
+  ])("keeps pointer tracking and click ripples aligned after $split doors close at x=$pointerX", ({ openLeft, openTop, pointerX }) => {
+    const contexts = surfaces();
+    let canvasBox = new DOMRect(0, 52, 1280, 466);
+    vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockImplementation(() => canvasBox);
+    vi.spyOn(HTMLCanvasElement.prototype, "offsetTop", "get").mockReturnValue(52);
+
+    const interact = (closing: boolean) => {
+      const frames = clock();
+      canvasBox = new DOMRect(closing ? openLeft : 0, closing ? openTop : 52, 1280, 466);
+      const view = render(<Scene running={!closing} />);
+      const primary = contexts.at(-2)!;
+      // Transforms move the doors without resizing their canvases.
+      canvasBox = new DOMRect(0, 52, 1280, 466);
+      if (closing) view.rerender(<Scene running />);
+      primary.moveTo.mockClear();
+      const root = view.container.firstElementChild!;
+      root.dispatchEvent(new MouseEvent("pointermove", { clientX: pointerX, clientY: 280, bubbles: true }));
+      root.dispatchEvent(new MouseEvent("pointerdown", { clientX: pointerX, clientY: 280, button: 0, bubbles: true }));
+      frames.advance(34);
+      const result = { marks: [...primary.moveTo.mock.calls], ripple: [...primary.arc.mock.calls] };
+      view.unmount();
+      return result;
+    };
+
+    const firstVisit = interact(false);
+    expect(firstVisit.ripple).toEqual([[pointerX, 228, expect.any(Number), 0, Math.PI * 2]]);
+    expect(interact(true)).toEqual(firstVisit);
+  });
+
   it("draws a static map with no scheduled animation", () => {
     const frames = clock();
     const contexts = surfaces();
