@@ -304,7 +304,7 @@ export function MotionAccession() {
             {upload.isPending ? "Uploading" : "File this recording"}
           </ActionButton>
           <MonoLabel size="micro" tone="muted" uppercase className={ingest.actionsNote}>
-            {reference === null ? "Choose a reference first" : full ? "This study holds four recordings" : file === null ? "No recording mounted" : upload.isPending ? "Copying to local storage" : "Processed in the background"}
+            {reference === null ? "Choose a reference first" : full ? "This study holds four recordings" : file === null ? "No recording mounted" : upload.isPending ? "Uploading to the archive" : "Processed in the background"}
           </MonoLabel>
         </div>
       </form>

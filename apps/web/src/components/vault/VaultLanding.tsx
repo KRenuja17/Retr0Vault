@@ -289,7 +289,7 @@ function Face({ counts, slots, lockedSlots, frames, standby }: FaceProps) {
       <div className={styles.bar}>
         {standby === null ? (
           <span className={cx(styles.mono, styles.typeIn)} style={{ "--d": "1400ms" } as CSSProperties}>
-            No cloud · no AI keys
+            Private archive
           </span>
         ) : (
           <span className={cx(styles.mono, styles.standby)}>

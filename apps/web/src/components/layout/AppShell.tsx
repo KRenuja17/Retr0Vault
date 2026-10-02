@@ -145,7 +145,7 @@ export function AppShell({ navigation, children }: AppShellProps) {
               </MonoLabel>
               <span className={styles.footerEnd}>
                 <MonoLabel size="micro" tone="muted" uppercase>
-                  No cloud · no AI keys
+                  Private archive
                 </MonoLabel>
                 <SleepDial variant="link" label="Front door" className={styles.frontDoor} />
               </span>

@@ -166,7 +166,7 @@ export function ImageAccession() {
         </EditorialHeading>
         <p className={styles.laneNote}>
           JPEG, PNG or WebP up to {formatBytes(MAX_UPLOAD_BYTES)}. The file is
-          copied into local storage and thumbnailed; the original is never
+          stored in the archive and thumbnailed; the original is never
           altered.
         </p>
       </header>

@@ -126,7 +126,7 @@ export function WebsiteAccession() {
           Capture a public page
         </EditorialHeading>
         <p className={styles.laneNote}>
-          A local headless Chromium opens the address and stores the viewport,
+          The capture browser opens the address and stores the viewport,
           hero and two scroll frames. Public http(s) addresses on their standard
           port only.
         </p>

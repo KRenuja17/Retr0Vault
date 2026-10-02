@@ -13,10 +13,8 @@ import styles from "./Ingest.module.css";
 /**
  * `/add` — accession and the analysis desk on one page.
  *
- * Everything here is local: a file copied into storage, or a page captured by
- * a headless browser on this machine. No reference is sent to any service, and
- * no analysis is generated here — that loop runs through an exported manifest
- * and the JSON a coding agent writes back.
+ * Files and browser captures are stored in the archive. Analysis runs through
+ * an exported manifest and the JSON a coding agent writes back.
  */
 export function AddReferenceView() {
   return (
@@ -26,10 +24,10 @@ export function AddReferenceView() {
         title="Add a reference to the archive"
         level={1}
         marker
-        lede="A new reference is stored on this machine and filed as awaiting analysis. Design DNA, vocabulary, brief and image recipe arrive later, when the exported manifest comes back as analysis JSON."
+        lede="A new reference is stored in the archive and filed as awaiting analysis. Design DNA, vocabulary, brief and image recipe arrive later, when the exported manifest comes back as analysis JSON."
         aside={
           <MonoLabel size="small" tone="muted" uppercase marker="hollow">
-            Local ingest · no AI keys
+            Archive ingest
           </MonoLabel>
         }
       >
